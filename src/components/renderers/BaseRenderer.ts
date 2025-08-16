@@ -1,0 +1,60 @@
+import * as THREE from 'three'
+
+export interface SceneObject {
+    id: string;
+    type: string;
+    coordinates: {
+        x: number;
+        y: number;
+        z: number;
+    };
+    scale: {
+        x: number;
+        y: number;
+        z: number;
+    };
+    rotation: {
+        x: number;
+        y: number;
+        z: number;
+    };
+    data: any;
+}
+
+export abstract class BaseRenderer {
+    protected scene: THREE.Scene;
+    protected meshes: Map<string, THREE.Mesh> = new Map();
+
+    constructor(scene: THREE.Scene) {
+        this.scene = scene;
+    }
+
+    abstract render(object: SceneObject): THREE.Mesh;
+    
+    update(object: SceneObject): void {
+        const mesh = this.meshes.get(object.id);
+        if (mesh) {
+            // Оновлюємо позицію
+            mesh.position.set(object.coordinates.x, object.coordinates.y, object.coordinates.z);
+            
+            // Оновлюємо масштаб
+            mesh.scale.set(object.scale.x, object.scale.y, object.scale.z);
+            
+            // Оновлюємо обертання
+            mesh.rotation.set(object.rotation.x, object.rotation.y, object.rotation.z);
+        }
+    }
+
+    remove(id: string): void {
+        const mesh = this.meshes.get(id);
+        if (mesh) {
+            this.scene.remove(mesh);
+            this.meshes.delete(id);
+        }
+    }
+
+    protected addMesh(id: string, mesh: THREE.Mesh): void {
+        this.meshes.set(id, mesh);
+        this.scene.add(mesh);
+    }
+}
