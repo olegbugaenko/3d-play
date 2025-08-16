@@ -42,6 +42,10 @@ export abstract class BaseRenderer {
             
             // Оновлюємо обертання
             mesh.rotation.set(object.rotation.x, object.rotation.y, object.rotation.z);
+            
+            //console.log(`Updated ${object.id} to position (${object.coordinates.x.toFixed(2)}, ${object.coordinates.y.toFixed(2)}, ${object.coordinates.z.toFixed(2)})`);
+        } else {
+            //console.warn(`Mesh not found for object ${object.id}`, this.meshes);
         }
     }
 

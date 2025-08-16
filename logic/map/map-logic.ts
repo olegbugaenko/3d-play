@@ -1,72 +1,67 @@
 import { SceneLogic } from '../scene/scene-logic';
 import { TCameraProps } from '../../shared/camera.types';
+import { TSceneObject } from '../scene/scene.types';
+import { DynamicsLogic } from '../scene/dynamics-logic';
+import { MAP_CONFIG } from './map-config';
 
 export class MapLogic {
 
-    constructor(public scene: SceneLogic) {
+    constructor(public scene: SceneLogic, public dynamics: DynamicsLogic) {
         // Constructor implementation
     }
 
     initMap(cameraProps: TCameraProps) {
-        this.scene.initializeViewport(cameraProps);
+        this.scene.initializeViewport(cameraProps, { 
+            x: MAP_CONFIG.width, 
+            y: MAP_CONFIG.height, 
+            z: MAP_CONFIG.depth 
+        });
 
         let addedObjects = 0;
         let skippedObjects = 0;
 
-        // Генеруємо сітку 100x100 кубів
-        for (let x = 0; x < 100; x++) {
-            for (let z = 0; z < 100; z++) {
-                // Різні розміри для різноманітності
-                const scaleX = 0.5 + Math.random() * 2; // 0.5 - 2.5
-                const scaleY = 0.5 + Math.random() * 3; // 0.5 - 3.5
-                const scaleZ = 0.5 + Math.random() * 2; // 0.5 - 2.5
-                
-                // Різні кольори
-                const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ff8800', '#8800ff'];
-                const randomColor = colors[Math.floor(Math.random() * colors.length)];
-                
-                const success = this.scene.pushObject({
-                    id: `cube_${x}_${z}`,
-                    coordinates: {
-                        x: x * 5 - 100, // Відстань 5 одиниць по X
-                        y: 0,     // Всі куби на землі
-                        z: z * 5 - 100, // Відстань 5 одиниць по Z
-                    },
-                    type: 'cube',
-                    scale: {
-                        x: scaleX,
-                        y: scaleY,
-                        z: scaleZ,
-                    },
-                    rotation: {
-                        x: 0,
-                        y: Math.random() * Math.PI * 2, // Випадковий поворот навколо Y
-                        z: 0,
-                    },
-                    data: {
-                        color: randomColor
-                    }
-                });
-
-                if (success) {
-                    addedObjects++;
-                } else {
-                    skippedObjects++;
-                }
-            }
-        }
+       
 
         // Логуємо результат
         console.log(`Map initialized: ${addedObjects} objects added, ${skippedObjects} objects skipped (out of bounds)`);
 
+        // Додаємо тестовий динамічний об'єкт (без terrain constraint)
+        const dynamicCube: TSceneObject = {
+            id: 'dynamic_test_cube',
+            type: 'cube',
+            coordinates: { x: 0, y: 2, z: 0 },
+            scale: { x: 1, y: 1, z: 1 },
+            rotation: { x: 0, y: 0, z: 0 },
+            data: { color: 0xff0000 },
+            tags: ['dynamic', 'test', 'floating'], // Без тегу on-ground
+            bottomAnchor: -0.5 // Куб стоїть на своєму низу
+        };
+        
+        this.scene.pushObject(dynamicCube);
+        console.log('Додано тестовий динамічний куб');
+
         setInterval(
-            this.tick,
-            1000 // This will be increased for sure
+            this.tick.bind(this),
+            100 // This will be increased for sure
         )
     }
 
+
     tick() {
-        // Logic is ticking
+        const dT = 0.1;
+        this.processSceneTick(dT);
+        this.dynamics.moveObjects(dT);
+    }
+
+    processSceneTick(dT: number) {
+        // contains custom logic, managing objects, custom structures and so on...
+        const testMovingObj = this.scene.getObjectById('dynamic_test_cube');
+        if(testMovingObj) {
+            if(!testMovingObj.speed) {
+                testMovingObj.speed = {x: 0, y: 0, z: 0}
+            }
+            testMovingObj.speed.x += Math.cos(testMovingObj.coordinates.x*Math.PI);
+        }
     }
 
 }

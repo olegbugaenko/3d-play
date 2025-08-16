@@ -6,11 +6,15 @@ export interface Vector3 {
 
 export interface TSceneObject<T = any> {
     id: string;
-    coordinates: Vector3;
     type: string;
+    coordinates: Vector3;
     scale: Vector3;
     rotation: Vector3;
+    speed?: Vector3;
     data: T;
+    tags: string[]; // Теги для швидкого доступу та фільтрації
+    bottomAnchor?: number; // Зміщення від центру до низу об'єкта (наприклад, -0.5 для куба)
+    terrainAlign?: boolean; // Автоматично нахиляти об'єкт по нормалі terrain
 }
 
 export interface TSceneViewport {

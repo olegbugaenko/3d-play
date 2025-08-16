@@ -4,7 +4,7 @@ import { CubeRenderer } from './CubeRenderer'
 import { SphereRenderer } from './SphereRenderer'
 
 export class RendererManager {
-    private renderers: Map<string, BaseRenderer> = new Map();
+    public renderers: Map<string, BaseRenderer> = new Map();
     private scene: THREE.Scene;
 
     constructor(scene: THREE.Scene) {

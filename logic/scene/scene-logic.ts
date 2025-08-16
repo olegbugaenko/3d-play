@@ -1,5 +1,7 @@
 import { TCameraProps } from '../../shared/camera.types'
 import { Vector3, TSceneObject, TSceneViewport, GridCell, GridSystem } from './scene.types'
+import { TerrainManager, TerrainConfig } from './terrain-manager'
+import { MAP_CONFIG } from '../map/map-config'
 import * as THREE from 'three'
 
 // Implements basic scene API
@@ -16,6 +18,16 @@ export class SceneLogic {
         grid: new Map<string, GridCell>()
     };
 
+    // Кеш тегів для швидкого доступу
+    private tagCache: Map<string, Set<string>> = new Map();
+
+    // Terrain system
+    private terrainManager: TerrainManager | null = null;
+
+    constructor() {
+        // TerrainManager буде створений в initializeViewport
+    }
+
     /*
     called once WebGL is ready to render objects
     */
@@ -29,6 +41,18 @@ export class SceneLogic {
             height: 500
         }
         this.mapBounds = mapSize;
+
+        // Ініціалізуємо terrain з розмірами мапи
+        const terrainConfig: TerrainConfig = {
+            width: mapSize.x,  // Використовуємо ширину мапи
+            height: mapSize.z,  // Використовуємо глибину мапи (Z)
+            resolution: MAP_CONFIG.terrain.resolution,     // Data resolution для пам'яті
+            maxHeight: MAP_CONFIG.terrain.maxHeight,      // Максимальна висота
+            minHeight: MAP_CONFIG.terrain.minHeight,      // Мінімальна висота
+            noise: MAP_CONFIG.terrain.noise,              // Налаштування noise
+            textures: MAP_CONFIG.terrain.textures         // Текстурні налаштування
+        };
+        this.terrainManager = new TerrainManager(terrainConfig);
     }
 
     /**
@@ -130,6 +154,12 @@ export class SceneLogic {
         
         this.objects[obj.id] = obj;
         this.addObjectToGrid(obj.id, obj.coordinates);
+        
+        // Додаємо теги до кешу якщо вони є
+        if (obj.tags && obj.tags.length > 0) {
+            this.addObjectTags(obj.id, obj.tags);
+        }
+        
         return true; // Об'єкт успішно додано
     }
 
@@ -168,8 +198,99 @@ export class SceneLogic {
         }
 
         this.removeObjectFromGrid(id, obj.coordinates);
+        
+        // Видаляємо теги з кешу якщо вони є
+        if (obj.tags && obj.tags.length > 0) {
+            this.removeObjectTags(id, obj.tags);
+        }
+        
         delete this.objects[id];
         return true;
+    }
+
+    /**
+     * Додає об'єкт з автоматичним розміщенням на terrain
+     */
+    pushObjectWithTerrainConstraint(obj: TSceneObject<any>): boolean {
+        // Перевіряємо чи об'єкт має тег on-ground
+        if (obj.tags && obj.tags.includes('on-ground')) {
+            // Примусово розміщуємо на terrain
+            const terrainHeight = this.terrainManager?.getHeightAt(obj.coordinates.x, obj.coordinates.z);
+            if (terrainHeight !== undefined) {
+                // Використовуємо bottomAnchor для правильного розміщення
+                const bottomOffset = obj.bottomAnchor || 0; // За замовчуванням 0 (центр)
+                obj.coordinates.y = terrainHeight - bottomOffset;
+                
+                // Якщо включено terrainAlign - нахиляємо об'єкт по нормалі
+                if (obj.terrainAlign && this.terrainManager) {
+                    const normal = this.terrainManager.getNormalAt(obj.coordinates.x, obj.coordinates.z);
+                    if (normal) {
+                        // Обчислюємо кут нахилу на основі нормалі
+                        const upVector = { x: 0, y: 1, z: 0 };
+                        const angleX = Math.atan2(normal.z, normal.y); // Нахил вперед/назад
+                        const angleZ = Math.atan2(normal.x, normal.y); // Нахил вліво/вправо
+                        
+                        obj.rotation.x = angleX;
+                        obj.rotation.z = angleZ;
+                        
+                        // console.log(`Object ${obj.id} aligned to terrain: normal(${normal.x.toFixed(2)}, ${normal.y.toFixed(2)}, ${normal.z.toFixed(2)}), rotation(${(angleX * 180 / Math.PI).toFixed(1)}°, ${(angleZ * 180 / Math.PI).toFixed(1)}°)`);
+                    }
+                }
+            }
+        }
+        
+        return this.pushObject(obj);
+    }
+
+    /**
+     * Переміщує об'єкт з terrain constraint
+     */
+    moveObjectWithTerrainConstraint(id: string, newPos: Vector3): boolean {
+        const obj = this.objects[id];
+        if (!obj) {
+            return false;
+        }
+
+        // Застосовуємо terrain constraint для on-ground об'єктів
+        if (obj.tags && obj.tags.includes('on-ground')) {
+            const terrainHeight = this.terrainManager?.getHeightAt(newPos.x, newPos.z);
+            if (terrainHeight !== undefined) {
+                // Використовуємо bottomAnchor для правильного розміщення
+                const bottomOffset = obj.bottomAnchor || 0;
+                newPos.y = terrainHeight - bottomOffset;
+                
+                // Якщо включено terrainAlign - нахиляємо об'єкт по нормалі
+                if (obj.terrainAlign && this.terrainManager) {
+                    const normal = this.terrainManager.getNormalAt(newPos.x, newPos.z);
+                    if (normal) {
+                        const angleX = Math.atan2(normal.z, normal.y);
+                        const angleZ = Math.atan2(normal.x, normal.y);
+                        
+                        obj.rotation.x = angleX;
+                        obj.rotation.z = angleZ;
+                    }
+                }
+            }
+        }
+
+        return this.moveObject(id, newPos);
+    }
+
+    /**
+     * Отримує TerrainManager для зовнішнього доступу
+     */
+    getTerrainManager(): TerrainManager | null {
+        return this.terrainManager;
+    }
+
+    /**
+     * Перевіряє terrain constraint для об'єкта
+     */
+    validateTerrainConstraint(obj: TSceneObject<any>): boolean {
+        if (obj.tags && obj.tags.includes('on-ground')) {
+            return this.terrainManager?.canPlaceObjectAt(obj.coordinates) || false;
+        }
+        return true; // Для не on-ground об'єктів constraint не застосовується
     }
 
     getObjects() {
@@ -248,4 +369,94 @@ export class SceneLogic {
             .filter(Boolean);
     }
     
+    // Методи для роботи з тегами
+    addObjectTags(id: string, tags: string[]): void {
+        const obj = this.objects[id];
+        if (!obj) return;
+
+        // Ініціалізуємо теги якщо їх немає
+        if (!obj.tags) {
+            obj.tags = [];
+        }
+
+        // Додаємо теги до об'єкта
+        obj.tags = [...new Set([...obj.tags, ...tags])];
+
+        // Оновлюємо кеш тегів
+        tags.forEach(tag => {
+            if (!this.tagCache.has(tag)) {
+                this.tagCache.set(tag, new Set());
+            }
+            this.tagCache.get(tag)!.add(id);
+        });
+    }
+
+    removeObjectTags(id: string, tags: string[]): void {
+        const obj = this.objects[id];
+        if (!obj) return;
+
+        // Видаляємо теги з об'єкта
+        obj.tags = obj.tags.filter(tag => !tags.includes(tag));
+
+        // Оновлюємо кеш тегів
+        tags.forEach(tag => {
+            const tagSet = this.tagCache.get(tag);
+            if (tagSet) {
+                tagSet.delete(id);
+                if (tagSet.size === 0) {
+                    this.tagCache.delete(tag);
+                }
+            }
+        });
+    }
+
+    getObjectsByTag(tag: string): TSceneObject<any>[] {
+        const objectIds = this.tagCache.get(tag);
+        if (!objectIds) return [];
+
+        return Array.from(objectIds)
+            .map(id => this.objects[id])
+            .filter(Boolean);
+    }
+
+    getObjectsByTags(tags: string[]): TSceneObject<any>[] {
+        if (tags.length === 0) return [];
+
+        // Знаходимо перетин всіх тегів
+        const commonIds = tags.reduce((common, tag) => {
+            const tagIds = this.tagCache.get(tag);
+            if (!tagIds) return new Set();
+            
+            if (common.size === 0) return new Set(tagIds);
+            return new Set([...common].filter(id => tagIds.has(id)));
+        }, new Set<string>());
+
+        return Array.from(commonIds)
+            .map(id => this.objects[id])
+            .filter(Boolean);
+    }
+
+    getObjectsByAnyTag(tags: string[]): TSceneObject<any>[] {
+        if (tags.length === 0) return [];
+
+        const allIds = new Set<string>();
+        tags.forEach(tag => {
+            const tagIds = this.tagCache.get(tag);
+            if (tagIds) {
+                tagIds.forEach(id => allIds.add(id));
+            }
+        });
+
+        return Array.from(allIds)
+            .map(id => this.objects[id])
+            .filter(Boolean);
+    }
+
+    getAllTags(): string[] {
+        return Array.from(this.tagCache.keys());
+    }
+
+    getObjectsCountByTag(tag: string): number {
+        return this.tagCache.get(tag)?.size || 0;
+    }
 }
