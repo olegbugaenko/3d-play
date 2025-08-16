@@ -202,10 +202,10 @@ export class SceneLogic {
         const maxZ = this.viewPort.centerY + halfHeight;
         
         // Розраховуємо межі гріду
-        const minGridX = Math.floor(minX / this.gridSystem.cellSize);
-        const maxGridX = Math.floor(maxX / this.gridSystem.cellSize);
-        const minGridZ = Math.floor(minZ / this.gridSystem.cellSize);
-        const maxGridZ = Math.floor(maxZ / this.gridSystem.cellSize);
+        const minGridX = Math.floor(minX / this.gridSystem.cellSize)-1;
+        const maxGridX = Math.floor(maxX / this.gridSystem.cellSize)+1;
+        const minGridZ = Math.floor(minZ / this.gridSystem.cellSize)-1;
+        const maxGridZ = Math.floor(maxZ / this.gridSystem.cellSize)+1;
         
         // Додаємо всі грід-села в межах viewport
         for (let gridX = minGridX; gridX <= maxGridX; gridX++) {
