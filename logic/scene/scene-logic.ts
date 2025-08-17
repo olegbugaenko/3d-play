@@ -34,12 +34,7 @@ export class SceneLogic {
 
     initializeViewport(cameraProps: TCameraProps, mapSize: Vector3 = {x: 2000, y: 2000, z: 400}) {
         // calculate viewport in global coordinates based on camera position, rotation and scale
-        this.viewPort = {
-            centerX: 0,
-            centerY: 0,
-            width: 500,
-            height: 500
-        }
+        this.updateViewport(cameraProps);
         this.mapBounds = mapSize;
 
         // Ініціалізуємо terrain з розмірами мапи
@@ -225,8 +220,6 @@ export class SceneLogic {
                 if (obj.terrainAlign && this.terrainManager) {
                     const normal = this.terrainManager.getNormalAt(obj.coordinates.x, obj.coordinates.z);
                     if (normal) {
-                        // Обчислюємо кут нахилу на основі нормалі
-                        const upVector = { x: 0, y: 1, z: 0 };
                         const angleX = Math.atan2(normal.z, normal.y); // Нахил вперед/назад
                         const angleZ = Math.atan2(normal.x, normal.y); // Нахил вліво/вправо
                         

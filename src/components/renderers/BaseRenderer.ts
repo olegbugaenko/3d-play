@@ -19,6 +19,7 @@ export interface SceneObject {
         z: number;
     };
     data: any;
+    tags?: string[]; // Теги для швидкого доступу та фільтрації
 }
 
 export abstract class BaseRenderer {
@@ -58,7 +59,16 @@ export abstract class BaseRenderer {
     }
 
     protected addMesh(id: string, mesh: THREE.Mesh): void {
+        console.log(`BaseRenderer.addMesh: додаємо меш ${id} до рендерера ${this.constructor.name}`);
         this.meshes.set(id, mesh);
         this.scene.add(mesh);
+        console.log(`BaseRenderer.addMesh: тепер у рендерера ${this.constructor.name} є ${this.meshes.size} мешів`);
+    }
+
+    // Отримуємо меш за ID
+    getMeshById(id: string): THREE.Mesh | null {
+        const mesh = this.meshes.get(id) || null;
+        console.log(`BaseRenderer.getMeshById: шукаємо меш ${id} в ${this.constructor.name}, знайдено: ${mesh ? 'так' : 'ні'}`);
+        return mesh;
     }
 }

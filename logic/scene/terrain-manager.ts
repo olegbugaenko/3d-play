@@ -113,15 +113,6 @@ export class TerrainManager {
         
         return result;
     }
-    
-    /**
-     * Отримує колір текстури для точки
-     */
-    getTextureColor(x: number, z: number): number {
-        // Оскільки ми працюємо з текстурами, а не з кольорами,
-        // повертаємо fallback колір
-        return 0xd2b48c; // Fallback - світлий пісок
-    }
 
     /**
      * Отримує blend factor для текстури в точці (0-1)
@@ -175,8 +166,6 @@ export class TerrainManager {
                 blends[textureName] /= totalBlend;
             }
         }
-
-        console.warn('blends: ', blends);
         
         return blends;
     }
@@ -278,7 +267,7 @@ export class TerrainManager {
     /**
      * Генерує новий terrain з заданими параметрами
      */
-    regenerateTerrain(seed?: number): void {
+    regenerateTerrain(): void {
         // Тут можна додати різні алгоритми генерації
         this.heightMap = this.generateDefaultHeightMap();
     }

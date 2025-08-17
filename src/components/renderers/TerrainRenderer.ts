@@ -37,7 +37,7 @@ export class TerrainRenderer {
         }
 
         const config = this.terrainManager.getConfig();
-        const { width, height, resolution } = config;
+        const { width, height } = config;
         
         // Render resolution - більший для візуальної якості
         const renderResolution = MAP_CONFIG.terrain.renderResolution; // Рендеримо з конфігурації

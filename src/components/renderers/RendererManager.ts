@@ -2,6 +2,9 @@ import * as THREE from 'three'
 import { BaseRenderer, SceneObject } from './BaseRenderer'
 import { CubeRenderer } from './CubeRenderer'
 import { SphereRenderer } from './SphereRenderer'
+import { BoulderRenderer } from './BoulderRenderer'
+import { RockRenderer } from './RockRenderer'
+import { RoverRenderer } from './RoverRenderer'
 
 export class RendererManager {
     public renderers: Map<string, BaseRenderer> = new Map();
@@ -16,6 +19,9 @@ export class RendererManager {
         // Реєструємо рендерери для різних типів об'єктів
         this.registerRenderer('cube', new CubeRenderer(this.scene));
         this.registerRenderer('sphere', new SphereRenderer(this.scene));
+        this.registerRenderer('boulder', new BoulderRenderer(this.scene));
+        this.registerRenderer('rock', new RockRenderer(this.scene)); // Каменюки типу rock
+        this.registerRenderer('rover', new RoverRenderer(this.scene)); // Rover об'єкти
         // Тут можна додати інші рендерери: plane, тощо
     }
 
@@ -47,10 +53,20 @@ export class RendererManager {
         }
     }
 
+    // Отримуємо меш за ID об'єкта
+    getMeshById(id: string): THREE.Mesh | null {
+        // Шукаємо меш у всіх рендерерах
+        for (const renderer of this.renderers.values()) {
+            const mesh = renderer.getMeshById(id);
+            if (mesh) {
+                return mesh;
+            }
+        }
+        return null;
+    }
+
     // Очищаємо всі об'єкти при зміні сцени
     clearAll(): void {
-        this.renderers.forEach(renderer => {
-            // Тут можна додати логіку очищення всіх мешів
-        });
+
     }
 }

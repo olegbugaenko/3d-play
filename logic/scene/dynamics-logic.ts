@@ -33,7 +33,7 @@ export class DynamicsLogic {
                 };
 
                 // Переміщуємо об'єкт через SceneLogic API
-                this.scene.moveObject(item.id, newPosition);
+                this.scene.moveObjectWithTerrainConstraint(item.id, newPosition);
             }
         });
     }
