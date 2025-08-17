@@ -22,6 +22,7 @@ const Scene3D: React.FC = () => {
   const visibleObjectsRef = useRef<SceneObject[]>([])
   const mapLogicRef = useRef<MapLogic | null>(null)
   const terrainRendererRef = useRef<TerrainRenderer | null>(null)
+  const lastCameraPositionRef = useRef<{ x: number; y: number; z: number } | null>(null)
   
   // Дебаг змінні - робимо їх реактивними
   const [fps, setFps] = useState(0)
@@ -805,9 +806,10 @@ const Scene3D: React.FC = () => {
     // Направлене освітлення
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
     directionalLight.position.set(10, 10, 5)
-    directionalLight.castShadow = true
-    directionalLight.shadow.mapSize.width = 2048
-    directionalLight.shadow.mapSize.height = 2048
+    // TEMPORARILY DISABLED SHADOWS FOR FPS TESTING
+    directionalLight.castShadow = false
+    // directionalLight.shadow.mapSize.width = 2048
+    // directionalLight.shadow.mapSize.height = 2048
     scene.add(directionalLight)
 
     return () => {
@@ -852,40 +854,42 @@ const Scene3D: React.FC = () => {
     // Оновлюємо контроли
     controls.update()
     
-    // Оновлюємо viewport при зміні камери
+    // Оновлюємо viewport тільки при значній зміні позиції камери (оптимізація)
     if (mapLogicRef.current) {
-      const cameraProps = {
-        position: {
-          x: camera.position.x,
-          y: camera.position.y,
-          z: camera.position.z
-        },
-        rotation: {
-          x: camera.rotation.x,
-          y: camera.rotation.y,
-          z: camera.rotation.z
-        },
-        fov: camera.fov,
-        aspect: camera.aspect,
-        distance: camera.position.distanceTo(controls.target)
-      };
-      mapLogicRef.current.scene.updateViewport(cameraProps);
+      const currentCameraPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+      const lastCameraPos = lastCameraPositionRef.current;
       
-      // Коригуємо висоту на основі terrain
-      const terrainManager = mapLogicRef.current.scene.getTerrainManager();
-      if (terrainManager) {
-        // Отримуємо висоту terrain в точці фокусу
-        const terrainHeight = terrainManager.getHeightAt(controls.target.x, controls.target.z);
+      // Перевіряємо чи камера значно змінила позицію
+      const cameraMoved = !lastCameraPos || 
+        Math.abs(currentCameraPos.x - lastCameraPos.x) > 5 ||
+        Math.abs(currentCameraPos.z - lastCameraPos.z) > 5;
+      
+      if (cameraMoved) {
+        lastCameraPositionRef.current = currentCameraPos;
         
-        // Якщо точка фокусу не на terrain - коригуємо її
-        if (Math.abs(controls.target.y - terrainHeight) > 0.1) {
-          const heightDifference = terrainHeight - controls.target.y;
+        const cameraProps = {
+          position: currentCameraPos,
+          rotation: {
+            x: camera.rotation.x,
+            y: camera.rotation.y,
+            z: camera.rotation.z
+          },
+          fov: camera.fov,
+          aspect: camera.aspect,
+          distance: camera.position.distanceTo(controls.target)
+        };
+        mapLogicRef.current.scene.updateViewport(cameraProps);
+        
+        // Коригуємо висоту на основі terrain тільки при значному руху
+        const terrainManager = mapLogicRef.current.scene.getTerrainManager();
+        if (terrainManager) {
+          const terrainHeight = terrainManager.getHeightAt(controls.target.x, controls.target.z);
           
-          // Піднімаємо точку фокусу на висоту terrain
-          controls.target.y = terrainHeight;
-          
-          // Піднімаємо камеру на ту саму висоту
-          camera.position.y += heightDifference;
+          if (Math.abs(controls.target.y - terrainHeight) > 0.1) {
+            const heightDifference = terrainHeight - controls.target.y;
+            controls.target.y = terrainHeight;
+            camera.position.y += heightDifference;
+          }
         }
       }
     }

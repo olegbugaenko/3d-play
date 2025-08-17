@@ -123,6 +123,14 @@ export class TextureManager {
      * Перевіряє чи всі текстури завантажені
      */
     isReady(): boolean {
-        return this.textures.size > 0;
+        const { textures } = MAP_CONFIG.terrain;
+        if (!textures) {
+            return true; // Якщо немає конфігурації текстур, вважаємо готовим
+        }
+        
+        const expectedTextureCount = Object.keys(textures).length;
+        const actualTextureCount = this.textures.size;
+        
+        return actualTextureCount === expectedTextureCount;
     }
 }

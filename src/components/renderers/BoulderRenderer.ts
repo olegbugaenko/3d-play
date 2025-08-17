@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export interface BoulderData {
     color?: number;
     size?: number;
     roughness?: number;
-    segments?: number;
+    modelPath?: string;
 }
 
 export class BoulderRenderer extends BaseRenderer {
@@ -16,12 +17,7 @@ export class BoulderRenderer extends BaseRenderer {
         }
 
         const boulderData: BoulderData = object.data || {};
-        const mesh = this.createBoulderMesh(boulderData);
-        
-        // Встановлюємо позицію, масштаб та обертання
-        mesh.position.set(object.coordinates.x, object.coordinates.y, object.coordinates.z);
-        mesh.scale.set(object.scale.x, object.scale.y, object.scale.z);
-        mesh.rotation.set(object.rotation.x, object.rotation.y, object.rotation.z);
+        const mesh = this.createBoulderMesh(boulderData, object);
         
         // Додаємо до сцени та зберігаємо
         this.addMesh(object.id, mesh);
@@ -29,53 +25,77 @@ export class BoulderRenderer extends BaseRenderer {
         return mesh;
     }
 
-    private createBoulderMesh(data: BoulderData): THREE.Mesh {
+    private createBoulderMesh(data: BoulderData, object: SceneObject): THREE.Mesh {
         const {
             color = 0x8B7355, // Кольор каменю
             size = 1.0,
-            roughness = 0.3
+            roughness = 0.3,
+            modelPath = '/models/stone.glb'
         } = data;
 
-        // Створюємо базову геометрію (icosphere для більш природної форми)
-        const geometry = new THREE.IcosahedronGeometry(size, 1);
-        
-        // Додаємо випадкові деформації для природності
-        const positions = geometry.attributes.position;
-        const originalPositions = positions.array.slice();
-        
-        for (let i = 0; i < positions.count; i++) {
-            const x = originalPositions[i * 3];
-            const y = originalPositions[i * 3 + 1];
-            const z = originalPositions[i * 3 + 2];
-            
-            // Додаємо випадкові зміни до кожної вершини
-            const noiseX = (Math.random() - 0.5) * roughness * size;
-            const noiseY = (Math.random() - 0.5) * roughness * size;
-            const noiseZ = (Math.random() - 0.5) * roughness * size;
-            
-            positions.setXYZ(i, x + noiseX, y + noiseY, z + noiseZ);
-        }
-        
-        // Оновлюємо геометрію
-        geometry.attributes.position.needsUpdate = true;
-        geometry.computeVertexNormals();
-
-        // Створюємо матеріал з текстурою
-        const material = new THREE.MeshLambertMaterial({
+        // Створюємо тимчасовий fallback меш
+        const fallbackGeometry = new THREE.IcosahedronGeometry(size, 1);
+        const fallbackMaterial = new THREE.MeshLambertMaterial({
             color: color,
-            flatShading: true, // Плоске затушування для більш "каменевого" вигляду
-            transparent: false,
-            opacity: 1.0
+            flatShading: true,
+            transparent: true,
+            opacity: 0.3,
+            wireframe: true
         });
-
-        // Додаємо випадкове обертання для різноманітності
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.rotation.set(
-            Math.random() * Math.PI,
-            Math.random() * Math.PI,
-            Math.random() * Math.PI
+        
+        const fallbackMesh = new THREE.Mesh(fallbackGeometry, fallbackMaterial);
+        fallbackMesh.name = 'fallback';
+        
+        // Створюємо контейнер для GLB моделі
+        const containerMesh = new THREE.Group();
+        containerMesh.add(fallbackMesh);
+        
+        // Завантажуємо GLB модель
+        const loader = new GLTFLoader();
+        loader.load(
+            modelPath,
+            (gltf) => {
+                // Видаляємо fallback
+                const fallback = containerMesh.getObjectByName('fallback');
+                if (fallback) {
+                    containerMesh.remove(fallback);
+                }
+                
+                // Додаємо GLB модель
+                const model = gltf.scene;
+                model.scale.setScalar(size);
+                
+                // Застосовуємо рандомний колір до всіх матеріалів
+                model.traverse((child) => {
+                    if (child instanceof THREE.Mesh && child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(mat => {
+                                if (mat instanceof THREE.Material && 'color' in mat) {
+                                    (mat as any).color.setHex(color);
+                                }
+                            });
+                        } else {
+                            if ('color' in child.material) {
+                                (child.material as any).color.setHex(color);
+                            }
+                        }
+                    }
+                });
+                
+                containerMesh.add(model);
+            },
+            undefined,
+            (error) => {
+                console.warn(`Failed to load boulder model: ${(error as Error).message}`);
+                // Fallback залишається
+            }
         );
+        
+        // Встановлюємо позицію, масштаб та обертання з об'єкта
+        containerMesh.position.set(object.coordinates.x, object.coordinates.y, object.coordinates.z);
+        containerMesh.scale.set(object.scale.x, object.scale.y, object.scale.z);
+        containerMesh.rotation.set(object.rotation.x, object.rotation.y, object.rotation.z);
 
-        return mesh;
+        return containerMesh as any;
     }
 }

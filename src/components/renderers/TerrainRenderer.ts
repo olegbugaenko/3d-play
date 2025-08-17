@@ -125,8 +125,9 @@ export class TerrainRenderer {
         this.terrainMesh.frustumCulled = false;
         
         // Налаштовуємо тіні
+        // TEMPORARILY DISABLED SHADOWS FOR FPS TESTING
         this.terrainMesh.castShadow = false; // Terrain не кидає тіні
-        this.terrainMesh.receiveShadow = true; // Terrain приймає тіні
+        this.terrainMesh.receiveShadow = false; // Terrain не приймає тіні
         
         console.log('TerrainRenderer: Mesh positioned at:', {
             x: this.terrainMesh.position.x,

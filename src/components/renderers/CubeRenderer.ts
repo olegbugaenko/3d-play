@@ -27,8 +27,9 @@ export class CubeRenderer extends BaseRenderer {
         mesh.rotation.set(object.rotation.x, object.rotation.y, object.rotation.z);
         
         // Додаємо тіні
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        // TEMPORARILY DISABLED SHADOWS FOR FPS TESTING
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
         
         // Додаємо до сцени та зберігаємо посилання
         this.addMesh(object.id, mesh);

@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export interface RockData {
     color?: number;
     size?: number;
-    smoothness?: number; // Навпаки до roughness - більше значення = більш гладкий
-    segments?: number;
+    smoothness?: number;
+    modelPath?: string;
 }
 
 export class RockRenderer extends BaseRenderer {
@@ -16,12 +17,7 @@ export class RockRenderer extends BaseRenderer {
         }
 
         const rockData: RockData = object.data || {};
-        const mesh = this.createRockMesh(rockData);
-        
-        // Встановлюємо позицію, масштаб та обертання
-        mesh.position.set(object.coordinates.x, object.coordinates.y, object.coordinates.z);
-        mesh.scale.set(object.scale.x, object.scale.y, object.scale.z);
-        mesh.rotation.set(object.rotation.x, object.rotation.y, object.rotation.z);
+        const mesh = this.createRockMesh(rockData, object);
         
         // Додаємо до сцени та зберігаємо
         this.addMesh(object.id, mesh);
@@ -29,110 +25,77 @@ export class RockRenderer extends BaseRenderer {
         return mesh;
     }
 
-    private createRockMesh(data: RockData): THREE.Mesh {
+    private createRockMesh(data: RockData, object: SceneObject): THREE.Mesh {
         const {
-            color = 0x4A4A4A, // Темно-сірий колір для каменю
+            color = 0x4A4A4A,
             size = 1.0,
-            smoothness = 0.6, // За замовчуванням досить гладкий
-            segments = 16 // Збільшуємо кількість сегментів для більш плавної форми
+            smoothness = 0.6,
+            modelPath = '/models/stone.glb'
         } = data;
 
-        // Випадково вибираємо тип геометрії для різноманітності
-        const geometryType = Math.random();
-        let geometry: THREE.BufferGeometry;
-
-        if (geometryType < 0.5) {
-            // 50% - сфера (більш округлі)
-            geometry = new THREE.SphereGeometry(size, segments, segments);
-        } else if (geometryType < 0.8) {
-            // 30% - еліпсоїд (яйцеподібні, але з варіаціями)
-            const scaleX = 0.8 + Math.random() * 0.4; // 0.8-1.2
-            const scaleY = 1.0 + Math.random() * 0.6; // 1.0-1.6
-            const scaleZ = 0.8 + Math.random() * 0.4; // 0.8-1.2
-            geometry = new THREE.SphereGeometry(size, segments, segments);
-            geometry.scale(scaleX, scaleY, scaleZ);
-        } else {
-            // 20% - дуже плавна неправильна форма
-            geometry = new THREE.SphereGeometry(size, segments + 4, segments + 4); // Більше сегментів
-        }
-        
-        // Додаємо деформації для природності
-        const positions = geometry.attributes.position;
-        const originalPositions = positions.array.slice();
-        
-        for (let i = 0; i < positions.count; i++) {
-            const x = originalPositions[i * 3];
-            const y = originalPositions[i * 3 + 1];
-            const z = originalPositions[i * 3 + 2];
-            
-            // Різні типи деформацій залежно від smoothness
-            let amplitude: number;
-            let frequency: number;
-            
-            if (smoothness > 0.8) {
-                // Дуже гладкі - мінімальні деформації
-                amplitude = size * 0.02; // Ще менше деформацій
-                frequency = 0.2; // Більш плавні
-            } else if (smoothness > 0.6) {
-                // Гладкі - середні деформації
-                amplitude = (1 - smoothness) * size * 0.15; // Зменшуємо амплітуду
-                frequency = 0.4; // Більш плавні
-            } else {
-                // Шорсткі - але все одно плавні
-                amplitude = (1 - smoothness) * size * 0.2; // Зменшуємо амплітуду
-                frequency = 0.6; // Більш плавні
-            }
-            
-            // Використовуємо більш плавні функції для різноманітності
-            const noiseType = Math.random();
-            let noiseX, noiseY, noiseZ;
-            
-            if (noiseType < 0.4) {
-                // Дуже плавні синусоїдальні
-                noiseX = Math.sin(x * frequency * 0.5) * Math.cos(z * frequency * 0.5) * amplitude;
-                noiseY = Math.sin(y * frequency * 0.5) * Math.cos(x * frequency * 0.5) * amplitude;
-                noiseZ = Math.sin(z * frequency * 0.5) * Math.cos(y * frequency * 0.5) * amplitude;
-            } else if (noiseType < 0.8) {
-                // Плавні косинусоїдальні
-                noiseX = Math.cos(x * frequency * 0.8) * Math.sin(z * frequency * 0.8) * amplitude;
-                noiseY = Math.cos(y * frequency * 0.8) * Math.sin(x * frequency * 0.8) * amplitude;
-                noiseZ = Math.cos(z * frequency * 0.8) * Math.sin(y * frequency * 0.8) * amplitude;
-            } else {
-                // Дуже плавні комбіновані
-                noiseX = (Math.sin(x * frequency * 0.3) + Math.cos(x * frequency * 0.4)) * amplitude * 0.3;
-                noiseY = (Math.sin(y * frequency * 0.3) + Math.cos(y * frequency * 0.4)) * amplitude * 0.3;
-                noiseZ = (Math.sin(z * frequency * 0.3) + Math.cos(z * frequency * 0.4)) * amplitude * 0.3;
-            }
-            
-            // Додаємо дуже м'які випадкові варіації
-            const randomFactor = 0.8 + Math.random() * 0.4; // 0.8-1.2 (менше варіацій)
-            positions.setXYZ(i, 
-                x + noiseX * randomFactor, 
-                y + noiseY * randomFactor, 
-                z + noiseZ * randomFactor
-            );
-        }
-        
-        // Оновлюємо геометрію
-        geometry.attributes.position.needsUpdate = true;
-        geometry.computeVertexNormals();
-
-        // Створюємо матеріал з більш природним виглядом
-        const material = new THREE.MeshLambertMaterial({
+        // Створюємо тимчасовий fallback меш
+        const fallbackGeometry = new THREE.SphereGeometry(size, 8, 8);
+        const fallbackMaterial = new THREE.MeshLambertMaterial({
             color: color,
-            flatShading: smoothness < 0.5, // Плоске затушування для шорстких каменюків
-            transparent: false,
-            opacity: 1.0
+            flatShading: smoothness < 0.5,
+            transparent: true,
+            opacity: 0.3,
+            wireframe: true
         });
-
-        // Додаємо випадкове обертання для різноманітності
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.rotation.set(
-            Math.random() * Math.PI,
-            Math.random() * Math.PI,
-            Math.random() * Math.PI
+        
+        const fallbackMesh = new THREE.Mesh(fallbackGeometry, fallbackMaterial);
+        fallbackMesh.name = 'fallback';
+        
+        // Створюємо контейнер для GLB моделі
+        const containerMesh = new THREE.Group();
+        containerMesh.add(fallbackMesh);
+        
+        // Завантажуємо GLB модель
+        const loader = new GLTFLoader();
+        loader.load(
+            modelPath,
+            (gltf) => {
+                // Видаляємо fallback
+                const fallback = containerMesh.getObjectByName('fallback');
+                if (fallback) {
+                    containerMesh.remove(fallback);
+                }
+                
+                // Додаємо GLB модель
+                const model = gltf.scene;
+                model.scale.setScalar(size);
+                
+                // Застосовуємо рандомний колір до всіх матеріалів
+                model.traverse((child) => {
+                    if (child instanceof THREE.Mesh && child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(mat => {
+                                if (mat instanceof THREE.Material && 'color' in mat) {
+                                    (mat as any).color.setHex(color);
+                                }
+                            });
+                        } else {
+                            if ('color' in child.material) {
+                                (child.material as any).color.setHex(color);
+                            }
+                        }
+                    }
+                });
+                
+                containerMesh.add(model);
+            },
+            undefined,
+            (error) => {
+                console.warn(`Failed to load stone model: ${(error as Error).message}`);
+                // Fallback залишається
+            }
         );
+        
+        // Встановлюємо позицію, масштаб та обертання з об'єкта
+        containerMesh.position.set(object.coordinates.x, object.coordinates.y, object.coordinates.z);
+        containerMesh.scale.set(object.scale.x, object.scale.y, object.scale.z);
+        containerMesh.rotation.set(object.rotation.x, object.rotation.y, object.rotation.z);
 
-        return mesh;
+        return containerMesh as any;
     }
 }

@@ -102,17 +102,28 @@ export class MapLogic {
                     color,
                     size,
                     roughness,
-                    segments: 8
+                    modelPath: (() => {
+                        const rand = Math.random();
+                        if (rand < 0.33) return '/models/stone2.glb';
+                        if (rand < 0.66) return '/models/stone3.glb';
+                        return '/models/stone4.glb';
+                    })() // Випадково вибираємо між трьома моделями
                 },
                 tags: ['on-ground', 'static', 'boulder'], // Автоматично розміститься на terrain
-                bottomAnchor: -0.5, // Каменюк стоїть на своєму низу
+                bottomAnchor: -0.2, // Каменюк стоїть на своєму низу
                 terrainAlign: true // Нахиляється по нормалі terrain
             };
             
             // Додаємо з terrain constraint
             const success = this.scene.pushObjectWithTerrainConstraint(boulder);
             if (success) {
-                console.log(`Додано каменюк ${i} на позиції (${x.toFixed(1)}, ${z.toFixed(1)})`);
+                const modelUsed = (() => {
+                    const rand = Math.random();
+                    if (rand < 0.33) return 'stone2.glb';
+                    if (rand < 0.66) return 'stone3.glb';
+                    return 'stone4.glb';
+                })();
+                console.log(`Додано каменюк boulder ${i} на позиції (${x.toFixed(1)}, ${z.toFixed(1)}) з моделлю ${modelUsed}`);
             }
         }
     }
@@ -121,7 +132,7 @@ export class MapLogic {
      * Генерує процедурні каменюки типу rock на карті
      */
     private generateRocks() {
-        const rockCount = 300; // Кількість каменюків типу rock
+        const rockCount = 3000; // Кількість каменюків типу rock
         const mapBounds = {
             minX: -MAP_CONFIG.width / 2,
             maxX: MAP_CONFIG.width / 2,
@@ -137,7 +148,7 @@ export class MapLogic {
             // Центр кластера
             const clusterCenterX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
             const clusterCenterZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
-            const clusterRadius = 50 + Math.random() * 100; // Радіус кластера від 50 до 150
+            const clusterRadius = 10 + Math.random() * 10; // Радіус кластера від 50 до 150
 
             for (let j = 0; j < rocksPerCluster; j++) {
                 // Позиція в межах кластера
@@ -147,14 +158,7 @@ export class MapLogic {
                 const z = clusterCenterZ + Math.sin(angle) * distance;
             
             // Випадковий розмір каменюка з більшою варіацією
-            const baseSize = 0.1 + Math.random() * 0.9; // Від 0.1 до 1.0 (менші каменюки)
-            const sizeVariation = 0.8 + Math.random() * 0.4; // 0.8-1.2 для різних осей
-            const size = {
-                x: baseSize * sizeVariation,
-                y: baseSize * (1.0 + Math.random() * 0.4), // Y може бути трохи більшим
-                z: baseSize * sizeVariation
-            };
-            
+            const baseSize = 0.2 + Math.random() * 0.2; // Від 0.1 до 1.0 (менші каменюки)
             // Випадковий колір (коричневаві відтінки)
             const colors = [0x8B4513, 0xA0522D, 0x8B7355, 0x696969, 0x6B4423, 0x8B6914, 0x654321, 0x8B7355];
             const color = colors[Math.floor(Math.random() * colors.length)];
@@ -166,7 +170,7 @@ export class MapLogic {
                 id: `rock_${cluster}_${j}`,
                 type: 'rock',
                 coordinates: { x, y: 0, z }, // Y буде автоматично встановлено terrain системою
-                scale: size, // Використовуємо різні розміри по осях
+                scale: { x: baseSize, y: baseSize, z: baseSize }, // Використовуємо однаковий розмір для GLB моделі
                 rotation: { 
                     x: Math.random() * Math.PI, 
                     y: Math.random() * Math.PI, 
@@ -176,17 +180,28 @@ export class MapLogic {
                     color,
                     size: baseSize, // Базовий розмір для рендерера
                     smoothness, // Використовуємо smoothness замість roughness
-                    segments: 12 + Math.floor(Math.random() * 8) // Від 12 до 19 сегментів
+                    modelPath: (() => {
+                        const rand = Math.random();
+                        if (rand < 0.33) return '/models/stone2.glb';
+                        if (rand < 0.66) return '/models/stone3.glb';
+                        return '/models/stone4.glb';
+                    })() // Випадково вибираємо між трьома моделями
                 },
                 tags: ['on-ground', 'static', 'rock'], // Автоматично розміститься на terrain
-                bottomAnchor: -0.5, // Каменюк стоїть на своєму низу
+                bottomAnchor: baseSize*0.1, // Каменюк стоїть на своєму низу
                 terrainAlign: true // Нахиляється по нормалі terrain
             };
             
             // Додаємо з terrain constraint
             const success = this.scene.pushObjectWithTerrainConstraint(rock);
             if (success) {
-                console.log(`Додано каменюк rock ${cluster}_${j} на позиції (${x.toFixed(1)}, ${z.toFixed(1)})`);
+                const modelUsed = (() => {
+                    const rand = Math.random();
+                    if (rand < 0.33) return 'stone2.glb';
+                    if (rand < 0.66) return 'stone3.glb';
+                    return 'stone4.glb';
+                })();
+                console.log(`Додано каменюк rock ${cluster}_${j} на позиції (${x.toFixed(1)}, ${z.toFixed(1)}) з моделлю ${modelUsed}`);
             }
             }
         }
