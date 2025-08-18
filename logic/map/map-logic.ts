@@ -21,19 +21,28 @@ export class MapLogic {
         let skippedObjects = 0;
 
         // Генеруємо каменюки на карті
-        this.generateBoulders();
-        console.log('Згенеровано каменюки на карті');
+        //this.generateBoulders();
         
                 // Генеруємо каменюки типу rock
-        this.generateRocks();
-        console.log('Згенеровано каменюки типу rock на карті');
+        //this.generateRocks();
+        
+        // Логуємо загальну кількість об'єктів
+        const totalObjects = Object.keys(this.scene.getObjects()).length;
         
         // Генеруємо rover об'єкти
         this.generateRovers();
-        console.log('Згенеровано rover об\'єкти на карті');
+        
+        // Генеруємо хмари
+        console.log('🗺️ MapLogic: починаємо генерувати хмари...');
+        //this.generateClouds();
+        console.log('🗺️ MapLogic: хмари згенеровані');
+        
+        // Генеруємо джерела диму
+        console.log('💨 MapLogic: починаємо генерувати дим...');
+        //this.generateSmoke();
+        console.log('💨 MapLogic: дим згенеровано');
         
         // Логуємо результат
-        console.log(`Map initialized: ${addedObjects} objects added, ${skippedObjects} objects skipped (out of bounds)`);
 
         // Додаємо тестовий динамічний об'єкт (без terrain constraint)
         const dynamicCube: TSceneObject = {
@@ -53,7 +62,6 @@ export class MapLogic {
         };
         
         this.scene.pushObject(dynamicCube);
-        console.log('Додано тестовий динамічний куб');
 
         setInterval(
             this.tick.bind(this),
@@ -65,7 +73,7 @@ export class MapLogic {
      * Генерує процедурні каменюки на карті
      */
     private generateBoulders() {
-        const boulderCount = 50; // Кількість каменюків
+        const boulderCount = 100; // Збільшуємо кількість каменюків
         const mapBounds = {
             minX: -MAP_CONFIG.width / 2,
             maxX: MAP_CONFIG.width / 2,
@@ -123,7 +131,7 @@ export class MapLogic {
                     if (rand < 0.66) return 'stone3.glb';
                     return 'stone4.glb';
                 })();
-                console.log(`Додано каменюк boulder ${i} на позиції (${x.toFixed(1)}, ${z.toFixed(1)}) з моделлю ${modelUsed}`);
+                // console.log(`Додано каменюк boulder ${i} на позиції (${x.toFixed(1)}, ${z.toFixed(1)}) з моделлю ${modelUsed}`);
             }
         }
     }
@@ -132,7 +140,7 @@ export class MapLogic {
      * Генерує процедурні каменюки типу rock на карті
      */
     private generateRocks() {
-        const rockCount = 3000; // Кількість каменюків типу rock
+        const rockCount = 5000; // Збільшуємо кількість каменюків
         const mapBounds = {
             minX: -MAP_CONFIG.width / 2,
             maxX: MAP_CONFIG.width / 2,
@@ -141,14 +149,14 @@ export class MapLogic {
         };
 
         // Створюємо кластери каменюків для більш щільного розподілу
-        const clusterCount = 15; // Кількість кластерів
+        const clusterCount = 25; // Збільшуємо кількість кластерів
         const rocksPerCluster = Math.floor(rockCount / clusterCount); // Каменюки на кластер
 
         for (let cluster = 0; cluster < clusterCount; cluster++) {
             // Центр кластера
             const clusterCenterX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
             const clusterCenterZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
-            const clusterRadius = 10 + Math.random() * 10; // Радіус кластера від 50 до 150
+            const clusterRadius = 15 + Math.random() * 20; // Збільшуємо радіус кластера
 
             for (let j = 0; j < rocksPerCluster; j++) {
                 // Позиція в межах кластера
@@ -157,52 +165,52 @@ export class MapLogic {
                 const x = clusterCenterX + Math.cos(angle) * distance;
                 const z = clusterCenterZ + Math.sin(angle) * distance;
             
-            // Випадковий розмір каменюка з більшою варіацією
-            const baseSize = 0.2 + Math.random() * 0.2; // Від 0.1 до 1.0 (менші каменюки)
-            // Випадковий колір (коричневаві відтінки)
-            const colors = [0x8B4513, 0xA0522D, 0x8B7355, 0x696969, 0x6B4423, 0x8B6914, 0x654321, 0x8B7355];
-            const color = colors[Math.floor(Math.random() * colors.length)];
-            
-            // Випадкова гладкість для різноманітності
-            const smoothness = 0.6 + Math.random() * 0.3; // Від 0.6 до 0.9 (більш гладкі)
-            
-            const rock: TSceneObject = {
-                id: `rock_${cluster}_${j}`,
-                type: 'rock',
-                coordinates: { x, y: 0, z }, // Y буде автоматично встановлено terrain системою
-                scale: { x: baseSize, y: baseSize, z: baseSize }, // Використовуємо однаковий розмір для GLB моделі
-                rotation: { 
-                    x: Math.random() * Math.PI, 
-                    y: Math.random() * Math.PI, 
-                    z: Math.random() * Math.PI 
-                },
-                data: { 
-                    color,
-                    size: baseSize, // Базовий розмір для рендерера
-                    smoothness, // Використовуємо smoothness замість roughness
-                    modelPath: (() => {
+                // Випадковий розмір каменюка з більшою варіацією
+                const baseSize = 0.15 + Math.random() * 0.25; // Від 0.15 до 0.4 (трохи більші)
+                // Випадковий колір (коричневаві відтінки)
+                const colors = [0x8B4513, 0xA0522D, 0x8B7355, 0x696969, 0x6B4423, 0x8B6914, 0x654321, 0x8B7355];
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                
+                // Випадкова гладкість для різноманітності
+                const smoothness = 0.6 + Math.random() * 0.3; // Від 0.6 до 0.9 (більш гладкі)
+                
+                const rock: TSceneObject = {
+                    id: `rock_${cluster}_${j}`,
+                    type: 'rock',
+                    coordinates: { x, y: 0, z }, // Y буде автоматично встановлено terrain системою
+                    scale: { x: baseSize, y: baseSize, z: baseSize }, // Використовуємо однаковий розмір для GLB моделі
+                    rotation: { 
+                        x: Math.random() * Math.PI, 
+                        y: Math.random() * Math.PI, 
+                        z: Math.random() * Math.PI 
+                    },
+                    data: { 
+                        color,
+                        size: baseSize, // Базовий розмір для рендерера
+                        smoothness, // Використовуємо smoothness замість roughness
+                        modelPath: (() => {
+                            const rand = Math.random();
+                            if (rand < 0.33) return '/models/stone2.glb';
+                            if (rand < 0.66) return '/models/stone3.glb';
+                            return '/models/stone4.glb';
+                        })() // Випадково вибираємо між трьома моделями
+                    },
+                    tags: ['on-ground', 'static', 'rock'], // Автоматично розміститься на terrain
+                    bottomAnchor: baseSize * 0.1, // Каменюк стоїть на своєму низу
+                    terrainAlign: true // Нахиляється по нормалі terrain
+                };
+                
+                // Додаємо з terrain constraint
+                const success = this.scene.pushObjectWithTerrainConstraint(rock);
+                if (success) {
+                    const modelUsed = (() => {
                         const rand = Math.random();
-                        if (rand < 0.33) return '/models/stone2.glb';
-                        if (rand < 0.66) return '/models/stone3.glb';
-                        return '/models/stone4.glb';
-                    })() // Випадково вибираємо між трьома моделями
-                },
-                tags: ['on-ground', 'static', 'rock'], // Автоматично розміститься на terrain
-                bottomAnchor: baseSize*0.1, // Каменюк стоїть на своєму низу
-                terrainAlign: true // Нахиляється по нормалі terrain
-            };
-            
-            // Додаємо з terrain constraint
-            const success = this.scene.pushObjectWithTerrainConstraint(rock);
-            if (success) {
-                const modelUsed = (() => {
-                    const rand = Math.random();
-                    if (rand < 0.33) return 'stone2.glb';
-                    if (rand < 0.66) return 'stone3.glb';
-                    return 'stone4.glb';
-                })();
-                console.log(`Додано каменюк rock ${cluster}_${j} на позиції (${x.toFixed(1)}, ${z.toFixed(1)}) з моделлю ${modelUsed}`);
-            }
+                        if (rand < 0.33) return 'stone2.glb';
+                        if (rand < 0.66) return 'stone3.glb';
+                        return 'stone4.glb';
+                    })();
+                    // Додано каменюк rock
+                }
             }
         }
     }
@@ -236,6 +244,41 @@ export class MapLogic {
         }
         
         return false;
+    }
+
+    /**
+     * Генерує джерела диму на карті
+     */
+    private generateSmoke() {
+        const smokeCount = 5; // Кількість джерел диму
+        
+        for (let i = 0; i < smokeCount; i++) {
+            // Випадкова позиція на карті
+            const x = (Math.random() - 0.5) * 50; // X: -200 до 200
+            const z = (Math.random() - 0.5) * 50; // Z: -200 до 200
+            
+            const smoke: TSceneObject = {
+                id: `smoke_source_${i}`,
+                type: 'smoke',
+                coordinates: { x, y: 0, z }, // Y буде встановлено terrain системою
+                scale: { x: 1, y: 1, z: 1 },
+                rotation: { x: 0, y: 0, z: 0 },
+                data: { 
+                    intensity: 0.5 + Math.random() * 1.5, // 0.5-2.0 інтенсивність
+                    color: 0x84B4543, // темно сірий дим
+                    particleCount: 150 + Math.floor(Math.random() * 100), // 150-250 частинок
+                    riseSpeed: 1.0 + Math.random() * 1.5, // 1.0-2.5 швидкість підйому
+                    spreadRadius: 2.0 + Math.random() * 2.0, // 2.0-4.0 радіус розсіювання
+                    lifetime: 5.0 + Math.random() * 3.0 // 5.0-8.0 час життя
+                },
+                tags: ['on-ground', 'static', 'smoke'],
+                bottomAnchor: 0,
+                terrainAlign: false
+            };
+            
+            // Додаємо джерело диму
+            this.scene.pushObjectWithTerrainConstraint(smoke);
+        }
     }
 
     /**
@@ -297,8 +340,7 @@ export class MapLogic {
             // Додаємо з terrain constraint
             const success = this.scene.pushObjectWithTerrainConstraint(rover);
             if (success) {
-                console.log(`Додано rover ${i} на позиції (${x.toFixed(1)}, ${z.toFixed(1)}) після ${attempts} спроб`);
-                console.log(`Rover ${i} має теги:`, rover.tags);
+                                 // Додано rover
             }
         }
     }
@@ -340,7 +382,7 @@ export class MapLogic {
             const objData = obj.data as any;
             if (objData) {
                 objData.target = { x: centerPoint.x, z: centerPoint.z };
-                console.log(`${obj.type} ${obj.id} отримав ціль (${centerPoint.x.toFixed(1)}, ${centerPoint.z.toFixed(1)})`);
+                                 // Об'єкт отримав ціль
             }
             return;
         }
@@ -368,9 +410,103 @@ export class MapLogic {
             }
             
             objData.target = { x: targetX, z: targetZ };
-            console.log(`${obj.type} ${obj.id} отримав ціль (${targetX.toFixed(1)}, ${targetZ.toFixed(1)}) на відстані ${radius.toFixed(1)} від центру`);
+                         // Об'єкт отримав ціль
         });
     }
+
+    /**
+     * Генерує пилові хмари на землі
+     */
+    private generateClouds() {
+        const cloudCount = 25; // ЗБІЛЬШУЄМО кількість хмар
+        
+        for (let i = 0; i < cloudCount; i++) {
+            // ГЕНЕРУЄМО ВИПАДКОВІ КООРДИНАТИ для кожної хмари
+            const x = (Math.random() - 0.5) * 400; // X: -200 до 200
+            const z = (Math.random() - 0.5) * 400; // Z: -200 до 200
+            
+            const cloud: TSceneObject = {
+                id: `dust_cloud_${i}`,
+                type: 'cloud',
+                coordinates: { x, y: 0, z }, // Y буде встановлено terrain системою
+                scale: { x: 1, y: 1, z: 1 },
+                rotation: { x: 0, y: 0, z: 0 },
+                data: { 
+                    size: 21 + Math.random() * 22, // 8-20 одиниць радіус (більші хмари)
+                    color: 0xD2B46C, // Пісочний колір
+                    particleCount: 1000, //13200 + Math.floor(Math.random() * 18000), // 1200-2000 частинок на хмару (ЗБІЛЬШУЄМО!)
+                    windSpeed: 0.3 + Math.random() * 0.7, // 0.3-1.0 швидкість вітру
+                    height: 4 + Math.random() * 8 // 4-12 одиниць висоти
+                },
+                tags: ['on-ground', 'static', 'dust'], // Пилові хмари на землі
+                bottomAnchor: -1, // Не важливо для хмар
+                terrainAlign: false // Хмари не вирівнюються по terrain
+            };
+            
+            // Додаємо пилову хмару
+            this.scene.pushObject(cloud);
+        }
+    
+    // Додаємо тестову хмару прямо в центр карти для дебагу
+    const testCloud: TSceneObject = {
+        id: 'test_dust_cloud',
+        type: 'cloud',
+        coordinates: { x: 0, y: 0, z: 0 }, // Прямо в центр
+        scale: { x: 1, y: 1, z: 1 },
+        rotation: { x: 0, y: 0, z: 0 },
+        data: { 
+            size: 15, // Дуже велика хмара
+            color: 0xFF0000, // Червоний колір для тестування
+            particleCount: 4000, // ЗБІЛЬШУЄМО кількість частинок
+            height: 12 // Висока хмара
+        },
+        tags: ['on-ground', 'static', 'dust', 'test'],
+        bottomAnchor: 0,
+        terrainAlign: false
+    };
+    
+    this.scene.pushObject(testCloud);
+    
+    // Додаємо ще одну тестову хмару зеленим кольором для порівняння
+    const testCloud2: TSceneObject = {
+        id: 'test_dust_cloud_2',
+        type: 'cloud',
+        coordinates: { x: 50, y: 0, z: 0 }, // Поруч з червоною
+        scale: { x: 1, y: 1, z: 1 },
+        rotation: { x: 0, y: 0, z: 0 },
+        data: { 
+            size: 8, // Середня хмара
+            color: 0x00FF00, // Зелений колір для тестування
+            particleCount: 2000, // ЗБІЛЬШУЄМО кількість частинок
+            height: 6 // Середня висота
+        },
+        tags: ['on-ground', 'static', 'dust', 'test'],
+        bottomAnchor: 0,
+        terrainAlign: false
+    };
+    
+    this.scene.pushObject(testCloud2);
+    
+    // Додаємо ще одну тестову хмару СИНЬОГО кольору точно в центр
+    const testCloud3: TSceneObject = {
+        id: 'test_dust_cloud_3',
+        type: 'cloud',
+        coordinates: { x: 0, y: 0, z: 0 }, // ТОЧНО в центр
+        scale: { x: 1, y: 1, z: 1 },
+        rotation: { x: 0, y: 0, z: 0 },
+        data: { 
+            size: 20, // Дуже велика хмара
+            color: 0x0000FF, // СИНІЙ колір для тестування
+            particleCount: 6000, // ЗБІЛЬШУЄМО кількість частинок
+            height: 15 // Дуже висока хмара
+        },
+        tags: ['on-ground', 'static', 'dust', 'test', 'center'],
+        bottomAnchor: 0,
+        terrainAlign: false
+    };
+    
+    this.scene.pushObject(testCloud3);
+}
 
     /**
      * Обробляє рух всіх динамічних об'єктів
@@ -393,7 +529,7 @@ export class MapLogic {
             
             // Якщо досягли цілі - зупиняємося
             if (distanceToTarget < 0.5) {
-                console.log(`${obj.type} ${obj.id} досяг цілі`);
+                                 // Об'єкт досяг цілі
                 objData.target = undefined; // Видаляємо ціль
                 if (obj.speed) {
                     obj.speed.x = 0;
@@ -438,7 +574,7 @@ export class MapLogic {
                 obj.rotation.y = -(baseRotation + rotationOffset);
             }
             
-            console.log(`${obj.type} ${obj.id} рухається до цілі (${target.x.toFixed(1)}, ${target.z.toFixed(1)}) зі швидкістю ${maxSpeed}`);
+                         // Об'єкт рухається до цілі
         });
     }
 

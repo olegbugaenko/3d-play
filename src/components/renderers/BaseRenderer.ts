@@ -24,13 +24,13 @@ export interface SceneObject {
 
 export abstract class BaseRenderer {
     protected scene: THREE.Scene;
-    protected meshes: Map<string, THREE.Mesh> = new Map();
+    protected meshes: Map<string, THREE.Object3D> = new Map();
 
     constructor(scene: THREE.Scene) {
         this.scene = scene;
     }
 
-    abstract render(object: SceneObject): THREE.Mesh;
+    abstract render(object: SceneObject): THREE.Object3D;
     
     update(object: SceneObject): void {
         const mesh = this.meshes.get(object.id);
@@ -58,17 +58,15 @@ export abstract class BaseRenderer {
         }
     }
 
-    protected addMesh(id: string, mesh: THREE.Mesh): void {
-        console.log(`BaseRenderer.addMesh: додаємо меш ${id} до рендерера ${this.constructor.name}`);
+    protected addMesh(id: string, mesh: THREE.Object3D): void {
         this.meshes.set(id, mesh);
         this.scene.add(mesh);
-        console.log(`BaseRenderer.addMesh: тепер у рендерера ${this.constructor.name} є ${this.meshes.size} мешів`);
     }
 
-    // Отримуємо меш за ID
-    getMeshById(id: string): THREE.Mesh | null {
+    // Отримуємо об'єкт за ID
+    getMeshById(id: string): THREE.Object3D | null {
         const mesh = this.meshes.get(id) || null;
-        console.log(`BaseRenderer.getMeshById: шукаємо меш ${id} в ${this.constructor.name}, знайдено: ${mesh ? 'так' : 'ні'}`);
+        // console.log(`BaseRenderer.getMeshById: шукаємо об'єкт ${id} в ${this.constructor.name}, знайдено: ${mesh ? 'так' : 'ні'}`);
         return mesh;
     }
 }

@@ -82,8 +82,8 @@ export class SceneLogic {
         
         // Оновлюємо viewport
         this.viewPort = {
-            centerX: focusPoint.x,
-            centerY: focusPoint.z, // Z - це глибина
+            centerX: cameraProps.position.x,
+            centerY: cameraProps.position.z, // Z - це глибина
             width: expandedWidth,
             height: expandedHeight
         };

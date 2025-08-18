@@ -22,6 +22,7 @@ const Scene3D: React.FC = () => {
   const visibleObjectsRef = useRef<SceneObject[]>([])
   const mapLogicRef = useRef<MapLogic | null>(null)
   const terrainRendererRef = useRef<TerrainRenderer | null>(null)
+
   const lastCameraPositionRef = useRef<{ x: number; y: number; z: number } | null>(null)
   
   // Дебаг змінні - робимо їх реактивними
@@ -329,12 +330,12 @@ const Scene3D: React.FC = () => {
         // Оновлюємо існуючий об'єкт
         rendererManagerRef.current!.updateObject(obj);
         
-        // Оновлюємо позицію підсвітки якщо об'єкт вибраний
-        if (selectionManagerRef.current?.isSelected(obj.id)) {
-          const mesh = rendererManagerRef.current!.getMeshById(obj.id);
-          if (mesh) {
-            selectionManagerRef.current.updateHighlightPosition(obj.id, mesh);
-          }
+                  // Оновлюємо позицію підсвітки якщо об'єкт вибраний
+          if (selectionManagerRef.current?.isSelected(obj.id)) {
+            const obj3d = rendererManagerRef.current!.getMeshById(obj.id);
+            if (obj3d) {
+              selectionManagerRef.current.updateHighlightPosition(obj.id, obj3d);
+            }
           
           // Оновлюємо індикатори цілей для динамічних об'єктів
           if (obj.tags?.includes('dynamic')) {
@@ -803,14 +804,14 @@ const Scene3D: React.FC = () => {
     const ambientLight = new THREE.AmbientLight(0x404040, 0.6)
     scene.add(ambientLight)
 
-    // Направлене освітлення
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-    directionalLight.position.set(10, 10, 5)
-    // TEMPORARILY DISABLED SHADOWS FOR FPS TESTING
-    directionalLight.castShadow = false
-    // directionalLight.shadow.mapSize.width = 2048
-    // directionalLight.shadow.mapSize.height = 2048
-    scene.add(directionalLight)
+            // Направлене освітлення
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
+        directionalLight.position.set(10, 10, 5)
+        // TEMPORARILY DISABLED SHADOWS FOR FPS TESTING
+        directionalLight.castShadow = false
+        // directionalLight.shadow.mapSize.width = 2048
+        // directionalLight.shadow.mapSize.height = 2048
+        scene.add(directionalLight)
 
     return () => {
       scene.remove(ambientLight)
@@ -854,45 +855,58 @@ const Scene3D: React.FC = () => {
     // Оновлюємо контроли
     controls.update()
     
-    // Оновлюємо viewport тільки при значній зміні позиції камери (оптимізація)
-    if (mapLogicRef.current) {
-      const currentCameraPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
-      const lastCameraPos = lastCameraPositionRef.current;
-      
-      // Перевіряємо чи камера значно змінила позицію
-      const cameraMoved = !lastCameraPos || 
-        Math.abs(currentCameraPos.x - lastCameraPos.x) > 5 ||
-        Math.abs(currentCameraPos.z - lastCameraPos.z) > 5;
-      
-      if (cameraMoved) {
-        lastCameraPositionRef.current = currentCameraPos;
-        
-        const cameraProps = {
-          position: currentCameraPos,
-          rotation: {
-            x: camera.rotation.x,
-            y: camera.rotation.y,
-            z: camera.rotation.z
-          },
-          fov: camera.fov,
-          aspect: camera.aspect,
-          distance: camera.position.distanceTo(controls.target)
-        };
-        mapLogicRef.current.scene.updateViewport(cameraProps);
-        
-        // Коригуємо висоту на основі terrain тільки при значному руху
-        const terrainManager = mapLogicRef.current.scene.getTerrainManager();
-        if (terrainManager) {
-          const terrainHeight = terrainManager.getHeightAt(controls.target.x, controls.target.z);
-          
-          if (Math.abs(controls.target.y - terrainHeight) > 0.1) {
-            const heightDifference = terrainHeight - controls.target.y;
-            controls.target.y = terrainHeight;
-            camera.position.y += heightDifference;
-          }
+            // Оновлюємо viewport тільки при значній зміні позиції камери (оптимізація)
+        if (mapLogicRef.current) {
+            const currentCameraPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+            const lastCameraPos = lastCameraPositionRef.current;
+
+            // Перевіряємо чи камера значно змінила позицію
+            const cameraMoved = !lastCameraPos ||
+                Math.abs(currentCameraPos.x - lastCameraPos.x) > 5 ||
+                Math.abs(currentCameraPos.z - lastCameraPos.z) > 5;
+
+            if (cameraMoved) {
+                lastCameraPositionRef.current = currentCameraPos;
+
+                const cameraProps = {
+                    position: currentCameraPos,
+                    rotation: {
+                        x: camera.rotation.x,
+                        y: camera.rotation.y,
+                        z: camera.rotation.z
+                    },
+                    fov: camera.fov,
+                    aspect: camera.fov,
+                    distance: camera.position.distanceTo(controls.target)
+                };
+                mapLogicRef.current.scene.updateViewport(cameraProps);
+                
+                // Коригуємо висоту на основі terrain тільки при значному руху
+                const terrainManager = mapLogicRef.current.scene.getTerrainManager();
+                if (terrainManager) {
+                    const terrainHeight = terrainManager.getHeightAt(controls.target.x, controls.target.z);
+                    
+                    if (Math.abs(controls.target.y - terrainHeight) > 0.1) {
+                        const heightDifference = terrainHeight - controls.target.y;
+                        controls.target.y = terrainHeight;
+                        camera.position.y += heightDifference;
+                    }
+                }
+            }
         }
-      }
-    }
+
+        // Оновлюємо пилові хмари (повільний рух та анімація)
+        if (rendererManagerRef.current) {
+            const cloudRenderer = rendererManagerRef.current.renderers.get('cloud');
+            if (cloudRenderer && 'updateAllClouds' in cloudRenderer) {
+                (cloudRenderer as any).updateAllClouds();
+            }
+            
+            const smokeRenderer = rendererManagerRef.current.renderers.get('smoke');
+            if (smokeRenderer && 'updateAllSmoke' in smokeRenderer) {
+                (smokeRenderer as any).updateAllSmoke();
+            }
+        }
     
     // Застосовуємо автоматичне панорамування
     const currentCameraDistance = camera.position.distanceTo(controls.target);

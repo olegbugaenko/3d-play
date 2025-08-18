@@ -5,7 +5,7 @@ import { Vector3 } from './scene.types';
  * Тестування TerrainManager
  */
 export function testTerrainSystem() {
-    console.log('🧪 Testing Terrain System...');
+    // Testing Terrain System...
     
     // Створюємо terrain з тестовою конфігурацією
     const config: TerrainConfig = {
@@ -26,14 +26,14 @@ export function testTerrainSystem() {
         { x: 50, y: 0, z: 50 }
     ];
     
-    console.log('📍 Testing height at different points:');
+    // Testing height at different points
     testPoints.forEach(point => {
         const height = terrain.getHeightAt(point.x, point.z);
-        console.log(`  Point (${point.x}, ${point.z}): Height = ${height.toFixed(2)}`);
+        // Point height calculated
     });
     
     // Тестуємо terrain constraint
-    console.log('\n🎯 Testing terrain constraints:');
+    // Testing terrain constraints
     const testObjects = [
         { position: { x: 0, y: 15, z: 0 }, height: 2, tags: ['on-ground'] },
         { position: { x: 25, y: 5, z: 25 }, height: 1, tags: ['on-ground'] },
@@ -41,16 +41,13 @@ export function testTerrainSystem() {
     ];
     
     testObjects.forEach(obj => {
-        const canPlace = terrain.canPlaceObjectAt(obj.position, obj.height);
+        const canPlace = terrain.canPlaceAt(obj.position, obj.height);
         const snappedPosition = terrain.snapToTerrain(obj.position, obj.height);
         
-        console.log(`  Object at (${obj.position.x}, ${obj.position.y}, ${obj.position.z}):`);
-        console.log(`    Tags: ${obj.tags.join(', ')}`);
-        console.log(`    Can place: ${canPlace}`);
-        console.log(`    Snapped to: (${snappedPosition.x}, ${snappedPosition.y.toFixed(2)}, ${snappedPosition.z})`);
+        // Object testing completed
     });
     
-    console.log('\n✅ Terrain system test completed!');
+    // Terrain system test completed
 }
 
 /**

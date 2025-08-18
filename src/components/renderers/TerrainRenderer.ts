@@ -9,7 +9,7 @@ export class TerrainRenderer {
     private terrainManager: TerrainManager;
     private textureManager: TextureManager;
     private lastRenderPosition: { x: number, z: number } | null = null;
-    private rerenderThreshold = 30; // Відстань для перерендерингу
+    private rerenderThreshold = 50; // Відстань для перерендерингу (збільшуємо для кращої продуктивності)
 
     constructor(scene: THREE.Scene, terrainManager: TerrainManager) {
         this.scene = scene;
@@ -22,6 +22,20 @@ export class TerrainRenderer {
      */
     async renderTerrain(cameraPosition?: { x: number, y: number, z: number }): Promise<THREE.Mesh> {
         console.log('renderTerrain: START'); // Додаємо логування
+        
+        // Перевіряємо чи потрібно перерендерювати
+        if (this.terrainMesh && cameraPosition && this.lastRenderPosition) {
+            const distance = Math.sqrt(
+                Math.pow(cameraPosition.x - this.lastRenderPosition.x, 2) + 
+                Math.pow(cameraPosition.z - this.lastRenderPosition.z, 2)
+            );
+            
+            // Якщо камера не значно змінила позицію - використовуємо існуючий mesh
+            if (distance < this.rerenderThreshold) {
+                console.log('TerrainRenderer: Using cached terrain, distance:', distance);
+                return this.terrainMesh;
+            }
+        }
         
         // Примусово видаляємо старий mesh
         if (this.terrainMesh) {
@@ -43,7 +57,7 @@ export class TerrainRenderer {
         const renderResolution = MAP_CONFIG.terrain.renderResolution; // Рендеримо з конфігурації
         
         // Визначаємо область для рендерингу (навколо камери)
-        const viewDistance = 100; // Збільшуємо з 100 до 200 для кращого покриття
+        const viewDistance = 50; // Зменшуємо ще більше для тестування продуктивності
         const centerX = cameraPosition?.x || 0;
         const centerZ = cameraPosition?.z || 0;
         
@@ -57,9 +71,16 @@ export class TerrainRenderer {
         const renderWidth = endX - startX;
         const renderHeight = endZ - startZ;
         
-        // Кількість сегментів для рендерингу
-        const segmentsX = Math.max(1, Math.ceil(renderWidth / renderResolution));
-        const segmentsY = Math.max(1, Math.ceil(renderHeight / renderResolution));
+        // Кількість сегментів для рендерингу з LOD
+        let segmentsX = Math.max(1, Math.ceil(renderWidth / renderResolution));
+        let segmentsY = Math.max(1, Math.ceil(renderHeight / renderResolution));
+        
+        // LOD: зменшуємо деталізацію для далеких областей
+        const cameraDistance = cameraPosition ? Math.sqrt(cameraPosition.x * cameraPosition.x + cameraPosition.z * cameraPosition.z) : 0;
+        if (cameraDistance > 50) {
+            segmentsX = Math.max(1, Math.floor(segmentsX / 2));
+            segmentsY = Math.max(1, Math.floor(segmentsY / 2));
+        }
         
         console.log('TerrainRenderer: Rendering area:', { 
             startX, endX, startZ, endZ, 

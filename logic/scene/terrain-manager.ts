@@ -108,7 +108,7 @@ export class TerrainManager {
         
         // Логуємо тільки для перших кількох викликів
         if (Math.random() < 0.001) { // 0.1% шанс логування
-            console.log('generateTextureNoise:', { x, z, blurX, blurZ, scale, octaves, persistence, lacunarity, noiseValue, maxValue, result });
+            // generateTextureNoise completed
         }
         
         return result;
