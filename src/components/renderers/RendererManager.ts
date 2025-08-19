@@ -8,6 +8,7 @@ import { RoverRenderer } from './RoverRenderer'
 import { InstancedStoneRenderer } from './InstancedStoneRenderer'
 import { CloudRenderer } from './CloudRenderer'
 import { SmokeRenderer } from './SmokeRenderer'
+import { ElectricArcRenderer } from './ArcRenderer'
 
 export class RendererManager {
     public renderers: Map<string, BaseRenderer> = new Map();
@@ -27,6 +28,7 @@ export class RendererManager {
         this.registerRenderer('rover', new RoverRenderer(this.scene)); // Rover об'єкти
         this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Хмари
         this.registerRenderer('smoke', new SmokeRenderer(this.scene)); // Дим
+        this.registerRenderer('electric-arc', new ElectricArcRenderer(this.scene));
         // Тут можна додати інші рендерери: plane, тощо
     }
 

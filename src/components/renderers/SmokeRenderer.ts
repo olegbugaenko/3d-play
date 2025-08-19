@@ -12,28 +12,35 @@ export interface SmokeSourceData {
   noiseScale?: number; // масштаб шуму
   timeScale?: number;  // швидкість «течії» шуму
   color?: number;      // базовий колір
-  // можна додати: textureUrl?: string
 }
 
 export class SmokeRenderer extends BaseRenderer {
   private readonly MAX_PARTICLES = 60000;
-  private readonly MAX_EMITTERS  = 64;
+  private readonly MAX_EMITTERS  = 8;
 
   private group: THREE.Group;
   private points!: THREE.Points;
   private material!: THREE.ShaderMaterial;
   private geometry!: THREE.BufferGeometry;
 
-  // атрибути
+  // атрибути (пер-частинка)
   private aBirth!: Float32Array;
-  private aEmitter!: Float32Array;
+  private aEmitter!: Float32Array; // залишено, якщо треба дебаг/статистика
   private aSeed!: Float32Array;
-  private aStart!: Float32Array;
+  private aStart!: Float32Array;   // світова стартова позиція (x,y,z)
+
+  private aLife!: Float32Array;
+  private aRise!: Float32Array;
+  private aFlow!: Float32Array;
+  private aNoise!: Float32Array;
+  private aTS!: Float32Array;
+  private aSize!: Float32Array;
+  private aColor!: Float32Array;   // rgb
 
   private head = 0;
   private clock = new THREE.Clock();
 
-  // еміттери
+  // еміттери (звідси беремо параметри тільки під час spawn)
   private emitterPos = new Float32Array(this.MAX_EMITTERS * 3);
   private emitterEmitRate = new Float32Array(this.MAX_EMITTERS);
   private emitterLife = new Float32Array(this.MAX_EMITTERS);
@@ -55,29 +62,52 @@ export class SmokeRenderer extends BaseRenderer {
     this.group.name = 'SmokeGroup';
     this.scene.add(this.group);
 
-    // завантажуємо альфа-маску (мʼяка пляма диму)
+    // завантаження текстури (NPOT-safe)
     const tl = new THREE.TextureLoader();
-    this.smokeTex = tl.load(smokeTextureUrl);
-    this.smokeTex.wrapS = this.smokeTex.wrapT = THREE.ClampToEdgeWrapping;
-    this.smokeTex.minFilter = THREE.LinearMipMapLinearFilter;
-    this.smokeTex.magFilter = THREE.LinearFilter;
+    this.smokeTex = tl.load(smokeTextureUrl, (tex) => {
+      const img = tex.image as HTMLImageElement;
+      const isPOT = (n:number)=> (n & (n-1)) === 0;
+      const pot = img && isPOT(img.width) && isPOT(img.height);
+
+      tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+      if (pot) {
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipMapLinearFilter;
+      } else {
+        tex.generateMipmaps = false;
+        tex.minFilter = THREE.LinearFilter;
+      }
+      tex.magFilter = THREE.LinearFilter;
+      tex.needsUpdate = true;
+    });
 
     this.initParticles();
     this.initShaders();
+
     this.points = new THREE.Points(this.geometry, this.material);
     this.points.frustumCulled = false;
     this.group.add(this.points);
   }
 
   private initParticles() {
-    this.geometry = new THREE.BufferGeometry();
     const N = this.MAX_PARTICLES;
+    this.geometry = new THREE.BufferGeometry();
 
+    // dummy position (Points вимагає 'position', але ми малюємо point sprites)
     const positions = new Float32Array(N * 3);
+
     this.aBirth   = new Float32Array(N);
     this.aEmitter = new Float32Array(N);
     this.aSeed    = new Float32Array(N);
     this.aStart   = new Float32Array(N * 3);
+
+    this.aLife  = new Float32Array(N);
+    this.aRise  = new Float32Array(N);
+    this.aFlow  = new Float32Array(N);
+    this.aNoise = new Float32Array(N);
+    this.aTS    = new Float32Array(N);
+    this.aSize  = new Float32Array(N);
+    this.aColor = new Float32Array(N * 3);
 
     for (let i=0;i<N;i++){
       this.aBirth[i] = -1e9;
@@ -86,6 +116,17 @@ export class SmokeRenderer extends BaseRenderer {
       const i3 = i*3;
       positions[i3+0] = 0; positions[i3+1] = 0; positions[i3+2] = 0;
       this.aStart[i3+0] = 0; this.aStart[i3+1] = 0; this.aStart[i3+2] = 0;
+
+      // дефолти (перестраховка)
+      this.aLife[i] = 4.0;
+      this.aRise[i] = 3.0;
+      this.aFlow[i] = 0.5;
+      this.aNoise[i] = 0.3;
+      this.aTS[i] = 0.6;
+      this.aSize[i] = 16.0;
+      this.aColor[i3+0] = 0.8;
+      this.aColor[i3+1] = 0.8;
+      this.aColor[i3+2] = 0.8;
     }
 
     this.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -93,30 +134,32 @@ export class SmokeRenderer extends BaseRenderer {
     this.geometry.setAttribute('aEmitter', new THREE.BufferAttribute(this.aEmitter, 1));
     this.geometry.setAttribute('aSeed',    new THREE.BufferAttribute(this.aSeed, 1));
     this.geometry.setAttribute('aStart',   new THREE.BufferAttribute(this.aStart, 3));
+
+    this.geometry.setAttribute('aLife',  new THREE.BufferAttribute(this.aLife, 1));
+    this.geometry.setAttribute('aRise',  new THREE.BufferAttribute(this.aRise, 1));
+    this.geometry.setAttribute('aFlow',  new THREE.BufferAttribute(this.aFlow, 1));
+    this.geometry.setAttribute('aNoise', new THREE.BufferAttribute(this.aNoise,1));
+    this.geometry.setAttribute('aTS',    new THREE.BufferAttribute(this.aTS,   1));
+    this.geometry.setAttribute('aSize',  new THREE.BufferAttribute(this.aSize, 1));
+    this.geometry.setAttribute('aColor', new THREE.BufferAttribute(this.aColor,3));
   }
 
   private initShaders() {
     const vertexShader = `
     precision mediump float;
     uniform float uTime;
-    uniform int   uEmitterCount;
     uniform float uPixelRatio;
 
-    #define MAX_EMITTERS ${this.MAX_EMITTERS}
-
-    uniform vec3  uEmitterPos[MAX_EMITTERS];
-    uniform float uLife[MAX_EMITTERS];
-    uniform float uRise[MAX_EMITTERS];
-    uniform float uFlow[MAX_EMITTERS];
-    uniform float uNoiseScale[MAX_EMITTERS];
-    uniform float uTimeScale[MAX_EMITTERS];
-    uniform float uBaseSize[MAX_EMITTERS];
-    uniform vec3  uColor[MAX_EMITTERS];
-
     attribute float aBirth;
-    attribute float aEmitter;
     attribute float aSeed;
-    attribute vec3  aStart;
+    attribute vec3  aStart;   // світова стартова позиція
+    attribute float aLife;
+    attribute float aRise;
+    attribute float aFlow;
+    attribute float aNoise;
+    attribute float aTS;
+    attribute float aSize;
+    attribute vec3  aColor;
 
     varying float vAlpha;
     varying vec3  vColor;
@@ -161,61 +204,36 @@ export class SmokeRenderer extends BaseRenderer {
       float b = 1.0 - smoothstep(0.7, 1.0, x);
       return clamp(a*b, 0.0, 1.0);
     }
-    void fetchEmitter(int idx, out vec3 ePos, out float eLife, out float eRise,
-                      out float eFlow, out float eNoise, out float eTS,
-                      out float eSize, out vec3 eColor) {
-      ePos = vec3(0.0); eLife=6.0; eRise=3.0; eFlow=1.8;
-      eNoise=0.6; eTS=0.7; eSize=18.0; eColor=vec3(0.85);
-      for (int i=0;i<MAX_EMITTERS;i++){
-        if (i==idx){
-          ePos = uEmitterPos[i];
-          eLife= uLife[i];
-          eRise= uRise[i];
-          eFlow= uFlow[i];
-          eNoise= uNoiseScale[i];
-          eTS  = uTimeScale[i];
-          eSize= uBaseSize[i];
-          eColor= uColor[i];
-        }
-      }
-    }
 
     void main(){
-      int idx = int(floor(aEmitter + 0.5));
-      vec3 ePos; float eLife; float eRise; float eFlow; float eNoise; float eTS; float eSize; vec3 col;
-      fetchEmitter(idx, ePos, eLife, eRise, eFlow, eNoise, eTS, eSize, col);
-
-      float age = clamp((uTime - aBirth) / eLife, 0.0, 1.0);
+      float age = clamp((uTime - aBirth) / aLife, 0.0, 1.0);
       float ageWide = pow(age, 1.5);
 
-      vec3 pos = ePos + aStart;
+      vec3 pos = aStart;
 
-      float rise = eRise * (age*age*(3.0-2.0*age));
+      float rise = aRise * (age*age*(3.0-2.0*age));
       pos.y += rise;
 
-      float t = uTime * eTS;
-      vec3 q = aStart * eNoise + vec3(aSeed);
+      float t = uTime * aTS;
+      vec3 q = aStart * aNoise + vec3(aSeed);
       vec3 swirl = vec3(
         fbm(q + vec3(t, 0.0, 0.0)) - 0.5,
         fbm(q + vec3(0.0, t, 0.0)) - 0.5,
         fbm(q + vec3(0.0, 0.0, t)) - 0.5
       );
-      pos += normalize(swirl + 1e-4) * eFlow * (0.4 + 1.8 * ageWide);
+      pos += normalize(swirl + 1e-4) * aFlow * (0.4 + 1.8 * ageWide);
 
-      float spin = (aSeed * 13.37 + uTime * 0.7) * 0.003 * age;
-      float cs = cos(spin), sn = sin(spin);
-      vec2 rel = pos.xz - ePos.xz;
-      rel = mat2(cs, -sn, sn, cs) * rel;
-      pos.xz = rel + ePos.xz;
-
-      vColor = col;
+      vColor = aColor;
       vAlpha = bell(age);
 
       float sizeJitter = 0.75 + 0.5 * hash(vec3(aSeed, 0.0, 0.0));
-      float size = eSize * (0.8 + 1.2 * age) * sizeJitter;
+      float size = aSize * (0.8 + 1.2 * age) * sizeJitter;
 
       vec4 mv = modelViewMatrix * vec4(pos, 1.0);
-      gl_PointSize = size * uPixelRatio * (24.0 / -mv.z); // БІЛЬШІ спрайти, hiDPI
+      gl_PointSize = size * uPixelRatio * (24.0 / -mv.z);
+      // на всякий випадок обмежимо дуже великі точки
+      gl_PointSize = min(gl_PointSize, 1024.0);
+
       gl_Position = projectionMatrix * mv;
     }`;
 
@@ -250,22 +268,12 @@ export class SmokeRenderer extends BaseRenderer {
       vertexShader,
       fragmentShader,
       uniforms: {
-        uTime:        { value: 0 },
-        uEmitterCount:{ value: 0 },
-        uPixelRatio:  { value: (typeof window !== 'undefined' ? window.devicePixelRatio : 1) },
-        uSmokeTex:    { value: this.smokeTex },
-        uEmitterPos:  { value: Array.from({length: this.MAX_EMITTERS}, ()=> new THREE.Vector3()) },
-        uLife:        { value: new Array(this.MAX_EMITTERS).fill(6.0) },   // повільніше
-        uRise:        { value: new Array(this.MAX_EMITTERS).fill(10.02) },   // нижчий підйом
-        uFlow:        { value: new Array(this.MAX_EMITTERS).fill(0.1) },   // ширше розносить
-        uNoiseScale:  { value: new Array(this.MAX_EMITTERS).fill(0.03) },
-        uTimeScale:   { value: new Array(this.MAX_EMITTERS).fill(0.07) },
-        uBaseSize:    { value: new Array(this.MAX_EMITTERS).fill(48.0) },  // більші спрайти
-        uColor:       { value: new Array(this.MAX_EMITTERS).fill(new THREE.Color(0x333E37)) }
+        uTime:       { value: 0 },
+        uPixelRatio: { value: (typeof window !== 'undefined' ? window.devicePixelRatio : 1) },
+        uSmokeTex:   { value: this.smokeTex }
       }
     });
 
-    // важливо, якщо використовуєш тонемеппінг/сргб рендерера
     (this.material as any).toneMapped = true;
   }
 
@@ -277,13 +285,13 @@ export class SmokeRenderer extends BaseRenderer {
     this.emitterPos[i*3+1] = position.y;
     this.emitterPos[i*3+2] = position.z;
 
-    this.emitterEmitRate[i] = opts.emitRate ?? 120;
-    this.emitterLife[i]     = opts.life ?? 6.0;     // було 3.8
-    this.emitterRise[i]     = opts.rise ?? 3.0;     // було 6.0
-    this.emitterFlow[i]     = opts.flow ?? 1.8;     // було 1.2
+    this.emitterEmitRate[i]   = opts.emitRate ?? 36;
+    this.emitterLife[i]       = opts.life ?? 6.0;
+    this.emitterRise[i]       = opts.rise ?? 3.0;
+    this.emitterFlow[i]       = opts.flow ?? 1.8;
     this.emitterNoiseScale[i] = opts.noiseScale ?? 0.6;
     this.emitterTimeScale[i]  = opts.timeScale ?? 0.7;
-    this.emitterBaseSize[i]   = opts.baseSize ?? 18.0; // було 8.0
+    this.emitterBaseSize[i]   = opts.baseSize ?? 18.0;
 
     const c = new THREE.Color(opts.color ?? 0xD3CEC7);
     this.emitterColor[i*3+0] = c.r;
@@ -291,22 +299,6 @@ export class SmokeRenderer extends BaseRenderer {
     this.emitterColor[i*3+2] = c.b;
 
     this.emitterAcc[i] = 0;
-
-    const U = this.material.uniforms;
-    (U.uEmitterPos.value as THREE.Vector3[])[i].set(position.x, position.y, position.z);
-    (U.uLife.value as number[])[i]       = this.emitterLife[i];
-    (U.uRise.value as number[])[i]       = this.emitterRise[i];
-    (U.uFlow.value as number[])[i]       = this.emitterFlow[i];
-    (U.uNoiseScale.value as number[])[i] = this.emitterNoiseScale[i];
-    (U.uTimeScale.value as number[])[i]  = this.emitterTimeScale[i];
-    (U.uBaseSize.value as number[])[i]   = this.emitterBaseSize[i];
-    (U.uColor.value as THREE.Color[])[i] = new THREE.Color(
-      this.emitterColor[i*3+0],
-      this.emitterColor[i*3+1],
-      this.emitterColor[i*3+2]
-    );
-    this.material.uniforms.uEmitterCount.value = i+1;
-
     this.emitterCount++;
     return i;
   }
@@ -316,27 +308,55 @@ export class SmokeRenderer extends BaseRenderer {
     this.emitterPos[index*3+0] = pos.x;
     this.emitterPos[index*3+1] = pos.y;
     this.emitterPos[index*3+2] = pos.z;
-    (this.material.uniforms.uEmitterPos.value as THREE.Vector3[])[index].set(pos.x, pos.y, pos.z);
+    // частинки, що вже народилися, НЕ рухаються — вплине лише на нові спавни
   }
 
   private spawnParticle(emitterIdx: number, now: number) {
     const i = this.head;
     this.head = (this.head + 1) % this.MAX_PARTICLES;
 
-    // ширше «сопло» + невеликий вертикальний джиттер
-    const r = Math.pow(Math.random(), 1.5) * 0.28; // було 0.15
+    const ex = this.emitterPos[emitterIdx*3+0];
+    const ey = this.emitterPos[emitterIdx*3+1];
+    const ez = this.emitterPos[emitterIdx*3+2];
+
+    // ширше «сопло» + невеликий вертикальний джиттер (світові координати)
+    const r = Math.pow(Math.random(), 1.5) * 0.28;
     const a = Math.random() * Math.PI * 2;
     const i3 = i*3;
-    this.aStart[i3+0] = Math.cos(a)*r;
-    this.aStart[i3+1] = Math.random() * 0.08;      // +y джиттер
-    this.aStart[i3+2] = Math.sin(a)*r;
+
+    this.aStart[i3+0] = ex + Math.cos(a)*r;
+    this.aStart[i3+1] = ey + Math.random() * 0.08;
+    this.aStart[i3+2] = ez + Math.sin(a)*r;
 
     this.aBirth[i]   = now;
-    this.aEmitter[i] = emitterIdx;
+    this.aEmitter[i] = emitterIdx; // залишено для відладки/телеметрії
+    this.aSeed[i]    = Math.random() * 1000.0;
 
+    // копія параметрів емітера в атрибути частинки
+    this.aLife[i]  = this.emitterLife[emitterIdx];
+    this.aRise[i]  = this.emitterRise[emitterIdx];
+    this.aFlow[i]  = this.emitterFlow[emitterIdx];
+    this.aNoise[i] = this.emitterNoiseScale[emitterIdx];
+    this.aTS[i]    = this.emitterTimeScale[emitterIdx];
+    this.aSize[i]  = this.emitterBaseSize[emitterIdx];
+
+    this.aColor[i3+0] = this.emitterColor[emitterIdx*3+0];
+    this.aColor[i3+1] = this.emitterColor[emitterIdx*3+1];
+    this.aColor[i3+2] = this.emitterColor[emitterIdx*3+2];
+
+    // позначаємо оновлення буферів (мінімально необхідні)
     (this.geometry.getAttribute('aBirth')   as THREE.BufferAttribute).needsUpdate = true;
     (this.geometry.getAttribute('aEmitter') as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute('aSeed')    as THREE.BufferAttribute).needsUpdate = true;
     (this.geometry.getAttribute('aStart')   as THREE.BufferAttribute).needsUpdate = true;
+
+    (this.geometry.getAttribute('aLife')  as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute('aRise')  as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute('aFlow')  as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute('aNoise') as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute('aTS')    as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute('aSize')  as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute('aColor') as THREE.BufferAttribute).needsUpdate = true;
   }
 
   updateAllSmoke() {
@@ -354,14 +374,14 @@ export class SmokeRenderer extends BaseRenderer {
 
   render(object: SceneObject): THREE.Object3D {
     const idx = this.addSmokeSource(object.coordinates, {
-      emitRate: object.data?.emitRate ?? 36,
-      life:     object.data?.life ?? 6.0,
-      rise:     object.data?.rise ?? 5.3,
-      baseSize: object.data?.baseSize ?? 38.0,
-      flow:     object.data?.flow ?? 0.4,
-      noiseScale: object.data?.noiseScale ?? 0.0,
-      timeScale:  object.data?.timeScale ?? 0.2,
-      color:      object.data?.color ?? 0x232E27
+      emitRate:  object.data?.emitRate ?? 18,
+      life:      object.data?.life ?? 6.0,
+      rise:      object.data?.rise ?? 9.3,
+      baseSize:  object.data?.baseSize ?? 44.0,
+      flow:      object.data?.flow ?? 0.4,
+      noiseScale:object.data?.noiseScale ?? 0.0,
+      timeScale: object.data?.timeScale ?? 0.2,
+      color:     object.data?.color ?? 0x232E27
     });
 
     this.addMesh(object.id, this.points);

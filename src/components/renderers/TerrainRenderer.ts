@@ -57,7 +57,7 @@ export class TerrainRenderer {
         const renderResolution = MAP_CONFIG.terrain.renderResolution; // Рендеримо з конфігурації
         
         // Визначаємо область для рендерингу (навколо камери)
-        const viewDistance = 50; // Зменшуємо ще більше для тестування продуктивності
+        const viewDistance = 200; // Зменшуємо ще більше для тестування продуктивності
         const centerX = cameraPosition?.x || 0;
         const centerZ = cameraPosition?.z || 0;
         

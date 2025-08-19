@@ -897,16 +897,21 @@ const Scene3D: React.FC = () => {
 
         // Оновлюємо пилові хмари (повільний рух та анімація)
         if (rendererManagerRef.current) {
-            const cloudRenderer = rendererManagerRef.current.renderers.get('cloud');
-            if (cloudRenderer && 'updateAllClouds' in cloudRenderer) {
-                (cloudRenderer as any).updateAllClouds();
-            }
-            
-            const smokeRenderer = rendererManagerRef.current.renderers.get('smoke');
-            if (smokeRenderer && 'updateAllSmoke' in smokeRenderer) {
-                (smokeRenderer as any).updateAllSmoke();
-            }
-        }
+                     const cloudRenderer = rendererManagerRef.current.renderers.get('cloud');
+                     if (cloudRenderer && 'updateAllClouds' in cloudRenderer) {
+                         (cloudRenderer as any).updateAllClouds();
+                     }
+        
+                     const smokeRenderer = rendererManagerRef.current.renderers.get('smoke');
+                     if (smokeRenderer && 'updateAllSmoke' in smokeRenderer) {
+                        (smokeRenderer as any).updateAllSmoke();
+                    }
+                    const arcRenderer = rendererManagerRef.current.renderers.get('electric-arc');
+                    if(arcRenderer && 'updateAllArcs' in arcRenderer) {
+                      (arcRenderer as any).updateAllArcs();
+                    }
+                }
+        
     
     // Застосовуємо автоматичне панорамування
     const currentCameraDistance = camera.position.distanceTo(controls.target);

@@ -34,13 +34,15 @@ export class MapLogic {
         
         // Генеруємо хмари
         console.log('🗺️ MapLogic: починаємо генерувати хмари...');
-        //this.generateClouds();
+        this.generateClouds();
         console.log('🗺️ MapLogic: хмари згенеровані');
         
         // Генеруємо джерела диму
         console.log('💨 MapLogic: починаємо генерувати дим...');
-        //this.generateSmoke();
+        this.generateSmoke();
         console.log('💨 MapLogic: дим згенеровано');
+
+        this.generateArcs();
         
         // Логуємо результат
 
@@ -246,11 +248,45 @@ export class MapLogic {
         return false;
     }
 
+    private generateArcs() {
+        const arcCount = 5;
+
+        for(let i = 0; i < arcCount; i++) {
+
+            const x = (Math.random() - 0.5) * 50; // X: -200 до 200
+            const z = (Math.random() - 0.5) * 50; // Z: -200 до 200
+
+            const arc: TSceneObject = {
+                id: `bolt-${i}`,
+                type: 'electric-arc',
+                coordinates: { x, y: 100, z },     // A
+                scale: { x: 1, y: 1, z: 1},
+                rotation: {x: 0, y: 0, z: 0},
+                tags: ['effect', 'dynamic'],
+                data: {
+                  target: { x, y: 0, z },       // B
+                  kinks: 30,           // більше зламів = «дрібніша» блискавка
+                  amplitude: 5,     // ширина кривулі у world units
+                  thicknessPx: 0.03,    // ядро
+                  glowPx: 0.5,         // ореол
+                  color: 0xAEE6FF,
+                  glowColor: 0xAEE6FF,
+                  coreOpacity: 1.0,
+                  glowOpacity: 0.02,
+                  glowIntensity: 0.05,
+                  seed: 42
+                }
+              }
+
+              this.scene.pushObject(arc);
+        }
+    }
+
     /**
      * Генерує джерела диму на карті
      */
     private generateSmoke() {
-        const smokeCount = 5; // Кількість джерел диму
+        const smokeCount = 25; // Кількість джерел диму
         
         for (let i = 0; i < smokeCount; i++) {
             // Випадкова позиція на карті
@@ -418,7 +454,7 @@ export class MapLogic {
      * Генерує пилові хмари на землі
      */
     private generateClouds() {
-        const cloudCount = 25; // ЗБІЛЬШУЄМО кількість хмар
+        const cloudCount = 5; // ЗБІЛЬШУЄМО кількість хмар
         
         for (let i = 0; i < cloudCount; i++) {
             // ГЕНЕРУЄМО ВИПАДКОВІ КООРДИНАТИ для кожної хмари
@@ -434,7 +470,7 @@ export class MapLogic {
                 data: { 
                     size: 21 + Math.random() * 22, // 8-20 одиниць радіус (більші хмари)
                     color: 0xD2B46C, // Пісочний колір
-                    particleCount: 1000, //13200 + Math.floor(Math.random() * 18000), // 1200-2000 частинок на хмару (ЗБІЛЬШУЄМО!)
+                    particleCount: 200, //13200 + Math.floor(Math.random() * 18000), // 1200-2000 частинок на хмару (ЗБІЛЬШУЄМО!)
                     windSpeed: 0.3 + Math.random() * 0.7, // 0.3-1.0 швидкість вітру
                     height: 4 + Math.random() * 8 // 4-12 одиниць висоти
                 },
@@ -447,65 +483,6 @@ export class MapLogic {
             this.scene.pushObject(cloud);
         }
     
-    // Додаємо тестову хмару прямо в центр карти для дебагу
-    const testCloud: TSceneObject = {
-        id: 'test_dust_cloud',
-        type: 'cloud',
-        coordinates: { x: 0, y: 0, z: 0 }, // Прямо в центр
-        scale: { x: 1, y: 1, z: 1 },
-        rotation: { x: 0, y: 0, z: 0 },
-        data: { 
-            size: 15, // Дуже велика хмара
-            color: 0xFF0000, // Червоний колір для тестування
-            particleCount: 4000, // ЗБІЛЬШУЄМО кількість частинок
-            height: 12 // Висока хмара
-        },
-        tags: ['on-ground', 'static', 'dust', 'test'],
-        bottomAnchor: 0,
-        terrainAlign: false
-    };
-    
-    this.scene.pushObject(testCloud);
-    
-    // Додаємо ще одну тестову хмару зеленим кольором для порівняння
-    const testCloud2: TSceneObject = {
-        id: 'test_dust_cloud_2',
-        type: 'cloud',
-        coordinates: { x: 50, y: 0, z: 0 }, // Поруч з червоною
-        scale: { x: 1, y: 1, z: 1 },
-        rotation: { x: 0, y: 0, z: 0 },
-        data: { 
-            size: 8, // Середня хмара
-            color: 0x00FF00, // Зелений колір для тестування
-            particleCount: 2000, // ЗБІЛЬШУЄМО кількість частинок
-            height: 6 // Середня висота
-        },
-        tags: ['on-ground', 'static', 'dust', 'test'],
-        bottomAnchor: 0,
-        terrainAlign: false
-    };
-    
-    this.scene.pushObject(testCloud2);
-    
-    // Додаємо ще одну тестову хмару СИНЬОГО кольору точно в центр
-    const testCloud3: TSceneObject = {
-        id: 'test_dust_cloud_3',
-        type: 'cloud',
-        coordinates: { x: 0, y: 0, z: 0 }, // ТОЧНО в центр
-        scale: { x: 1, y: 1, z: 1 },
-        rotation: { x: 0, y: 0, z: 0 },
-        data: { 
-            size: 20, // Дуже велика хмара
-            color: 0x0000FF, // СИНІЙ колір для тестування
-            particleCount: 6000, // ЗБІЛЬШУЄМО кількість частинок
-            height: 15 // Дуже висока хмара
-        },
-        tags: ['on-ground', 'static', 'dust', 'test', 'center'],
-        bottomAnchor: 0,
-        terrainAlign: false
-    };
-    
-    this.scene.pushObject(testCloud3);
 }
 
     /**
