@@ -8,6 +8,7 @@ import { RoverRenderer } from './RoverRenderer'
 import { InstancedStoneRenderer } from './InstancedStoneRenderer'
 import { CloudRenderer } from './CloudRenderer'
 import { SmokeRenderer } from './SmokeRenderer'
+import { FireRenderer } from './FireRenderer'
 import { ElectricArcRenderer } from './ArcRenderer'
 
 export class RendererManager {
@@ -21,14 +22,15 @@ export class RendererManager {
 
     private initializeRenderers(): void {
         // Реєструємо рендерери для різних типів об'єктів
-        this.registerRenderer('cube', new CubeRenderer(this.scene));
-        this.registerRenderer('sphere', new SphereRenderer(this.scene));
-        this.registerRenderer('boulder', new BoulderRenderer(this.scene));
-        this.registerRenderer('rock', new InstancedStoneRenderer(this.scene)); // Каменюки типу rock з Instanced Rendering
-        this.registerRenderer('rover', new RoverRenderer(this.scene)); // Rover об'єкти
-        this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Хмари
-        this.registerRenderer('smoke', new SmokeRenderer(this.scene)); // Дим
-        this.registerRenderer('electric-arc', new ElectricArcRenderer(this.scene));
+        //this.registerRenderer('cube', new CubeRenderer(this.scene));
+        //this.registerRenderer('sphere', new SphereRenderer(this.scene));
+        //this.registerRenderer('boulder', new BoulderRenderer(this.scene));
+        //this.registerRenderer('rock', new InstancedStoneRenderer(this.scene)); // Каменюки типу rock з Instanced Rendering
+        //this.registerRenderer('rover', new RoverRenderer(this.scene)); // Rover об'єкти
+        //this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Хмари
+        // this.registerRenderer('smoke', new SmokeRenderer(this.scene)); // Дим
+        //this.registerRenderer('fire', new FireRenderer(this.scene)); // Вогонь
+        ///this.registerRenderer('electric-arc', new ElectricArcRenderer(this.scene));
         // Тут можна додати інші рендерери: plane, тощо
     }
 

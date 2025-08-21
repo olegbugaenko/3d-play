@@ -44,6 +44,11 @@ export class MapLogic {
 
         this.generateArcs();
         
+        // Генеруємо джерела вогню
+        console.log('🔥 MapLogic: починаємо генерувати вогонь...');
+        this.generateFire();
+        console.log('🔥 MapLogic: вогонь згенеровано');
+        
         // Логуємо результат
 
         // Додаємо тестовий динамічний об'єкт (без terrain constraint)
@@ -249,32 +254,33 @@ export class MapLogic {
     }
 
     private generateArcs() {
-        const arcCount = 5;
+        const arcCount = 25;
 
         for(let i = 0; i < arcCount; i++) {
 
-            const x = (Math.random() - 0.5) * 50; // X: -200 до 200
-            const z = (Math.random() - 0.5) * 50; // Z: -200 до 200
+            const x = (Math.random() - 0.5) * 250; // X: -200 до 200
+            const z = (Math.random() - 0.5) * 250; // Z: -200 до 200
 
             const arc: TSceneObject = {
                 id: `bolt-${i}`,
                 type: 'electric-arc',
-                coordinates: { x, y: 100, z },     // A
+                coordinates: { x, y: 50, z },     // A
                 scale: { x: 1, y: 1, z: 1},
                 rotation: {x: 0, y: 0, z: 0},
                 tags: ['effect', 'dynamic'],
                 data: {
                   target: { x, y: 0, z },       // B
-                  kinks: 30,           // більше зламів = «дрібніша» блискавка
+                  kinks: 14,           // більше зламів = «дрібніша» блискавка
                   amplitude: 5,     // ширина кривулі у world units
                   thicknessPx: 0.03,    // ядро
-                  glowPx: 0.5,         // ореол
+                  glowPx: 0.1,         // ореол
                   color: 0xAEE6FF,
                   glowColor: 0xAEE6FF,
                   coreOpacity: 1.0,
                   glowOpacity: 0.02,
-                  glowIntensity: 0.05,
-                  seed: 42
+                  glowIntensity: 0.5,
+                  jitterAmp: 2,
+                  seed: i
                 }
               }
 
@@ -286,12 +292,12 @@ export class MapLogic {
      * Генерує джерела диму на карті
      */
     private generateSmoke() {
-        const smokeCount = 25; // Кількість джерел диму
+        const smokeCount = 20; // Кількість джерел диму
         
         for (let i = 0; i < smokeCount; i++) {
             // Випадкова позиція на карті
-            const x = (Math.random() - 0.5) * 50; // X: -200 до 200
-            const z = (Math.random() - 0.5) * 50; // Z: -200 до 200
+            const x = (Math.random() - 0.5) * 150; // X: -200 до 200
+            const z = (Math.random() - 0.5) * 150; // Z: -200 до 200
             
             const smoke: TSceneObject = {
                 id: `smoke_source_${i}`,
@@ -303,9 +309,12 @@ export class MapLogic {
                     intensity: 0.5 + Math.random() * 1.5, // 0.5-2.0 інтенсивність
                     color: 0x84B4543, // темно сірий дим
                     particleCount: 150 + Math.floor(Math.random() * 100), // 150-250 частинок
-                    riseSpeed: 1.0 + Math.random() * 1.5, // 1.0-2.5 швидкість підйому
-                    spreadRadius: 2.0 + Math.random() * 2.0, // 2.0-4.0 радіус розсіювання
-                    lifetime: 5.0 + Math.random() * 3.0 // 5.0-8.0 час життя
+                    riseSpeed: 2.3*(0.5 + Math.random() * 0.5), // 1.0-2.5 швидкість підйому
+                    spreadRadius: 0*(1.0 + Math.random() * 1.0), // 2.0-4.0 радіус розсіювання
+                    lifetime: 5.0 + Math.random() * 3.0, // 5.0-8.0 час життя
+                    baseSize: 15,
+                    flow: 0.2,
+                    noiseScale: 0.5
                 },
                 tags: ['on-ground', 'static', 'smoke'],
                 bottomAnchor: 0,
@@ -314,6 +323,49 @@ export class MapLogic {
             
             // Додаємо джерело диму
             this.scene.pushObjectWithTerrainConstraint(smoke);
+        }
+    }
+
+    /**
+     * Генерує джерела вогню на карті
+     */
+    private generateFire() {
+        const fireCount = 25; // Кількість джерел вогню
+        
+        for (let i = 0; i < fireCount; i++) {
+            // Випадкова позиція на карті
+            const x = (Math.random() - 0.5) * 200; // X: -100 до 100
+            const z = (Math.random() - 0.5) * 200; // Z: -100 до 100
+            
+            const fire: TSceneObject = {
+                id: `fire_source_${i}`,
+                type: 'fire',
+                coordinates: { x, y: 0, z }, // Y буде встановлено terrain системою
+                scale: { x: 0.1, y: 0.1, z: 0.1 },
+                rotation: { x: 0, y: 0, z: 0 },
+                data: { 
+                    emitRate: 20 + Math.floor(Math.random() * 16), // 20-36 частинок/сек
+                    life: 2.0 + Math.random() * 1.5, // 2.0-3.5 сек
+                    rise: 3.0 + Math.random() * 2.0, // 3.0-5.0 висота підйому
+                    baseSize: 20 + Math.random() * 16, // 20-36 розмір спрайта
+                    flow: 0.8 + Math.random() * 0.8, // 0.8-1.6 сила завихрення
+                    noiseScale: 0.6 + Math.random() * 0.4, // 0.6-1.0 масштаб шуму
+                    timeScale: 1.0 + Math.random() * 0.4, // 1.0-1.4 швидкість течії
+                    color: (() => {
+                        const colors = [0xFF6600, 0xFF4400, 0xFF8800, 0xFF5500]; // Відтінки помаранчевого
+                        return colors[Math.floor(Math.random() * colors.length)];
+                    })(),
+                    intensity: 0.8 + Math.random() * 0.4, // 0.8-1.2 інтенсивність
+                    flickerSpeed: 0.8 + Math.random() * 0.4, // 0.8-1.2 швидкість мерехтіння
+                    heatDistortion: 0.3 + Math.random() * 0.4 // 0.3-0.7 спотворення від тепла
+                },
+                tags: ['on-ground', 'static', 'fire'],
+                bottomAnchor: 0,
+                terrainAlign: false
+            };
+            
+            // Додаємо джерело вогню
+            this.scene.pushObjectWithTerrainConstraint(fire);
         }
     }
 

@@ -12,11 +12,12 @@ export interface SmokeSourceData {
   noiseScale?: number; // масштаб шуму
   timeScale?: number;  // швидкість «течії» шуму
   color?: number;      // базовий колір
+  spreadRadius?: number; // радіус розсіювання частинок
 }
 
 export class SmokeRenderer extends BaseRenderer {
-  private readonly MAX_PARTICLES = 60000;
-  private readonly MAX_EMITTERS  = 8;
+  private readonly MAX_PARTICLES = 6000;
+  private readonly MAX_EMITTERS  = 25;
 
   private group: THREE.Group;
   private points!: THREE.Points;
@@ -49,6 +50,7 @@ export class SmokeRenderer extends BaseRenderer {
   private emitterNoiseScale = new Float32Array(this.MAX_EMITTERS);
   private emitterTimeScale = new Float32Array(this.MAX_EMITTERS);
   private emitterBaseSize = new Float32Array(this.MAX_EMITTERS);
+  private emitterSpreadRadius = new Float32Array(this.MAX_EMITTERS);
   private emitterColor = new Float32Array(this.MAX_EMITTERS * 3);
   private emitterAcc = new Float32Array(this.MAX_EMITTERS);
   private emitterCount = 0;
@@ -285,13 +287,14 @@ export class SmokeRenderer extends BaseRenderer {
     this.emitterPos[i*3+1] = position.y;
     this.emitterPos[i*3+2] = position.z;
 
-    this.emitterEmitRate[i]   = opts.emitRate ?? 36;
+    this.emitterEmitRate[i]   = opts.emitRate ?? 18;
     this.emitterLife[i]       = opts.life ?? 6.0;
     this.emitterRise[i]       = opts.rise ?? 3.0;
-    this.emitterFlow[i]       = opts.flow ?? 1.8;
+    this.emitterFlow[i]       = opts.flow ?? 0.0;
     this.emitterNoiseScale[i] = opts.noiseScale ?? 0.6;
     this.emitterTimeScale[i]  = opts.timeScale ?? 0.7;
     this.emitterBaseSize[i]   = opts.baseSize ?? 18.0;
+    this.emitterSpreadRadius[i] = opts.spreadRadius ?? 0.28;
 
     const c = new THREE.Color(opts.color ?? 0xD3CEC7);
     this.emitterColor[i*3+0] = c.r;
@@ -320,7 +323,7 @@ export class SmokeRenderer extends BaseRenderer {
     const ez = this.emitterPos[emitterIdx*3+2];
 
     // ширше «сопло» + невеликий вертикальний джиттер (світові координати)
-    const r = Math.pow(Math.random(), 1.5) * 0.28;
+    const r = Math.pow(Math.random(), 1.5) * this.emitterSpreadRadius[emitterIdx];
     const a = Math.random() * Math.PI * 2;
     const i3 = i*3;
 
@@ -376,12 +379,13 @@ export class SmokeRenderer extends BaseRenderer {
     const idx = this.addSmokeSource(object.coordinates, {
       emitRate:  object.data?.emitRate ?? 18,
       life:      object.data?.life ?? 6.0,
-      rise:      object.data?.rise ?? 9.3,
+      rise:      object.data?.riseSpeed ?? 9.3,
       baseSize:  object.data?.baseSize ?? 44.0,
-      flow:      object.data?.flow ?? 0.4,
+      flow:      object.data?.flow ?? 0.0,
       noiseScale:object.data?.noiseScale ?? 0.0,
       timeScale: object.data?.timeScale ?? 0.2,
-      color:     object.data?.color ?? 0x232E27
+      color:     object.data?.color ?? 0x232E27,
+      spreadRadius: object.data?.spreadRadius ?? 0.0
     });
 
     this.addMesh(object.id, this.points);

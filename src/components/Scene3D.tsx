@@ -94,14 +94,20 @@ const Scene3D: React.FC = () => {
   // Створюємо контроли
   const controls = useMemo(() => {
     const newControls = new OrbitControls(camera, renderer.domElement)
-    newControls.enableDamping = true
+    newControls.enableDamping = false
     newControls.dampingFactor = 0.05
+    newControls.enablePan = false;
     
-    // Вимікаємо стандартні контроли для лівої кнопки
+    newControls.enableRotate = false      // Вимікаємо обертання
+    newControls.enablePan = false         // Вимікаємо панорамування  
+    newControls.enableZoom = false        // Вимікаємо зум
+    newControls.enableDamping = false     // Вимікаємо плавність
+    
+    // Вимікаємо всі кнопки миші
     newControls.mouseButtons = {
       LEFT: null,
-      MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: THREE.MOUSE.ROTATE
+      MIDDLE: null,
+      RIGHT: null
     }
     
     // Вимікаємо зум колесом миші
@@ -143,7 +149,7 @@ const Scene3D: React.FC = () => {
       if (mapLogicRef.current) {
         const terrainManager = mapLogicRef.current.scene.getTerrainManager();
         console.log('TerrainManager:', terrainManager);
-        
+        /*
         if (terrainManager) {
           // Створюємо TerrainRenderer
           terrainRendererRef.current = new TerrainRenderer(scene, terrainManager);
@@ -161,7 +167,7 @@ const Scene3D: React.FC = () => {
           });
         } else {
           console.log('TerrainManager is null!');
-        }
+        }*/
       }
       
       console.log('CALL INIT');
@@ -212,6 +218,7 @@ const Scene3D: React.FC = () => {
           }
           
           // Створюємо TerrainRenderer якщо він ще не створений
+          /*
           if (!terrainRendererRef.current) {
             terrainRendererRef.current = new TerrainRenderer(scene, terrainManager);
             console.log('TerrainRenderer created in updateViewport');
@@ -226,7 +233,7 @@ const Scene3D: React.FC = () => {
             }).catch(error => {
                 console.error('Failed to render terrain:', error);
             });
-          }
+          }*/
         }
       }
     }
@@ -378,27 +385,30 @@ const Scene3D: React.FC = () => {
       if (dragDistance > 5) { // 5 пікселів мінімальна відстань для drag
         isDraggingRef.current = true;
       }
-    }
-    
-    // Коригуємо висоту на основі terrain
-    if (mapLogicRef.current) {
-      const terrainManager = mapLogicRef.current.scene.getTerrainManager();
-      if (terrainManager) {
-        // Отримуємо висоту terrain в точці фокусу
-        const terrainHeight = terrainManager.getHeightAt(controls.target.x, controls.target.z);
-        
-        // Якщо точка фокусу не на terrain - коригуємо її
-        if (Math.abs(controls.target.y - terrainHeight) > 0.1) {
-          const heightDifference = terrainHeight - controls.target.y;
+
+      // Коригуємо висоту на основі terrain
+      if (mapLogicRef.current) {
+        const terrainManager = mapLogicRef.current.scene.getTerrainManager();
+        if (terrainManager) {
+          // Отримуємо висоту terrain в точці фокусу
+          console.log('getHeightAt call');
+          const terrainHeight = terrainManager.getHeightAt(controls.target.x, controls.target.z);
           
-          // Піднімаємо точку фокусу на висоту terrain
-          controls.target.y = terrainHeight;
-          
-          // Піднімаємо камеру на ту саму висоту
-          camera.position.y += heightDifference;
+          // Якщо точка фокусу не на terrain - коригуємо її
+          if (Math.abs(controls.target.y - terrainHeight) > 0.1) {
+            const heightDifference = terrainHeight - controls.target.y;
+            
+            // Піднімаємо точку фокусу на висоту terrain
+            controls.target.y = terrainHeight;
+            
+            // Піднімаємо камеру на ту саму висоту
+            camera.position.y += heightDifference;
+          }
         }
       }
     }
+    
+    
   }
 
    // Встановлення цілі для вибраних динамічних об'єктів
@@ -902,10 +912,15 @@ const Scene3D: React.FC = () => {
                          (cloudRenderer as any).updateAllClouds();
                      }
         
-                     const smokeRenderer = rendererManagerRef.current.renderers.get('smoke');
-                     if (smokeRenderer && 'updateAllSmoke' in smokeRenderer) {
-                        (smokeRenderer as any).updateAllSmoke();
-                    }
+                                         const smokeRenderer = rendererManagerRef.current.renderers.get('smoke');
+                    if (smokeRenderer && 'updateAllSmoke' in smokeRenderer) {
+                       (smokeRenderer as any).updateAllSmoke();
+                   }
+                   
+                   const fireRenderer = rendererManagerRef.current.renderers.get('fire');
+                   if (fireRenderer && 'updateAllFire' in fireRenderer) {
+                       (fireRenderer as any).updateAllFire();
+                   }
                     const arcRenderer = rendererManagerRef.current.renderers.get('electric-arc');
                     if(arcRenderer && 'updateAllArcs' in arcRenderer) {
                       (arcRenderer as any).updateAllArcs();
@@ -986,6 +1001,8 @@ const Scene3D: React.FC = () => {
     
     // Додаємо обробник зміни розміру
     window.addEventListener('resize', handleResize)
+
+    console.log('CHNG!')
 
     // Запускаємо анімацію
     animate()
