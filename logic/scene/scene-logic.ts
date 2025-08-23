@@ -81,9 +81,10 @@ export class SceneLogic {
         };
         
         // Оновлюємо viewport
+        // centerX = X координата камери, centerZ = Z координата камери
         this.viewPort = {
             centerX: cameraProps.position.x,
-            centerY: cameraProps.position.z, // Z - це глибина
+            centerY: cameraProps.position.z, // centerY фактично зберігає Z координату
             width: expandedWidth,
             height: expandedHeight
         };
@@ -310,17 +311,18 @@ export class SceneLogic {
         const halfHeight = this.viewPort.height / 2;
         
         // Розраховуємо межі viewport
+        // centerY фактично зберігає Z координату (див. updateViewport)
         const minX = this.viewPort.centerX - halfWidth;
         const maxX = this.viewPort.centerX + halfWidth;
-        const minZ = this.viewPort.centerY - halfHeight;
-        const maxZ = this.viewPort.centerY + halfHeight;
+        const minZ = this.viewPort.centerY - halfHeight;  // centerY = Z координата
+        const maxZ = this.viewPort.centerY + halfHeight;  // centerY = Z координата
         
-        // Розраховуємо межі гріду
-        const minGridX = Math.floor(minX / this.gridSystem.cellSize)-1;
-        const maxGridX = Math.floor(maxX / this.gridSystem.cellSize)+1;
-        const minGridZ = Math.floor(minZ / this.gridSystem.cellSize)-1;
-        const maxGridZ = Math.floor(maxZ / this.gridSystem.cellSize)+1;
-        
+        // Розраховуємо межі гріду з запасом для плавного переходу
+        const minGridX = Math.floor(minX / this.gridSystem.cellSize) - 3;
+        const maxGridX = Math.floor(maxX / this.gridSystem.cellSize) + 3;
+        const minGridZ = Math.floor(minZ / this.gridSystem.cellSize) - 3;
+        const maxGridZ = Math.floor(maxZ / this.gridSystem.cellSize) + 3;
+
         // Додаємо всі грід-села в межах viewport
         for (let gridX = minGridX; gridX <= maxGridX; gridX++) {
             for (let gridZ = minGridZ; gridZ <= maxGridZ; gridZ++) {
@@ -341,9 +343,34 @@ export class SceneLogic {
         return this.getVisibleGridCells().length;
     }
 
+    /**
+     * Дебаг метод для перевірки viewport та гріду
+     */
+    debugViewportAndGrid(): void {
+        console.log('=== Viewport Debug ===');
+        console.log('Viewport:', {
+            centerX: this.viewPort.centerX,
+            centerY: this.viewPort.centerY, // Фактично Z координата
+            width: this.viewPort.width,
+            height: this.viewPort.height
+        });
+        
+        const visibleCells = this.getVisibleGridCells();
+        console.log('Visible grid cells:', visibleCells.length);
+        console.log('Grid cell size:', this.gridSystem.cellSize);
+        console.log('Total grid cells:', this.gridSystem.grid.size);
+        
+        // Показуємо перші кілька видимих клітинок
+        if (visibleCells.length > 0) {
+            console.log('First 5 visible cells:', visibleCells.slice(0, 5));
+        }
+    }
+
     getVisibleObjects() {
         // Отримуємо грід-села в межах viewport
         const visibleGridCells = this.getVisibleGridCells();
+
+        const fires: Record<string, any> = {};
         
         // Збираємо всі об'єкти з видимих грід-сел
         const visibleObjectIds = new Set<string>();
@@ -352,9 +379,13 @@ export class SceneLogic {
             if (cell) {
                 cell.objects.forEach(objId => {
                     visibleObjectIds.add(objId);
+                    if(this.objects[objId].type === 'fire') {
+                        fires[objId] = this.objects[objId];
+                    }
                 });
             }
         });
+        
         
         // Повертаємо об'єкти без додаткової фільтрації
         return Array.from(visibleObjectIds)

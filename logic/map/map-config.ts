@@ -1,9 +1,9 @@
 // Конфігурація розмірів мапи
 export const MAP_CONFIG = {
     // Розміри світу
-    width: 300,      // Ширина мапи по X
-    height: 300,     // Висота мапи по Y (для об'єктів)
-    depth: 300,       // Глибина мапи по Z
+    width: 600,      // Ширина мапи по X
+    height: 600,     // Висота мапи по Y (для об'єктів)
+    depth: 600,       // Глибина мапи по Z
     
     // Terrain налаштування
     terrain: {
@@ -17,17 +17,17 @@ export const MAP_CONFIG = {
             sand: { 
                 weight: 0.1, 
                 texturePath: '/textures/sand.png',     // Шлях до текстури
-                tiling: { x: 30, y: 30 }            // Збільшуємо tiling в 20 разів (було 5x5)
+                tiling: { x: 0.2, y: 0.2 }            // Збільшуємо tiling в 20 разів (було 5x5)
             },
             stone: { 
                 weight: 0.7, 
                 texturePath: '/textures/rigalite.png', // Шлях до текстури
-                tiling: { x: 30, y: 30 }            // Збільшуємо tiling в 20 разів
+                tiling: { x: 0.2, y: 0.2 }            // Збільшуємо tiling в 20 разів
             },
             volcanic: { 
                 weight: 0.2, 
                 texturePath: '/textures/volcanic.png', // Шлях до текстури
-                tiling: { x: 30, y: 30 }            // Збільшуємо tiling в 20 разів
+                tiling: { x: 1, y: 1 }            // Збільшуємо tiling в 20 разів
             }
         },
         

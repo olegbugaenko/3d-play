@@ -172,9 +172,33 @@ export class CloudRenderer extends BaseRenderer {
     mat.uniforms.uSinRot.value = Math.sin(rot);
   }
 
+  // Оптимізація: приховуємо далекі хмари для кращого FPS
+  optimizeByDistance(cameraPosition: THREE.Vector3, maxDistance: number = 300): void {
+    for (const cloud of this.dustParticles) {
+      const distance = cameraPosition.distanceTo(cloud.position);
+      
+      if (distance > maxDistance) {
+        // Приховуємо далекі хмари
+        cloud.visible = false;
+      } else {
+        // Показуємо близькі хмари
+        cloud.visible = true;
+        
+        // Додаткова оптимізація: зменшуємо розмір частинок для далеких хмар
+        if (distance > maxDistance * 0.7) {
+          const material = cloud.material as THREE.ShaderMaterial;
+          if (material && material.uniforms.uPointSize) {
+            material.uniforms.uPointSize.value = Math.max(12, (material.uniforms.uPointSize.value || 24) * 0.5);
+          }
+        }
+      }
+    }
+  }
+
   // ====== Internal ======
   private createCloudPoints(cloudData: CloudData, coordinates: { x: number; y: number; z: number }): THREE.Points {
-    const particleCount = cloudData.particleCount ?? 100;
+    // Оптимізація: зменшуємо кількість частинок за замовчуванням
+    const particleCount = cloudData.particleCount ?? 50; // було 100, тепер 50
     const radiusMax = cloudData.size ?? 20;     // радіус "гриба" по XZ
     const height = cloudData.height ?? 5;       // висота "гриба"
     const baseColor = new THREE.Color(cloudData.color ?? 0xD2B48C);
@@ -265,6 +289,11 @@ export class CloudRenderer extends BaseRenderer {
     const z = coordinates.z;
     const y = coordinates.y + (height / 2);
     points.position.set(x, y, z);
+
+    // Оптимізація: додаємо frustum culling та distance culling
+    points.frustumCulled = true;
+    points.castShadow = false;
+    points.receiveShadow = false;
 
     // Пер-об’єктні правки незадовго до рендеру (не створюємо новий матеріал)
     (points as any).onBeforeRender = (

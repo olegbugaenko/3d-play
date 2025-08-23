@@ -24,10 +24,12 @@ export interface SceneObject {
 
 export abstract class BaseRenderer {
     protected scene: THREE.Scene;
+    protected renderer?: THREE.WebGLRenderer;
     protected meshes: Map<string, THREE.Object3D> = new Map();
 
-    constructor(scene: THREE.Scene) {
+    constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
         this.scene = scene;
+        this.renderer = renderer;
     }
 
     abstract render(object: SceneObject): THREE.Object3D;

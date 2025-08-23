@@ -4,406 +4,337 @@ import { MAP_CONFIG } from '../../../logic/map/map-config';
 import { TextureManager } from './TextureManager';
 
 export class TerrainRenderer {
-    private scene: THREE.Scene;
-    private terrainMesh: THREE.Mesh | null = null;
-    private terrainManager: TerrainManager;
-    private textureManager: TextureManager;
-    private lastRenderPosition: { x: number, z: number } | null = null;
-    private rerenderThreshold = 50; // Відстань для перерендерингу (збільшуємо для кращої продуктивності)
+  private scene: THREE.Scene;
+  private terrainMesh: THREE.Mesh | null = null;
+  private terrainManager: TerrainManager;
+  private textureManager: TextureManager;
 
-    constructor(scene: THREE.Scene, terrainManager: TerrainManager) {
-        this.scene = scene;
-        this.terrainManager = terrainManager;
-        this.textureManager = new TextureManager();
+  private geometry: THREE.PlaneGeometry | null = null;
+  private material: THREE.ShaderMaterial | null = null;
+
+  private lastRenderPosition: { x: number, z: number } | null = null;
+  private rerenderThreshold = 50;
+
+  // Фіксоване «вікно» навколо камери (можеш змінити як треба)
+  private readonly viewDistance = 200;
+
+  // Сегменти сітки (обчислюються з конфіга один раз)
+  private segX = 0;
+  private segY = 0;
+
+  // Кеш списку текстур для блендів (щоб не перевизначати атрибути щоразу)
+  private cachedTextureNames: string[] = [];
+
+  constructor(scene: THREE.Scene, terrainManager: TerrainManager) {
+    this.scene = scene;
+    this.terrainManager = terrainManager;
+    this.textureManager = new TextureManager();
+  }
+
+  /**
+   * Рендер/перерендер террейну під камеру (без пересоздання геометрії).
+   */
+  async renderTerrain(cameraPosition?: { x: number, y: number, z: number }): Promise<THREE.Mesh> {
+    // Чекаємо текстури
+    if (!this.textureManager.isReady()) {
+      await this.waitForTextures();
     }
 
-    /**
-     * Рендерить terrain для заданої позиції камери
-     */
-    async renderTerrain(cameraPosition?: { x: number, y: number, z: number }): Promise<THREE.Mesh> {
-        console.log('renderTerrain: START'); // Додаємо логування
-        
-        // Перевіряємо чи потрібно перерендерювати
-        if (this.terrainMesh && cameraPosition && this.lastRenderPosition) {
-            const distance = Math.sqrt(
-                Math.pow(cameraPosition.x - this.lastRenderPosition.x, 2) + 
-                Math.pow(cameraPosition.z - this.lastRenderPosition.z, 2)
-            );
-            
-            // Якщо камера не значно змінила позицію - використовуємо існуючий mesh
-            if (distance < this.rerenderThreshold) {
-                console.log('TerrainRenderer: Using cached terrain, distance:', distance);
-                return this.terrainMesh;
-            }
-        }
-        
-        // Примусово видаляємо старий mesh
-        if (this.terrainMesh) {
-            this.scene.remove(this.terrainMesh);
-            this.terrainMesh = null;
-        }
+    // Локальні зручності
+    const config = this.terrainManager.getConfig();
+    const renderResolution = MAP_CONFIG.terrain.renderResolution;
 
-        // Дочекатися завантаження текстур перед рендерингом
-        if (!this.textureManager.isReady()) {
-            console.log('TerrainRenderer: Waiting for textures to load...');
-            await this.waitForTextures();
-            console.log('TerrainRenderer: Textures loaded, proceeding with render');
-        }
+    // Вікно світу навколо камери
+    const centerX = cameraPosition?.x ?? 0;
+    const centerZ = cameraPosition?.z ?? 0;
+    const startX  = Math.max(-config.width  / 2, centerX - this.viewDistance);
+    const endX    = Math.min( config.width  / 2, centerX + this.viewDistance);
+    const startZ  = Math.max(-config.height / 2, centerZ - this.viewDistance);
+    const endZ    = Math.min( config.height / 2, centerZ + this.viewDistance);
+    const viewW   = endX - startX;
+    const viewH   = endZ - startZ;
 
-        const config = this.terrainManager.getConfig();
-        const { width, height } = config;
-        
-        // Render resolution - більший для візуальної якості
-        const renderResolution = MAP_CONFIG.terrain.renderResolution; // Рендеримо з конфігурації
-        
-        // Визначаємо область для рендерингу (навколо камери)
-        const viewDistance = 200; // Зменшуємо ще більше для тестування продуктивності
-        const centerX = cameraPosition?.x || 0;
-        const centerZ = cameraPosition?.z || 0;
-        
-        // Обмежуємо область рендерингу
-        const startX = Math.max(-width/2, centerX - viewDistance);
-        const endX = Math.min(width/2, centerX + viewDistance);
-        const startZ = Math.max(-height/2, centerZ - viewDistance);
-        const endZ = Math.min(height/2, centerZ + viewDistance);
-        
-        // Розміри рендерованої області
-        const renderWidth = endX - startX;
-        const renderHeight = endZ - startZ;
-        
-        // Кількість сегментів для рендерингу з LOD
-        let segmentsX = Math.max(1, Math.ceil(renderWidth / renderResolution));
-        let segmentsY = Math.max(1, Math.ceil(renderHeight / renderResolution));
-        
-        // LOD: зменшуємо деталізацію для далеких областей
-        const cameraDistance = cameraPosition ? Math.sqrt(cameraPosition.x * cameraPosition.x + cameraPosition.z * cameraPosition.z) : 0;
-        if (cameraDistance > 50) {
-            segmentsX = Math.max(1, Math.floor(segmentsX / 2));
-            segmentsY = Math.max(1, Math.floor(segmentsY / 2));
-        }
-        
-        console.log('TerrainRenderer: Rendering area:', { 
-            startX, endX, startZ, endZ, 
-            renderWidth, renderHeight, 
-            segmentsX, segmentsY,
-            centerX, centerZ, viewDistance,
-            cameraPosition
-        });
-        
-        // Створюємо geometry тільки для видимої області
-        const geometry = new THREE.PlaneGeometry(renderWidth, renderHeight, segmentsX, segmentsY);
-        
-        // Переміщуємо geometry в правильну позицію
-        // geometry.translate(startX + renderWidth/2, 0, startZ + renderHeight/2);
-        geometry.rotateX(-Math.PI / 2);
+    // Потрібна щільність сітки під це вікно (рахуємо раз — геометрія стала)
+    if (!this.geometry) {
+      this.segX = Math.max(1, Math.ceil((2 * this.viewDistance) / renderResolution));
+      this.segY = Math.max(1, Math.ceil((2 * this.viewDistance) / renderResolution));
 
-        const pos = geometry.attributes.position as THREE.BufferAttribute;
-        for (let i = 0; i < pos.count; i++) {
-            // Отримуємо координати вершини в локальній системі geometry
-            const localX = pos.getX(i);
-            const localZ = pos.getZ(i);
-            
-            // Конвертуємо в глобальні координати для getHeightAt
-            // Віднімаємо зміщення geometry щоб отримати реальні координати
-            const worldX = localX + (startX + renderWidth/2);
-            const worldZ = localZ + (startZ + renderHeight/2);
-            
-            let y = this.terrainManager.getHeightAt(worldX, worldZ);
-            if (!Number.isFinite(y)) y = 0;
-            pos.setY(i, y);
-        }
-        pos.needsUpdate = true;
-        geometry.computeVertexNormals();
-        geometry.computeBoundingBox();
-        geometry.computeBoundingSphere();
+      // Стала площина 1×1, далі — scale під реальні розміри вікна
+      this.geometry = new THREE.PlaneGeometry(1, 1, this.segX, this.segY);
+      this.geometry.rotateX(-Math.PI / 2);
 
-        // Тимчасово використовуємо простий матеріал для тестування
-        const material = new THREE.MeshLambertMaterial({ 
-            color: 0x8B4513,  // Коричневий колір
-            side: THREE.DoubleSide 
-        });
-        
-        // Створюємо новий mesh з новим матеріалом
-        this.terrainMesh = new THREE.Mesh(geometry, material);
-        this.terrainMesh.frustumCulled = false;
-        
-        // Позиціонуємо mesh
-        this.terrainMesh.position.set(
-            startX + renderWidth / 2,
-            0,
-            startZ + renderHeight / 2
-        );
-        
-        this.scene.add(this.terrainMesh);
-        
-        // Застосовуємо procedural текстури до кожної вершини
-        this.applyMultiTextureBlending(geometry, startX, startZ, renderWidth, renderHeight);
-        
-        // Переміщуємо mesh в правильну позицію
-        this.terrainMesh.position.set(startX + renderWidth/2, 0, startZ + renderHeight/2);
-        
-        // Відключаємо frustum culling повністю
-        this.terrainMesh.frustumCulled = false;
-        
-        // Налаштовуємо тіні
-        // TEMPORARILY DISABLED SHADOWS FOR FPS TESTING
-        this.terrainMesh.castShadow = false; // Terrain не кидає тіні
-        this.terrainMesh.receiveShadow = false; // Terrain не приймає тіні
-        
-        console.log('TerrainRenderer: Mesh positioned at:', {
-            x: this.terrainMesh.position.x,
-            y: this.terrainMesh.position.y,
-            z: this.terrainMesh.position.z
-        });
-        
-        console.log('TerrainRenderer: Geometry bounds:', {
-            startX, endX, startZ, endZ,
-            renderWidth, renderHeight,
-            centerX: startX + renderWidth/2,
-            centerZ: startZ + renderHeight/2
-        });
-        
-        // Додаємо логування позиції
-        console.log('TerrainRenderer: Mesh position:', this.terrainMesh.position);
-        console.log('TerrainRenderer: Mesh rotation:', this.terrainMesh.rotation);
-        console.log('TerrainRenderer: Mesh scale:', this.terrainMesh.scale);
-        console.log('TerrainRenderer: Mesh visible:', this.terrainMesh.visible);
-        console.log('TerrainRenderer: Mesh frustumCulled:', this.terrainMesh.frustumCulled);
+      // Матеріал для multi-texture blending (семпл за світовими XZ)
+      this.material = this.createMultiTextureMaterial();
 
-        this.scene.add(this.terrainMesh);
-        console.log('TerrainRenderer: Mesh added to scene');
-        
-        // Зберігаємо позицію цілі камери для подальшого порівняння
-        if (cameraPosition) {
-            this.lastRenderPosition = { x: cameraPosition.x, z: cameraPosition.z };
-        }
-        
-        return this.terrainMesh;
+      this.terrainMesh = new THREE.Mesh(this.geometry, this.material);
+      this.terrainMesh.matrixAutoUpdate = true;
+      this.terrainMesh.castShadow = false;
+      this.terrainMesh.receiveShadow = false;
+      this.terrainMesh.frustumCulled = true;
+
+      this.scene.add(this.terrainMesh);
     }
 
-    /**
-     * Перевіряє чи потрібно перерендерити terrain
-     */
-    shouldRerender(currentTarget: { x: number, z: number }): boolean {
-        if (!this.lastRenderPosition) {
-            console.warn('RERENDER TERRAIN - First render');
-            return true; // Перший рендер
-        }
-        
-        const distance = Math.sqrt(
-            Math.pow(currentTarget.x - this.lastRenderPosition.x, 2) + 
-            Math.pow(currentTarget.z - this.lastRenderPosition.z, 2)
-        );
-        
-        return distance > this.rerenderThreshold;
+    // Пересуваємо та масштабуємо меш під актуальне вікно
+    this.terrainMesh!.position.set(startX + viewW * 0.5, 0, startZ + viewH * 0.5);
+    this.terrainMesh!.scale.set(viewW, 1, viewH);
+
+    // Оновлюємо висоти вершин (семпл з карти висот у світових координатах)
+    this.updateHeightsFromWorld(this.geometry!, this.terrainMesh!);
+
+    // Оновлюємо бленди (також за світовими координатами)
+    this.applyMultiTextureBlendingFromWorld(this.geometry!, this.terrainMesh!);
+
+    // Норми (можна робити рідше або перейти на normal map у матеріалі)
+    this.geometry!.computeVertexNormals();
+    this.geometry!.computeBoundingBox();
+    this.geometry!.computeBoundingSphere();
+
+    // Оновлюємо "якорну" точку останнього рендеру
+    if (cameraPosition) {
+      this.lastRenderPosition = { x: cameraPosition.x, z: cameraPosition.z };
     }
 
-    /**
-     * Оновлює terrain при зміні висот
-     */
-    updateTerrain(cameraPosition?: { x: number, y: number, z: number }): void {
-        if (this.terrainMesh && cameraPosition) {
-            // Перевіряємо чи потрібно перерендерити
-            if (this.shouldRerender(cameraPosition)) {
-                this.renderTerrain(cameraPosition);
-            }
-        }
+    return this.terrainMesh!;
+  }
+
+  /**
+   * Чи потрібно перерендерити.
+   */
+  shouldRerender(currentTarget: { x: number, z: number }): boolean {
+    if (!this.lastRenderPosition) return true;
+    const dx = currentTarget.x - this.lastRenderPosition.x;
+    const dz = currentTarget.z - this.lastRenderPosition.z;
+    return Math.hypot(dx, dz) > this.rerenderThreshold;
+  }
+
+  updateTerrain(cameraPosition?: { x: number, y: number, z: number }): void {
+    if (this.terrainMesh && cameraPosition) {
+      if (this.shouldRerender(cameraPosition)) {
+        // НЕ створюємо нічого нового — просто оновлюємо положення/масштаб/висоти/бленди
+        this.renderTerrain(cameraPosition);
+      }
+    }
+  }
+
+  removeTerrain(): void {
+    if (this.terrainMesh) {
+      this.scene.remove(this.terrainMesh);
+      this.terrainMesh.geometry.dispose();
+      (this.terrainMesh.material as THREE.Material).dispose();
+      this.terrainMesh = null;
+      this.geometry = null;
+      this.material = null;
+      this.cachedTextureNames = [];
+    }
+  }
+
+  getTerrainMesh(): THREE.Mesh | null {
+    return this.terrainMesh;
+  }
+
+  // === ВНУТРІШНЄ ===================================================================
+
+  /**
+   * Семплимо висоту у світових координатах (без пересоздання геометрії).
+   * Локальні X/Z у площини 1×1 → світові через position/scale меша.
+   */
+  private updateHeightsFromWorld(geometry: THREE.PlaneGeometry, mesh: THREE.Mesh) {
+    const pos = geometry.attributes.position as THREE.BufferAttribute;
+
+    const sx = mesh.scale.x;
+    const sz = mesh.scale.z;
+    const cx = mesh.position.x;
+    const cz = mesh.position.z;
+
+    for (let i = 0; i < pos.count; i++) {
+      const lx = pos.getX(i); // локальні коорд. після rotateX — [-0.5..0.5]
+      const lz = pos.getZ(i);
+
+      const worldX = cx + lx * sx;
+      const worldZ = cz + lz * sz;
+
+      let y = this.terrainManager.getHeightAt(worldX, worldZ);
+      if (!Number.isFinite(y)) y = 0;
+      pos.setY(i, y);
+    }
+    pos.needsUpdate = true;
+  }
+
+  /**
+   * Оновлення blend-атрибутів (1 атрибут на текстуру, оновлюємо масиви, а не перевизначаємо атрибути).
+   */
+  private applyMultiTextureBlendingFromWorld(geometry: THREE.PlaneGeometry, mesh: THREE.Mesh): void {
+    const texturesCfg = MAP_CONFIG.terrain.textures || {};
+    const textureNames = Object.keys(texturesCfg);
+
+    if (textureNames.length === 0) return;
+
+    // Якщо набір текстур змінився — пересоздаємо атрибути 1 раз
+    let needRebuildAttributes = false;
+    if (this.cachedTextureNames.length !== textureNames.length) needRebuildAttributes = true;
+    else {
+      for (let i = 0; i < textureNames.length; i++) {
+        if (textureNames[i] !== this.cachedTextureNames[i]) { needRebuildAttributes = true; break; }
+      }
     }
 
-    /**
-     * Видаляє terrain зі сцени
-     */
-    removeTerrain(): void {
-        if (this.terrainMesh) {
-            this.scene.remove(this.terrainMesh);
-            this.terrainMesh = null;
+    if (needRebuildAttributes) {
+      // Прибрали старі (якщо були інші назви)
+      this.cachedTextureNames.forEach(name => {
+        if (geometry.getAttribute(`blend_${name}`)) {
+          geometry.deleteAttribute(`blend_${name}`);
         }
+      });
+
+      // Створили нові
+      const count = (geometry.attributes.position as THREE.BufferAttribute).count;
+      for (const name of textureNames) {
+        geometry.setAttribute(`blend_${name}`, new THREE.BufferAttribute(new Float32Array(count), 1));
+      }
+      this.cachedTextureNames = textureNames.slice();
     }
 
-    /**
-     * Отримує поточний terrain меш
-     */
-    getTerrainMesh(): THREE.Mesh | null {
-        return this.terrainMesh;
+    const pos = geometry.attributes.position as THREE.BufferAttribute;
+    const sx = mesh.scale.x;
+    const sz = mesh.scale.z;
+    const cx = mesh.position.x;
+    const cz = mesh.position.z;
+
+    // Масиви для швидкого доступу
+    const blendAttrs: Record<string, THREE.BufferAttribute> = {};
+    for (const name of textureNames) {
+      blendAttrs[name] = geometry.getAttribute(`blend_${name}`) as THREE.BufferAttribute;
     }
 
-    /**
-     * Застосовує Multi-Texture Blending до terrain
-     */
-    private applyMultiTextureBlending(geometry: THREE.PlaneGeometry, startX: number, startZ: number, renderWidth: number, renderHeight: number): void {
-        console.log('applyMultiTextureBlending: START'); // Додаємо логування
-        
-        if (!this.textureManager.isReady()) {
-            console.warn('Textures not ready, using fallback material');
-            return;
-        }
-        
-        // Створюємо UV координати для текстур
-        const uvs = geometry.attributes.uv;
-        if (!uvs) {
-            console.error('UV coordinates not found in geometry');
-            return;
-        }
-        
-        // Створюємо атрибут для blend factors кожної текстури
-        const textureNames = Object.keys(MAP_CONFIG.terrain.textures || {});
-        const blendAttributes: { [key: string]: Float32Array } = {};
-        
-        for (const textureName of textureNames) {
-            blendAttributes[textureName] = new Float32Array(geometry.attributes.position.count);
-        }
-        
-        // Обчислюємо blend factors для кожної вершини
-        for (let i = 0; i < geometry.attributes.position.count; i++) {
-            const localX = geometry.attributes.position.getX(i);
-            const localZ = geometry.attributes.position.getZ(i);
-            
-            // Конвертуємо в глобальні координати
-            const worldX = localX + (startX + renderWidth/2);
-            const worldZ = localZ + (startZ + renderHeight/2);
-            
-            // Отримуємо blend factors для всіх текстур
-            const blends = this.terrainManager.getAllTextureBlends(worldX, worldZ);
-            
-            // Зберігаємо blend factors
-            for (const textureName of textureNames) {
-                blendAttributes[textureName][i] = blends[textureName] || 0;
-            }
-        }
+    // Запис блендів
+    for (let i = 0; i < pos.count; i++) {
+      const worldX = cx + pos.getX(i) * sx;
+      const worldZ = cz + pos.getZ(i) * sz;
 
-        console.warn('blendAttributes', blendAttributes);
-        
-        // Додаємо blend attributes до geometry
-        for (const [textureName, blendArray] of Object.entries(blendAttributes)) {
-            geometry.setAttribute(`blend_${textureName}`, new THREE.BufferAttribute(blendArray, 1));
-        }
-        
-        // Створюємо ShaderMaterial для Multi-Texture Blending
-        const material = this.createMultiTextureMaterial();
-        if (this.terrainMesh) {
-            this.terrainMesh.material = material;
-        }
+      const blends = this.terrainManager.getAllTextureBlends(worldX, worldZ);
+      for (const name of textureNames) {
+        const v = blends[name] || 0;
+        blendAttrs[name].setX(i, v);
+      }
     }
-    
-    /**
-     * Очікує завантаження текстур перед рендерингом
-     */
-    private async waitForTextures(): Promise<void> {
-        while (!this.textureManager.isReady()) {
-            await new Promise(resolve => setTimeout(resolve, 100)); // Очікуємо 100мс
-        }
-    }
-    
-    /**
-     * Створює ShaderMaterial для Multi-Texture Blending
-     */
-    private createMultiTextureMaterial(): THREE.ShaderMaterial {
-        const textureNames = Object.keys(MAP_CONFIG.terrain.textures || {});
-        
-        // Створюємо uniforms для текстур
-        const uniforms: { [key: string]: any } = {};
-        for (const textureName of textureNames) {
-            const texture = this.textureManager.getTexture(textureName);
-            if (texture) {
-                uniforms[`texture_${textureName}`] = { value: texture };
-            }
-            
-            // Додаємо tiling як uniforms
-            const tiling = (MAP_CONFIG.terrain.textures as any)[textureName]?.tiling;
-            if (tiling) {
-                uniforms[`tiling_${textureName}`] = { value: new THREE.Vector2(tiling.x, tiling.y) };
-            }
-        }
-        
 
-        
-        return new THREE.ShaderMaterial({
-            uniforms,
-            vertexShader: this.createVertexShader(textureNames),
-            fragmentShader: this.createFragmentShader(textureNames),
-            side: THREE.DoubleSide,
-            transparent: false,
-            depthTest: true,
-            depthWrite: true
-        });
+    for (const name of textureNames) {
+      blendAttrs[name].needsUpdate = true;
     }
-    
-    /**
-     * Створює vertex shader для передачі blend attributes
-     */
-    private createVertexShader(textureNames: string[]): string {
-        let attributes = '';
-        let varyings = '';
-        
-        for (const textureName of textureNames) {
-            attributes += `attribute float blend_${textureName};\n`;
-            varyings += `varying float v_blend_${textureName};\n`;
-        }
-        
-        // Додаємо uniforms для tiling
-        let uniforms = '';
-        for (const textureName of textureNames) {
-            const tiling = (MAP_CONFIG.terrain.textures as any)[textureName]?.tiling;
-            if (tiling) {
-                uniforms += `uniform vec2 tiling_${textureName};\n`;
-            }
-        }
-        
-        return `
-            ${uniforms}
-            ${attributes}
-            ${varyings}
-            varying vec2 vUv;
-            
-            void main() {
-                vUv = uv;
-                ${textureNames.map(name => `v_blend_${name} = blend_${name};`).join('\n                ')}
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `;
+  }
+
+  private async waitForTextures(): Promise<void> {
+    while (!this.textureManager.isReady()) {
+      await new Promise(r => setTimeout(r, 50));
     }
-    
-    /**
-     * Створює fragment shader для Multi-Texture Blending
-     */
-    private createFragmentShader(textureNames: string[]): string {
-        let uniforms = '';
-        let varyings = '';
-        let blending = '';
-        
-        for (const textureName of textureNames) {
-            uniforms += `uniform sampler2D texture_${textureName};\n`;
-            varyings += `varying float v_blend_${textureName};\n`;
-        }
-        
-        // Додаємо uniforms для tiling
-        for (const textureName of textureNames) {
-            const tiling = (MAP_CONFIG.terrain.textures as any)[textureName]?.tiling;
-            if (tiling) {
-                uniforms += `uniform vec2 tiling_${textureName};\n`;
-            }
-        }
-        
-        // Створюємо логіку змішування з tiling
-        blending = `vec4 finalColor = vec4(0.0);\n`;
-        for (const textureName of textureNames) {
-            const tiling = (MAP_CONFIG.terrain.textures as any)[textureName]?.tiling;
-            if (tiling) {
-                blending += `finalColor += texture2D(texture_${textureName}, vUv * tiling_${textureName}) * v_blend_${textureName};\n`;
-            } else {
-                blending += `finalColor += texture2D(texture_${textureName}, vUv) * v_blend_${textureName};\n`;
-            }
-        }
-        
-        return `
-            ${uniforms}
-            ${varyings}
-            varying vec2 vUv;
-            
-            void main() {
-                ${blending}
-                gl_FragColor = finalColor;
-            }
-        `;
+  }
+
+  /**
+   * Створює матеріал з world-locked UV: семпл за світовими XZ, wrap = Repeat.
+   */
+  private createMultiTextureMaterial(): THREE.ShaderMaterial {
+    const textureNames = Object.keys(MAP_CONFIG.terrain.textures || {});
+    const uniforms: { [key: string]: any } = {};
+
+    // Текстури + тайлінги (wrap → Repeat)
+    for (const name of textureNames) {
+      const tex = this.textureManager.getTexture(name);
+      if (tex) {
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.needsUpdate = true;
+        uniforms[`texture_${name}`] = { value: tex };
+      }
+      const tiling = (MAP_CONFIG.terrain.textures as any)[name]?.tiling;
+      if (tiling) {
+        // Інтерпретується як «повторів на 1 світову одиницю»
+        uniforms[`tiling_${name}`] = { value: new THREE.Vector2(tiling.x, tiling.y) };
+      } else {
+        uniforms[`tiling_${name}`] = { value: new THREE.Vector2(1, 1) };
+      }
     }
+
+    return new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: this.createVertexShader(textureNames),
+      fragmentShader: this.createFragmentShader(textureNames),
+      side: THREE.DoubleSide,
+      transparent: false,
+      depthTest: true,
+      depthWrite: true
+    });
+  }
+
+  /**
+   * VS: передаємо бленди + worldXZ для world-locked UV.
+   */
+  private createVertexShader(textureNames: string[]): string {
+    let attributes = '';
+    let varyings = '';
+
+    for (const name of textureNames) {
+      attributes += `attribute float blend_${name};\n`;
+      varyings   += `varying float v_blend_${name};\n`;
+    }
+
+    return `
+      ${attributes}
+      ${varyings}
+      varying vec2 vWorldXZ;
+
+      void main() {
+        // Світові XZ (для world-locked UV)
+        vec4 wpos = modelMatrix * vec4(position, 1.0);
+        vWorldXZ = wpos.xz;
+
+        ${textureNames.map(name => `v_blend_${name} = blend_${name};`).join('\n')}
+
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `;
+  }
+
+  /**
+   * FS: семпл текстур за світовими координатами (repeat), лінійний мікс за блендами.
+   * tiling_* — «повторів на 1 світову одиницю» (тобто просто множимо на vWorldXZ).
+   */
+  private createFragmentShader(textureNames: string[]): string {
+    let uniforms = '';
+    let varyings = '';
+    let body = `vec4 finalColor = vec4(0.0);\nfloat sumW = 0.0;\n`;
+
+    for (const name of textureNames) {
+      uniforms += `uniform sampler2D texture_${name};\n`;
+      uniforms += `uniform vec2 tiling_${name};\n`;
+      varyings += `varying float v_blend_${name};\n`;
+    }
+
+    for (const name of textureNames) {
+      body += `
+        {
+          vec2 uv = vWorldXZ * tiling_${name};
+          vec4 s  = texture2D(texture_${name}, uv);
+          float w = max(0.0, v_blend_${name});
+          finalColor += s * w;
+          sumW += w;
+        }
+      `;
+    }
+
+    body += `
+      if (sumW > 1e-5) finalColor /= sumW;
+      gl_FragColor = finalColor;
+    `;
+
+    return `
+      ${uniforms}
+      ${varyings}
+      varying vec2 vWorldXZ;
+
+      void main(){
+        ${body}
+      }
+    `;
+  }
 }

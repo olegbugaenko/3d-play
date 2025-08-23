@@ -3,10 +3,15 @@ import { TCameraProps } from '../../shared/camera.types';
 import { TSceneObject } from '../scene/scene.types';
 import { DynamicsLogic } from '../scene/dynamics-logic';
 import { MAP_CONFIG } from './map-config';
+import { ResourceManager } from '../resources';
 
 export class MapLogic {
 
-    constructor(public scene: SceneLogic, public dynamics: DynamicsLogic) {
+    constructor(
+        public scene: SceneLogic, 
+        public dynamics: DynamicsLogic,
+        public resources: ResourceManager
+    ) {
         // Constructor implementation
     }
 
@@ -21,10 +26,10 @@ export class MapLogic {
         let skippedObjects = 0;
 
         // Генеруємо каменюки на карті
-        //this.generateBoulders();
+        this.generateBoulders();
         
                 // Генеруємо каменюки типу rock
-        //this.generateRocks();
+        this.generateRocks();
         
         // Логуємо загальну кількість об'єктів
         const totalObjects = Object.keys(this.scene.getObjects()).length;
@@ -34,7 +39,7 @@ export class MapLogic {
         
         // Генеруємо хмари
         console.log('🗺️ MapLogic: починаємо генерувати хмари...');
-        this.generateClouds();
+        //this.generateClouds();
         console.log('🗺️ MapLogic: хмари згенеровані');
         
         // Генеруємо джерела диму
@@ -48,6 +53,11 @@ export class MapLogic {
         console.log('🔥 MapLogic: починаємо генерувати вогонь...');
         this.generateFire();
         console.log('🔥 MapLogic: вогонь згенеровано');
+        
+        // Генеруємо вибухи
+        console.log('💥 MapLogic: починаємо генерувати вибухи...');
+        this.generateExplosions();
+        console.log('💥 MapLogic: вибухи згенеровано');
         
         // Логуємо результат
 
@@ -75,6 +85,8 @@ export class MapLogic {
             100 // This will be increased for sure
         )
     }
+
+
 
     /**
      * Генерує процедурні каменюки на карті
@@ -147,7 +159,7 @@ export class MapLogic {
      * Генерує процедурні каменюки типу rock на карті
      */
     private generateRocks() {
-        const rockCount = 5000; // Збільшуємо кількість каменюків
+        const rockCount = 2000; // Збільшуємо кількість каменюків
         const mapBounds = {
             minX: -MAP_CONFIG.width / 2,
             maxX: MAP_CONFIG.width / 2,
@@ -156,14 +168,22 @@ export class MapLogic {
         };
 
         // Створюємо кластери каменюків для більш щільного розподілу
-        const clusterCount = 25; // Збільшуємо кількість кластерів
+        const clusterCount = 100; // Збільшуємо кількість кластерів
         const rocksPerCluster = Math.floor(rockCount / clusterCount); // Каменюки на кластер
 
         for (let cluster = 0; cluster < clusterCount; cluster++) {
             // Центр кластера
             const clusterCenterX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
             const clusterCenterZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
-            const clusterRadius = 15 + Math.random() * 20; // Збільшуємо радіус кластера
+            const clusterRadius = 5 + Math.random() * 5; // Збільшуємо радіус кластера
+
+            // Кожен кластер відповідає за певний тип ресурсу
+            const resourceType: 'stone' | 'ore' = cluster % 2 === 0 ? 'stone' : 'ore';
+            
+            // Колір залежить від типу ресурсу
+            const resourceColors = resourceType === 'stone' 
+                ? [0x8B7355, 0x696969, 0x808080, 0xA0522D, 0x8B4513] // Сірі/коричневі відтінки для каменю
+                : [0x8B4513, 0x654321, 0x8B6914, 0x6B4423, 0x654321]; // Темно-ржаві відтінки для руди
 
             for (let j = 0; j < rocksPerCluster; j++) {
                 // Позиція в межах кластера
@@ -173,10 +193,10 @@ export class MapLogic {
                 const z = clusterCenterZ + Math.sin(angle) * distance;
             
                 // Випадковий розмір каменюка з більшою варіацією
-                const baseSize = 0.15 + Math.random() * 0.25; // Від 0.15 до 0.4 (трохи більші)
-                // Випадковий колір (коричневаві відтінки)
-                const colors = [0x8B4513, 0xA0522D, 0x8B7355, 0x696969, 0x6B4423, 0x8B6914, 0x654321, 0x8B7355];
-                const color = colors[Math.floor(Math.random() * colors.length)];
+                const baseSize = 0.45 + Math.random() * 0.25; // Від 0.45 до 0.7
+                
+                // Випадковий колір з палітри для даного типу ресурсу
+                const color = resourceColors[Math.floor(Math.random() * resourceColors.length)];
                 
                 // Випадкова гладкість для різноманітності
                 const smoothness = 0.6 + Math.random() * 0.3; // Від 0.6 до 0.9 (більш гладкі)
@@ -195,15 +215,17 @@ export class MapLogic {
                         color,
                         size: baseSize, // Базовий розмір для рендерера
                         smoothness, // Використовуємо smoothness замість roughness
+                        resourceId: resourceType, // Додаємо тип ресурсу
+                        resourceAmount: 1 + Math.floor(Math.random() * 3), // 1-3 одиниці ресурсу
                         modelPath: (() => {
                             const rand = Math.random();
-                            if (rand < 0.33) return '/models/stone2.glb';
-                            if (rand < 0.66) return '/models/stone3.glb';
-                            return '/models/stone4.glb';
+                            if (rand < 0.33) return '/models/stone4.glb';
+                            if (rand < 0.66) return '/models/stone2.glb';
+                            return '/models/stone3.glb';
                         })() // Випадково вибираємо між трьома моделями
                     },
-                    tags: ['on-ground', 'static', 'rock'], // Автоматично розміститься на terrain
-                    bottomAnchor: baseSize * 0.1, // Каменюк стоїть на своєму низу
+                    tags: ['on-ground', 'static', 'rock', 'resource'], // Автоматично розміститься на terrain
+                    bottomAnchor: -baseSize * 0.3, // Каменюк стоїть на своєму низу
                     terrainAlign: true // Нахиляється по нормалі terrain
                 };
                 
@@ -220,6 +242,8 @@ export class MapLogic {
                 }
             }
         }
+        
+        console.log(`🗺️ MapLogic: Згенеровано ${clusterCount} кластерів ресурсів (${Math.floor(clusterCount/2)} каменю, ${Math.ceil(clusterCount/2)} руди)`);
     }
 
     /**
@@ -254,12 +278,12 @@ export class MapLogic {
     }
 
     private generateArcs() {
-        const arcCount = 25;
+        const arcCount = 5;
 
         for(let i = 0; i < arcCount; i++) {
 
-            const x = (Math.random() - 0.5) * 250; // X: -200 до 200
-            const z = (Math.random() - 0.5) * 250; // Z: -200 до 200
+            const x = (Math.random() - 0.5) * 200; // X: -200 до 200
+            const z = (Math.random() - 0.5) * 200; // Z: -200 до 200
 
             const arc: TSceneObject = {
                 id: `bolt-${i}`,
@@ -269,7 +293,7 @@ export class MapLogic {
                 rotation: {x: 0, y: 0, z: 0},
                 tags: ['effect', 'dynamic'],
                 data: {
-                  target: { x, y: 0, z },       // B
+                  target: { x: x + Math.random()*150, y: 0, z: z + Math.random()*150 },       // B
                   kinks: 14,           // більше зламів = «дрібніша» блискавка
                   amplitude: 5,     // ширина кривулі у world units
                   thicknessPx: 0.03,    // ядро
@@ -309,12 +333,17 @@ export class MapLogic {
                     intensity: 0.5 + Math.random() * 1.5, // 0.5-2.0 інтенсивність
                     color: 0x84B4543, // темно сірий дим
                     particleCount: 150 + Math.floor(Math.random() * 100), // 150-250 частинок
-                    riseSpeed: 2.3*(0.5 + Math.random() * 0.5), // 1.0-2.5 швидкість підйому
-                    spreadRadius: 0*(1.0 + Math.random() * 1.0), // 2.0-4.0 радіус розсіювання
+                    riseSpeed: 3.3*(0.5 + Math.random() * 0.5), // 1.0-2.5 швидкість підйому
+                    spreadRadius: 0.025*(1.0 + Math.random() * 1.0), // 2.0-4.0 радіус розсіювання
                     lifetime: 5.0 + Math.random() * 3.0, // 5.0-8.0 час життя
-                    baseSize: 15,
+                    baseSize: 28,
                     flow: 0.2,
-                    noiseScale: 0.5
+                    noiseScale: 0.5,
+                    spreadGrow: 0.05,
+                    riseHeight: 5,
+                    emitRate: 20,
+                    alphaMult: 0.25,
+                    alphaDiminish: 0.9,
                 },
                 tags: ['on-ground', 'static', 'smoke'],
                 bottomAnchor: 0,
@@ -330,12 +359,12 @@ export class MapLogic {
      * Генерує джерела вогню на карті
      */
     private generateFire() {
-        const fireCount = 25; // Кількість джерел вогню
+        const fireCount = 10; // Кількість джерел вогню
         
         for (let i = 0; i < fireCount; i++) {
             // Випадкова позиція на карті
-            const x = (Math.random() - 0.5) * 200; // X: -100 до 100
-            const z = (Math.random() - 0.5) * 200; // Z: -100 до 100
+            const x = (Math.random() - 0.5) * 120; // X: -100 до 100
+            const z = (Math.random() - 0.5) * 120; // Z: -100 до 100
             
             const fire: TSceneObject = {
                 id: `fire_source_${i}`,
@@ -344,20 +373,22 @@ export class MapLogic {
                 scale: { x: 0.1, y: 0.1, z: 0.1 },
                 rotation: { x: 0, y: 0, z: 0 },
                 data: { 
-                    emitRate: 20 + Math.floor(Math.random() * 16), // 20-36 частинок/сек
+                    emitRate: 30 + Math.floor(Math.random() * 26), // 20-36 частинок/сек
                     life: 2.0 + Math.random() * 1.5, // 2.0-3.5 сек
-                    rise: 3.0 + Math.random() * 2.0, // 3.0-5.0 висота підйому
-                    baseSize: 20 + Math.random() * 16, // 20-36 розмір спрайта
+                    riseSpeed: 2.0 + Math.random() * 2.0, // 3.0-5.0 висота підйому (riseSpeed для FireRenderer)
+                    baseSize: 65 + Math.random() * 48, // 5-13 розмір спрайта
                     flow: 0.8 + Math.random() * 0.8, // 0.8-1.6 сила завихрення
                     noiseScale: 0.6 + Math.random() * 0.4, // 0.6-1.0 масштаб шуму
                     timeScale: 1.0 + Math.random() * 0.4, // 1.0-1.4 швидкість течії
+                    riseHeight: 1,
+                    spreadRadius: 1.5 + 2.2*Math.random(),
                     color: (() => {
                         const colors = [0xFF6600, 0xFF4400, 0xFF8800, 0xFF5500]; // Відтінки помаранчевого
                         return colors[Math.floor(Math.random() * colors.length)];
                     })(),
-                    intensity: 0.8 + Math.random() * 0.4, // 0.8-1.2 інтенсивність
-                    flickerSpeed: 0.8 + Math.random() * 0.4, // 0.8-1.2 швидкість мерехтіння
-                    heatDistortion: 0.3 + Math.random() * 0.4 // 0.3-0.7 спотворення від тепла
+                    spreadGrow: 0,
+                    tongueBoost: 1.8,
+                    tongueSharpness: 2,
                 },
                 tags: ['on-ground', 'static', 'fire'],
                 bottomAnchor: 0,
@@ -433,10 +464,20 @@ export class MapLogic {
         }
     }
 
+    private lastExplosionTime = 0;
+    private explosionInterval = 3000; // 5 секунд в мілісекундах
+
     tick() {
         const dT = 0.1;
         this.processSceneTick(dT);
         this.dynamics.moveObjects(dT);
+        
+        // Генеруємо нові вибухи кожні 5 секунд
+        const currentTime = performance.now();
+        if (currentTime - this.lastExplosionTime >= this.explosionInterval) {
+            this.generateRandomExplosion();
+            this.lastExplosionTime = currentTime;
+        }
     }
 
     processSceneTick(_dT: number) {
@@ -606,5 +647,86 @@ export class MapLogic {
                          // Об'єкт рухається до цілі
         });
     }
+
+         /**
+      * Генерує процедурні вибухи на карті
+      */
+     private generateExplosions() {
+         const explosionCount = 8; // Кількість вибухів на карті
+
+         for (let i = 0; i < explosionCount; i++) {
+             // Випадкова позиція на карті
+             const x = (Math.random() - 0.5) * 100; // X: -150 до 150
+             const z = (Math.random() - 0.5) * 100; // Z: -150 до 150
+             const y = 2 + Math.random() * 8; // Y: 2-10 (вибухи в повітрі)
+             
+             const explosion: TSceneObject = {
+                 id: `explosion_${i}`,
+                 type: 'explosion',
+                 coordinates: { x, y, z },
+                 scale: { x: 1, y: 1, z: 1 },
+                 rotation: { x: 0, y: 0, z: 0 },
+                 data: { 
+                     particleSize: 24 + Math.random() * 32, // 24-56 px розмір частинок
+                     velocity: 12 + Math.random() * 18, // 12-30 м/с швидкість розльоту
+                     particleCount: 800 + Math.floor(Math.random() * 1200), // 800-2000 частинок
+                     hue: 15 + Math.random() * 45, // 15-60 (відтінки оранжевого/червоного)
+                     alpha: 0.7 + Math.random() * 0.3 // 0.7-1.0 прозорість
+                 },
+                 tags: ['static', 'explosion'],
+                 bottomAnchor: 0,
+                 terrainAlign: false
+             };
+             
+             // Додаємо вибух
+             this.scene.pushObject(explosion);
+         }
+     }
+
+     /**
+      * Генерує один випадковий вибух з TTL 3 секунди
+      */
+     private generateRandomExplosion() {
+         // Випадкова позиція на карті
+         const x = (Math.random() - 0.5) * 100; // X: -100 до 100
+         const z = (Math.random() - 0.5) * 100; // Z: -100 до 100
+         const y = 13 + Math.random() * 12; // Y: 3-15 (вибухи в повітрі)
+         
+         // Унікальний ID для динамічного вибуху
+         const explosionId = `dynamic_explosion_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+         
+         const explosion: TSceneObject = {
+             id: explosionId,
+             type: 'explosion',
+             coordinates: { x, y, z },
+             scale: { x: 1, y: 1, z: 1 },
+             rotation: { x: 0, y: 0, z: 0 },
+             data: { 
+                 particleSize: 28 + Math.random() * 40, // 28-68 px розмір частинок
+                 velocity: 3 + Math.random() * 4, // 15-35 м/с швидкість розльоту
+                 particleCount: 500 + Math.floor(Math.random() * 500), // 1000-2500 частинок
+                 hue: 10 + Math.random() * 40, // 20-70 (відтінки оранжевого/червоного/жовтого)
+                 alpha: 0.8 + Math.random() * 0.2, // 0.8-1.0 прозорість
+                 ttl: 2.0, // TTL 3 секунди
+                 life: 1.5, // Життя частинки 2.5 секунди
+                 spreadRadius: 1.0 + Math.random() * 1.0, // 3-7 м радіус розльоту
+                 gravity: 5.0, // Без гравітації (радіальний розліт)
+                 drag: 0.3 + Math.random() * 0.3, // 0.3-0.6 опір повітря
+                 turbulence: 0.4 + Math.random() * 0.4, // 0.4-0.8 турбулентність
+                 sparkFrac: 0.2 + Math.random() * 0.3, // 0.2-0.5 доля іскорок
+                 flashLife: 2, // 0.2-0.5 сек тривалість спалаху
+                 flashSizePx: 60 + Math.random() * 40, // 120-200 px розмір спалаху
+                 flashIntensity: 3.2 + Math.random() * 4.8 // 1.2-2.0 інтенсивність спалаху
+             },
+             tags: ['dynamic', 'explosion'],
+             bottomAnchor: 0,
+             terrainAlign: false
+         };
+         
+         // Додаємо динамічний вибух
+         this.scene.pushObject(explosion);
+         
+         console.log(`💥 MapLogic: згенеровано динамічний вибух ${explosionId} на позиції (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) з TTL 3 сек`);
+     }
 
 }

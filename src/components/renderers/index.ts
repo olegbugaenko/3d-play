@@ -5,6 +5,7 @@ export { BoulderRenderer } from './BoulderRenderer';
 export { RockRenderer } from './RockRenderer';
 export { RoverRenderer } from './RoverRenderer';
 export { RendererManager } from './RendererManager';
-export { InstancedStoneRenderer } from './InstancedStoneRenderer';
+
 export { CloudRenderer } from './CloudRenderer';
 export { FireRenderer } from './FireRenderer';
+export { ExplosionRenderer } from './ExplosionRenderer';

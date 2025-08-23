@@ -8,20 +8,24 @@ export interface ElectricArcData {
 
   // ручки
   kinks?: number;           // к-сть внутрішніх зламів
-  amplitude?: number;       // макс. поперечне відхилення (world units), базова «рваність»
+  amplitude?: number;       // макс. поперечне відхилення (world units)
   thicknessPx?: number;     // товщина ядра у px
-  color?: number;           // колір
+  color?: number;           // базовий колір
   opacity?: number;         // 0..1
   glowIntensity?: number;   // яскравість glow
   glowPx?: number;          // РОЗМІР glow у px (радіус від краю ядра)
   seed?: number;            // для відтворюваності
 
-  // нове: параметри «гойдання» навколо базового зигзагу
-  wobbleAmp?: number;       // МУЛЬТИПЛІКАТОР амплітуди коливань (у world units) відносно amplitude (деф. 0.35)
-  wobbleFreq?: number;      // базова частота (Гц) для коливань (деф. 6)
+  // гойдання
+  wobbleAmp?: number;       // мультиплікатор амплітуди коливань (відносно amplitude), деф. 0.35
+  wobbleFreq?: number;      // базова частота, Гц (деф. 6)
+
+  // зсув відтінку (у градусах, -360..360)
+  hueShift?: number;
 }
 
 const _tmpV2 = new THREE.Vector2();
+const _tmpColor = new THREE.Color();
 const TAU = Math.PI * 2;
 
 function rngMulberry(seed: number) {
@@ -82,11 +86,9 @@ void main() {
   float denom = max(dot(miter, n1), 1e-3);
   float miterLen = min(1.0 / denom, 4.0); // miter limit
 
-  // половини у px
   float coreHalfPx = 0.5 * uThicknessPx;
-  float maxHalfPx  = coreHalfPx + uGlowPx; // екструдуємо до краю glow
+  float maxHalfPx  = coreHalfPx + uGlowPx;
 
-  // переведення px у view-space з урахуванням глибини
   float halfWidthVS = maxHalfPx * (uSizeAtten / max(1e-3, -P1.z));
 
   vec3 Pv = P1;
@@ -94,7 +96,7 @@ void main() {
 
   gl_Position = projectionMatrix * vec4(Pv, 1.0);
 
-  vSide       = aSide;        // інтерполюватиметься через трикутник
+  vSide       = aSide;
   vCoreHalfPx = coreHalfPx;
   vMaxHalfPx  = maxHalfPx;
   vMiterLen   = miterLen;
@@ -114,16 +116,11 @@ varying float vMaxHalfPx;
 varying float vMiterLen;
 
 void main(){
-  // дистанція від осі у пікселях (0 у центрі, до vMaxHalfPx на краї):
   float distPx = abs(vSide) * vMaxHalfPx * vMiterLen;
 
-  // ядро: до половини товщини
   float coreAlpha = 1.0 - smoothstep(0.0, vCoreHalfPx, distPx);
-
-  // glow: від краю ядра до краю екструдованої гео
   float glowAlpha = 1.0 - smoothstep(vCoreHalfPx, vMaxHalfPx, distPx);
 
-  // підсилення колору ядра, щоб воно не “тонула” в glow
   float rgbGain = 1.5 * coreAlpha + 0.7 * glowAlpha * uGlowIntensity;
   float alpha   = max(coreAlpha, glowAlpha * uGlowIntensity) * uOpacity;
 
@@ -149,7 +146,7 @@ void main(){
         uColor:         { value: new THREE.Color(0x9fd3ff) },
         uSizeAtten:     { value: 1.0 },
         uGlowIntensity: { value: 0.5 },
-        uGlowPx:        { value: 40.0 }, // розмір glow у px
+        uGlowPx:        { value: 40.0 },
       }
     });
     (ElectricArcRenderer.sharedMat as any).toneMapped = true;
@@ -173,7 +170,7 @@ void main(){
 
     const rnd = rngMulberry((seed ?? 1) | 0);
     const pts: THREE.Vector3[] = [];
-    const baseRU: number[] = []; // зберігаємо (rx, ry) для кожної внутр. точки
+    const baseRU: number[] = []; // (rx, ry) для кожної внутр. точки
 
     pts.push(start.clone());
 
@@ -181,9 +178,9 @@ void main(){
       const t = i / (kinks + 1);
       const base = new THREE.Vector3().copy(start).addScaledVector(dir, t * len);
 
-      const w   = Math.pow(Math.sin(Math.PI * t), 0.9);      // згасання до країв
+      const w   = Math.pow(Math.sin(Math.PI * t), 0.9);
       const ang = rnd() * TAU;
-      const r   = (rnd() * 2.0 - 1.0) * amplitude * w;       // поперечний зсув
+      const r   = (rnd() * 2.0 - 1.0) * amplitude * w;
 
       const rx = Math.cos(ang) * r;
       const ry = Math.sin(ang) * r;
@@ -261,6 +258,16 @@ void main(){
     return mesh;
   }
 
+  // ---------- hue shift helper ----------
+  private applyHueShift(base: THREE.Color, deg?: number): THREE.Color {
+    if (!deg || Math.abs(deg) < 1e-6) return base;
+    const { h, s, l } = base.getHSL({ h: 0, s: 0, l: 0 } as any);
+    let nh = h + (deg / 360);
+    nh = nh - Math.floor(nh); // wrap [0..1)
+    _tmpColor.setHSL(nh, s, l);
+    return _tmpColor;
+  }
+
   // ---------- PUBLIC API ----------
   render(object: SceneObject): THREE.Object3D {
     const d = (object.data || {}) as ElectricArcData;
@@ -277,48 +284,36 @@ void main(){
     const glowIntensity= d.glowIntensity ?? 0.6;
     const glowPx       = d.glowPx ?? 40.0;
     const seed         = d.seed ?? 12345;
+    const wobbleAmpMul = d.wobbleAmp ?? 0.35;
+    const wobbleFreqHz = d.wobbleFreq ?? 6.0;
+    const hueShiftDeg  = d.hueShift ?? 0;
 
-    const wobbleAmpMul = d.wobbleAmp ?? 0.35;   // доля від amplitude
-    const wobbleFreqHz = d.wobbleFreq ?? 6.0;   // базова частота, Гц
-
-    // локальна база: будую систему (right, up)
+    // початкова ортонапрямна база (перпендикулярно до осі старт→фініш)
     const delta = new THREE.Vector3().subVectors(endW, startW);
     const len = delta.length();
     const dir = delta.clone().normalize();
     const tmp = Math.abs(dir.y) > 0.99 ? new THREE.Vector3(1,0,0) : new THREE.Vector3(0,1,0);
-    const right = new THREE.Vector3().crossVectors(dir, tmp).normalize();
-    const up    = new THREE.Vector3().crossVectors(right, dir).normalize();
+    const right0 = new THREE.Vector3().crossVectors(dir, tmp).normalize();
+    const up0    = new THREE.Vector3().crossVectors(right0, dir).normalize();
 
-    // базовий «заморожений» зигзаг
-    const base = this.buildBaseCenterline(new THREE.Vector3(0,0,0), delta, kinks, amplitude, seed, right, up);
+    // базовий «заморожений» зигзаг (у площині, перпендикулярній осі)
+    const base = this.buildBaseCenterline(new THREE.Vector3(0,0,0), delta, kinks, amplitude, seed, right0, up0);
     const mesh = this.makePolylineMesh(base.points);
-
-    // профіль джиттера для кожного зламу (незалежні фаза/частота/напрямок/масштаб)
-    const rnd = rngMulberry((seed ^ 0xB01DF00D) >>> 0);
-    const phases: number[] = [];
-    const freqs: number[]  = [];
-    const dirs: number[]   = []; // (x,y) у базисі right/up
-    const amps: number[]   = []; // множник амплітуди по точці
-
-    for (let i = 0; i < kinks; i++) {
-      phases[i] = rnd() * TAU;
-      // 60%..140% від базової частоти — щоб не синхронно
-      freqs[i]  = (0.6 + 0.8 * rnd()) * wobbleFreqHz * TAU; // одразу ω (рад/с)
-      const ang = rnd() * TAU;
-      dirs.push(Math.cos(ang), Math.sin(ang));
-      // 50%..100% локальної амплітуди
-      amps[i] = 0.5 + 0.5 * rnd();
-    }
 
     // Розташувати меш у світі в startW
     mesh.position.copy(startW);
 
     (mesh as any).userData.arc = {
+      // параметри
       startW, endW, kinks, amplitude, thicknessPx, color, opacity,
       glowIntensity, glowPx, seed,
+      wobbleAmp: wobbleAmpMul,
+      wobbleFreq: wobbleFreqHz,
+      hueShiftDeg,
+
       // статичні дані для оновлення щокадрово
       baseOffsetRU: base.baseOffsetRU, // (rx, ry) для кожного зламу
-      phases, freqs, dirs, amps, right, up, len
+      len
     };
 
     // ---- onBeforeRender: анімуємо центрлайн і оновлюємо атрибути ----
@@ -343,19 +338,29 @@ void main(){
         atten = renderer.getPixelRatio() * cam.zoom;
       }
 
-      // uniforms (glow не впливає на геометрію/гойдання)
+      // колір + hueShift на льоту
+      const displayColor =
+        (A.hueShiftDeg && Math.abs(A.hueShiftDeg) > 1e-6)
+          ? this.applyHueShift(A.color.clone(), A.hueShiftDeg)
+          : A.color;
+
       mat.uniforms.uSizeAtten.value     = atten;
       mat.uniforms.uThicknessPx.value   = A.thicknessPx;
       mat.uniforms.uOpacity.value       = A.opacity;
-      (mat.uniforms.uColor.value as THREE.Color).copy(A.color);
+      (mat.uniforms.uColor.value as THREE.Color).copy(displayColor);
       mat.uniforms.uGlowIntensity.value = A.glowIntensity;
       mat.uniforms.uGlowPx.value        = A.glowPx;
 
-      // === динамічний центрлайн ===
-      const dir = new THREE.Vector3().subVectors(A.endW, A.startW).normalize();
-      const right = A.right as THREE.Vector3;
-      const up    = A.up as THREE.Vector3;
-      const len   = A.len as number;
+      // === динамічний центрлайн у ПЕРПЕНДИКУЛЯРНІЙ площині ===
+      const dir = new THREE.Vector3().subVectors(A.endW, A.startW);
+      const len = dir.length();
+      if (len < 1e-6) return;
+      dir.normalize();
+
+      // оновлюємо базис на кожному кадрі: right/up ⟂ dir
+      const tmp = Math.abs(dir.y) > 0.99 ? new THREE.Vector3(1,0,0) : new THREE.Vector3(0,1,0);
+      const right = new THREE.Vector3().crossVectors(dir, tmp).normalize();
+      const up    = new THREE.Vector3().crossVectors(right, dir).normalize();
 
       const g = mesh.geometry as THREE.BufferGeometry;
       const aPrev   = g.getAttribute('aPrev')   as THREE.BufferAttribute;
@@ -373,25 +378,26 @@ void main(){
         const t = i / (A.kinks + 1);
         const base = new THREE.Vector3().addScaledVector(dir, t * len);
 
-        // базовий seed-зсув (той самий, що під час створення)
+        // базовий seed-зсув (той самий, що під час створення), але в НОВОМУ базисі right/up
         const rx = A.baseOffsetRU[(i-1)*2 + 0];
         const ry = A.baseOffsetRU[(i-1)*2 + 1];
         base.addScaledVector(right, rx);
         base.addScaledVector(up,    ry);
 
-        // незалежна «тряска»
+        // незалежна «тряска» у тій же перпендикулярній площині
         const w      = Math.pow(Math.sin(Math.PI * t), 0.9);
-        const omega  = A.freqs[i-1] as number;
-        const phase  = A.phases[i-1] as number;
-        const dirx   = A.dirs[(i-1)*2 + 0] as number;
-        const diry   = A.dirs[(i-1)*2 + 1] as number;
-        const ampMul = A.amps[i-1] as number;
+        const omega  = (A.wobbleFreq as number) * TAU * (0.6 + 0.8 * (i * 16807 % 97) / 97.0); // легка десинхронізація
+        const phase  = (i * 9301 % 233) / 233.0 * TAU;
 
-        const jitterMag = (A.amplitude * (object.data?.wobbleAmp ?? 0.35)) * ampMul * w;
+        // напрямок коливань — довільний у площині right/up
+        const dirAng = ((i * 73) % 360) * (Math.PI / 180);
+        const jx = Math.cos(dirAng), jy = Math.sin(dirAng);
+
+        const jitterMag = (A.amplitude * (A.wobbleAmp ?? 0.35)) * w;
         const s = Math.sin(omega * now + phase) * jitterMag;
 
-        base.addScaledVector(right, dirx * s);
-        base.addScaledVector(up,    diry * s);
+        base.addScaledVector(right, jx * s);
+        base.addScaledVector(up,    jy * s);
 
         pts[i] = base;
       }
@@ -434,7 +440,10 @@ void main(){
       const halfGlowWorld = A.glowPx          * (atten / Math.max(1e-3, midZ));
       const padWorld = (halfCoreWorld + halfGlowWorld);
       const radius = 0.5 * len + A.amplitude * 1.25 + padWorld * 1.5;
-      g.boundingSphere = new THREE.Sphere(centerLocal, radius);
+      (mesh.geometry as THREE.BufferGeometry).boundingSphere = new THREE.Sphere(centerLocal, radius);
+
+      // пересунути меш у світ на актуальний старт
+      (mesh as THREE.Mesh).position.copy(A.startW);
     };
 
     this.group.add(mesh);
@@ -448,35 +457,27 @@ void main(){
     const A = (mesh as any).userData.arc;
     if (!A) return;
 
-    // оновлюємо параметри (анімація йде у onBeforeRender)
+    // оновлюємо параметри
     A.startW.set(object.coordinates.x, object.coordinates.y, object.coordinates.z);
     if (object.data?.target) {
       const t = object.data.target as Vec3;
       A.endW.set(t.x, t.y, t.z);
     }
-    if (object.data?.kinks        !== undefined && object.data.kinks !== A.kinks) {
+
+    if (object.data?.kinks !== undefined && object.data.kinks !== A.kinks) {
+      // перебудувати базову лінію і геометрію під нову к-сть зламів
       A.kinks = object.data.kinks;
-      // перезібрати профіль джиттера під нову кількість зламів
-      const rnd = rngMulberry((A.seed ^ 0xB01DF00D) >>> 0);
-      A.phases = []; A.freqs = []; A.dirs = []; A.amps = [];
-      for (let i = 0; i < A.kinks; i++) {
-        A.phases[i] = rnd() * TAU;
-        A.freqs[i]  = (0.6 + 0.8 * rnd()) * (object.data?.wobbleFreq ?? 6.0) * TAU;
-        const ang = rnd() * TAU;
-        A.dirs.push(Math.cos(ang), Math.sin(ang));
-        A.amps[i] = 0.5 + 0.5 * rnd();
-      }
-      // базовий офсет теж потрібно перерахувати
+
       const delta = new THREE.Vector3().subVectors(A.endW, A.startW);
       const dir = delta.clone().normalize();
       const tmp = Math.abs(dir.y) > 0.99 ? new THREE.Vector3(1,0,0) : new THREE.Vector3(0,1,0);
-      A.right = new THREE.Vector3().crossVectors(dir, tmp).normalize();
-      A.up    = new THREE.Vector3().crossVectors(A.right, dir).normalize();
-      const base = this.buildBaseCenterline(new THREE.Vector3(0,0,0), delta, A.kinks, A.amplitude, A.seed, A.right, A.up);
+      const right = new THREE.Vector3().crossVectors(dir, tmp).normalize();
+      const up    = new THREE.Vector3().crossVectors(right, dir).normalize();
+
+      const base = this.buildBaseCenterline(new THREE.Vector3(0,0,0), delta, A.kinks, A.amplitude, A.seed, right, up);
       A.baseOffsetRU = base.baseOffsetRU;
       A.len = delta.length();
 
-      // перевибудувати геометрію під нову кількість точок
       const newMesh = this.makePolylineMesh(base.points);
       newMesh.renderOrder = (mesh as any).renderOrder;
       newMesh.position.copy(A.startW);
@@ -496,13 +497,11 @@ void main(){
     if (object.data?.glowIntensity!== undefined) A.glowIntensity= object.data.glowIntensity;
     if (object.data?.glowPx       !== undefined) A.glowPx       = object.data.glowPx;
     if (object.data?.seed         !== undefined) A.seed         = object.data.seed;
-    if (object.data?.wobbleFreq   !== undefined) {
-      for (let i = 0; i < A.kinks; i++) {
-        A.freqs[i] = (0.6 + 0.8 * Math.random()) * object.data.wobbleFreq * TAU;
-      }
-    }
+    if (object.data?.wobbleAmp    !== undefined) A.wobbleAmp    = object.data.wobbleAmp;
+    if (object.data?.wobbleFreq   !== undefined) A.wobbleFreq   = object.data.wobbleFreq;
+    if (object.data?.hueShift     !== undefined) A.hueShiftDeg  = object.data.hueShift;
 
-    // пересунути меш у світ на новий старт (геометрію оновить onBeforeRender)
+    // позиція меша (атрибути підхопляться у onBeforeRender)
     (mesh as THREE.Mesh).position.copy(A.startW);
   }
 

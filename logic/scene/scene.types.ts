@@ -15,6 +15,7 @@ export interface TSceneObject<T = any> {
     tags: string[]; // Теги для швидкого доступу та фільтрації
     bottomAnchor?: number; // Зміщення від центру до низу об'єкта (наприклад, -0.5 для куба)
     terrainAlign?: boolean; // Автоматично нахиляти об'єкт по нормалі terrain
+    targetType?: string[];
 }
 
 export interface TSceneViewport {
