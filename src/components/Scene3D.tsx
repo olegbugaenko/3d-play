@@ -2,7 +2,8 @@ import React, { useRef, useEffect, useMemo, useState } from 'react'
 import * as THREE from 'three'
 import { CameraController } from './CameraController'
 import { RendererManager } from './renderers/RendererManager'
-import { SelectionManager } from './renderers/SelectionManager'
+import { SelectionRenderer } from './renderers/SelectionRenderer'
+import { SelectionHandler } from './ui-handlers/SelectionHandler'
 import { SceneObject } from './renderers/BaseRenderer'
 import { TerrainRenderer } from './renderers/TerrainRenderer'
 import { MapLogic } from '../../logic/map/map-logic'
@@ -19,7 +20,8 @@ const Scene3D: React.FC = () => {
   const dragEndRef = useRef({ x: 0, y: 0 })
   const isDraggingRef = useRef(false)
   const rendererManagerRef = useRef<RendererManager | null>(null)
-  const selectionManagerRef = useRef<SelectionManager | null>(null)
+      const selectionRendererRef = useRef<SelectionRenderer | null>(null)
+    const selectionHandlerRef = useRef<SelectionHandler | null>(null)
   const visibleObjectsRef = useRef<SceneObject[]>([])
   const mapLogicRef = useRef<MapLogic | null>(null)
   const terrainRendererRef = useRef<TerrainRenderer | null>(null)
@@ -185,8 +187,20 @@ const Scene3D: React.FC = () => {
   useEffect(() => {
     if (scene) {
               rendererManagerRef.current = new RendererManager(scene, renderer);
-      selectionManagerRef.current = new SelectionManager(scene);
-      mapLogicRef.current = mapInit();
+                      selectionRendererRef.current = new SelectionRenderer(
+            scene, 
+            (id: string) => rendererManagerRef.current?.getMeshById(id) || null,
+            (id: string) => mapLogicRef.current?.scene.getObjectById(id) || null
+        );
+        mapLogicRef.current = mapInit();
+        
+        // Створюємо SelectionHandler після mapLogic
+        selectionHandlerRef.current = new SelectionHandler(
+            mapLogicRef.current.selection,
+            selectionRendererRef.current,
+            rendererManagerRef.current,
+            camera
+        );
       
       // Ініціалізуємо TerrainRenderer після створення mapLogic
       if (mapLogicRef.current) {
@@ -352,6 +366,7 @@ const Scene3D: React.FC = () => {
       
       // Конвертуємо в формат SceneObject
       const convertedObjects = objects.map(obj => ({
+        tags: obj.tags,
         id: obj.id,
         type: obj.type,
         coordinates: obj.coordinates,
@@ -423,23 +438,27 @@ const Scene3D: React.FC = () => {
         // Оновлюємо існуючий об'єкт
         rendererManagerRef.current!.updateObject(obj);
         
-                  // Оновлюємо позицію підсвітки якщо об'єкт вибраний
-          if (selectionManagerRef.current?.isSelected(obj.id)) {
-            const obj3d = rendererManagerRef.current!.getMeshById(obj.id);
-            if (obj3d) {
-              selectionManagerRef.current.updateHighlightPosition(obj.id, obj3d);
-            }
+                          // Оновлюємо позицію підсвітки якщо об'єкт вибраний
+        if (mapLogicRef.current?.selection.isSelected(obj.id)) {
+          const obj3d = rendererManagerRef.current!.getMeshById(obj.id);
+          if (obj3d && obj3d instanceof THREE.Mesh) {
+            selectionRendererRef.current?.updateHighlightPosition(obj.id, obj3d.position, obj3d.scale, obj3d.rotation);
+          }
+        }
+
+        // Оновлюємо індикатори цілей для динамічних об'єктів
+        if (obj.tags?.includes('controlled')) {
+          const objData = obj.data as any;
           
-          // Оновлюємо індикатори цілей для динамічних об'єктів
-          if (obj.tags?.includes('dynamic')) {
-            const objData = obj.data as any;
-            if (objData?.target) {
-              // Встановлюємо індикатор цілі
-              selectionManagerRef.current.setTargetIndicator(obj.id, objData.target.x, objData.target.z);
-            } else {
-              // Видаляємо індикатор цілі якщо ціль досягнута
-              selectionManagerRef.current.removeTargetIndicator(obj.id);
-            }
+          // Показуємо таргети тільки для вибраних юнітів
+          const isSelected = mapLogicRef.current?.selection.isSelected(obj.id);
+          
+          if (objData?.target && isSelected) {
+            // Встановлюємо індикатор цілі
+            selectionRendererRef.current?.addTargetIndicator(obj.id, new THREE.Vector3(objData.target.x, objData.target.y, objData.target.z));
+          } else {
+            // Видаляємо індикатор цілі якщо ціль досягнута або юніт не вибраний
+            selectionRendererRef.current?.removeTargetIndicator(obj.id);
           }
         }
       } else {
@@ -447,6 +466,12 @@ const Scene3D: React.FC = () => {
         rendererManagerRef.current!.renderObject(obj);
       }
     });
+    
+    // Підсвічуємо інтерактивні об'єкти для вибраних юнітів
+    if (mapLogicRef.current && selectionRendererRef.current) {
+      const interactiveObjects = mapLogicRef.current.selection.findInteractableObjects();
+      selectionRendererRef.current.highlightInteractiveObjects(interactiveObjects);
+    }
 
     visibleObjectsRef.current = currentObjects;
   };
@@ -456,6 +481,40 @@ const Scene3D: React.FC = () => {
     mousePositionRef.current = {
       x: event.clientX,
       y: event.clientY
+    }
+    
+    // Hover ефект для інтерактивних об'єктів
+    if (selectionRendererRef.current && mapLogicRef.current) {
+      const mouse = new THREE.Vector2();
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+      
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, camera);
+      
+      // Отримуємо інтерактивні об'єкти
+      const interactiveObjects = mapLogicRef.current.selection.findInteractableObjects();
+      
+      let hoveredObjectId: string | null = null;
+      
+      // Перевіряємо кожен інтерактивний об'єкт
+      for (const obj of interactiveObjects) {
+        const mesh = rendererManagerRef.current?.getMeshById(obj.id);
+        if (mesh) {
+          // Створюємо сферу навколо об'єкта для перетину
+          const sphere = new THREE.Sphere();
+          const { pos, scale } = selectionRendererRef.current.getCorrectPositionAndScale(obj.id, mesh);
+          sphere.center.copy(pos);
+          sphere.radius = scale.length() * 0.5; // Радіус половини діагоналі
+          
+          if (raycaster.ray.intersectsSphere(sphere)) {
+            hoveredObjectId = obj.id;
+            break;
+          }
+        }
+      }
+      // Встановлюємо hover стан
+      selectionRendererRef.current.setHoveredObject(hoveredObjectId);
     }
     
     // Drag selection logic
@@ -503,9 +562,9 @@ const Scene3D: React.FC = () => {
 
    // Встановлення цілі для вибраних динамічних об'єктів
   const handleSetRoverTarget = (event: MouseEvent) => {
-    if (!selectionManagerRef.current || !mapLogicRef.current) return;
+    if (!mapLogicRef.current) return;
     
-    const selectedObjects = selectionManagerRef.current.getSelectedObjects();
+    const selectedObjects = mapLogicRef.current.selection.getSelectedObjects();
     if (selectedObjects.length === 0) return;
     
     // Отримуємо позицію кліку в 3D просторі
@@ -559,8 +618,10 @@ const Scene3D: React.FC = () => {
     
     // Викликаємо метод логіки для розподілення цілей
     if (mapLogicRef.current) {
+      console.log('🎯 Викликаю distributeTargetsForObjects для точки:', intersectionPoint);
       mapLogicRef.current.distributeTargetsForObjects(selectedObjects, {
         x: intersectionPoint.x,
+        y: intersectionPoint.y,
         z: intersectionPoint.z
       });
     }
@@ -568,129 +629,40 @@ const Scene3D: React.FC = () => {
 
   // Обробка drag selection
   const handleDragSelection = () => {
-    if (!selectionManagerRef.current || !rendererManagerRef.current) return;
+    if (!selectionHandlerRef.current || !mapLogicRef.current) return;
     
-    // Отримуємо всі контрольовані об'єкти
-    const allObjects = Object.values(mapLogicRef.current?.scene.getObjects() || {});
+    const allObjects = Object.values(mapLogicRef.current.scene.getObjects());
     const controlledObjects = allObjects.filter(obj => obj.tags?.includes('controlled'));
     
-    // Створюємо прямокутник drag selection
-    const left = Math.min(dragStartRef.current.x, dragEndRef.current.x);
-    const right = Math.max(dragStartRef.current.x, dragEndRef.current.x);
-    const top = Math.min(dragStartRef.current.y, dragEndRef.current.y);
-    const bottom = Math.max(dragStartRef.current.y, dragEndRef.current.y);
+    const dragBounds = {
+      left: Math.min(dragStartRef.current.x, dragEndRef.current.x),
+      right: Math.max(dragStartRef.current.x, dragEndRef.current.x),
+      top: Math.min(dragStartRef.current.y, dragEndRef.current.y),
+      bottom: Math.max(dragStartRef.current.y, dragEndRef.current.y)
+    };
     
-    console.log(`Drag selection: (${left}, ${top}) to (${right}, ${bottom})`);
+    selectionHandlerRef.current.handleDragSelection(dragBounds, controlledObjects);
     
-          // Перевіряємо кожен контрольований об'єкт
-      controlledObjects.forEach(obj => {
-        const mesh = rendererManagerRef.current?.getMeshById(obj.id);
-        if (!mesh) return;
-        
-        // Проектуємо позицію об'єкта на екран
-        const screenPosition = mesh.position.clone().project(camera);
-        const screenX = (screenPosition.x + 1) * window.innerWidth / 2;
-        const screenY = (-screenPosition.y + 1) * window.innerHeight / 2;
-        
-        // Перевіряємо чи об'єкт попадає в drag selection
-        if (screenX >= left && screenX <= right && screenY >= top && screenY <= bottom) {
-          if (selectionManagerRef.current) {
-            selectionManagerRef.current.selectObject(obj.id, mesh);
-            console.log(`Object ${obj.id} selected via drag`);
-          }
-        }
-      });
+    // Підсвічуємо інтерактивні об'єкти після drag selection
+    if (mapLogicRef.current && selectionRendererRef.current) {
+      const interactiveObjects = mapLogicRef.current.selection.findInteractableObjects();
+      selectionRendererRef.current.highlightInteractiveObjects(interactiveObjects);
+    }
   };
 
   // Обробка вибору об'єктів по кліку
   const handleObjectSelection = (event: MouseEvent) => {
-    // Отримуємо координати миші в нормалізованих координатах (-1 до 1)
-    const mouse = new THREE.Vector2();
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-    // Створюємо raycaster для визначення об'єкта під курсором
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, camera);
-
-    // Отримуємо всі об'єкти зі сцени
-    const allObjects = Object.values(mapLogicRef.current?.scene.getObjects() || {});
+    if (!selectionHandlerRef.current || !mapLogicRef.current) return;
+    
+    const allObjects = Object.values(mapLogicRef.current.scene.getObjects());
     const controlledObjects = allObjects.filter(obj => obj.tags?.includes('controlled'));
-
-    console.log(`Знайдено ${controlledObjects.length} контрольованих об'єктів:`, controlledObjects.map(obj => obj.id));
-
-    // Створюємо масив мешів для перевірки
-    const meshesToCheck: THREE.Mesh[] = [];
-    controlledObjects.forEach(obj => {
-      const mesh = rendererManagerRef.current?.getMeshById(obj.id);
-      if (mesh) {
-        meshesToCheck.push(mesh);
-        console.log(`Додано меш для ${obj.id}:`, mesh);
-      } else {
-        console.log(`Меш не знайдено для ${obj.id}`);
-      }
-    });
-
-    console.log(`Перевіряємо ${meshesToCheck.length} мешів`);
-
-    // Перевіряємо перетин з raycaster
-    const intersects = raycaster.intersectObjects(meshesToCheck, true);
-
-    console.log(`Raycaster знайшов ${intersects.length} перетинів:`, intersects);
-
-    if (intersects.length > 0) {
-      // Знайшли об'єкт - знаходимо його ID
-      const intersectedMesh = intersects[0].object;
-      let selectedObjectId = '';
-
-      // Шукаємо ID об'єкта по мешу
-      for (const obj of controlledObjects) {
-        const mesh = rendererManagerRef.current?.getMeshById(obj.id);
-        if (mesh === intersectedMesh || mesh?.children.includes(intersectedMesh as any)) {
-          selectedObjectId = obj.id;
-          break;
-        }
-        
-        // Додатково перевіряємо всіх батьків intersectedMesh
-        let parent = intersectedMesh.parent;
-        while (parent) {
-          if (parent === mesh) {
-            selectedObjectId = obj.id;
-            break;
-          }
-          parent = parent.parent;
-        }
-        
-        if (selectedObjectId) break;
-      }
-
-      if (selectedObjectId) {
-        // Використовуємо SelectionManager для вибору об'єкта
-        const objectMesh = rendererManagerRef.current?.getMeshById(selectedObjectId);
-        if (objectMesh && selectionManagerRef.current) {
-          if (event.shiftKey) {
-            // Shift+клік - додаємо до селекції
-            if (selectionManagerRef.current.isSelected(selectedObjectId)) {
-              selectionManagerRef.current.deselectObject(selectedObjectId);
-            } else {
-              selectionManagerRef.current.selectObject(selectedObjectId, objectMesh);
-            }
-          } else {
-            // Звичайний клік - знімаємо попередній вибір і вибираємо новий
-            selectionManagerRef.current.deselectAll();
-            selectionManagerRef.current.selectObject(selectedObjectId, objectMesh);
-          }
-        }
-        console.log(`Обрано об'єкт: ${selectedObjectId}`);
-      } else {
-        console.log('Не вдалося знайти ID об\'єкта для обраного меша');
-      }
-    } else {
-      console.log('Не знайдено перетинів з контрольованими об\'єктами');
-      // Клікнули по пустому місцю - знімаємо вибір з усіх об'єктів
-      if (selectionManagerRef.current) {
-        selectionManagerRef.current.deselectAll();
-      }
+    
+    selectionHandlerRef.current.handleObjectClick(event, controlledObjects);
+    
+    // Підсвічуємо інтерактивні об'єкти після вибору об'єкта
+    if (mapLogicRef.current && selectionRendererRef.current) {
+      const interactiveObjects = mapLogicRef.current.selection.findInteractableObjects();
+      selectionRendererRef.current.highlightInteractiveObjects(interactiveObjects);
     }
   }
 
@@ -703,14 +675,19 @@ const Scene3D: React.FC = () => {
       isDraggingRef.current = false;
       
       // Якщо не затискаємо Shift - знімаємо попередній вибір
-      if (!event.shiftKey && selectionManagerRef.current) {
-        selectionManagerRef.current.deselectAll();
+      if (!event.shiftKey && selectionHandlerRef.current) {
+        selectionHandlerRef.current.handleEmptyClick();
+        
+        // Очищаємо підсвічування інтерактивних об'єктів після зняття селекшину
+        if (selectionRendererRef.current) {
+          selectionRendererRef.current.highlightInteractiveObjects([]);
+        }
       }
-    } else if (event.button === 2) { // Права кнопка
+    } else if (event.button === 2) { // Права кнопка - вибір цілі для селекшну
       isRightMouseDownRef.current = true
       
-      // Встановлюємо ціль для вибраних роверів
-      handleSetRoverTarget(event);
+      // Ціль встановлюється через CameraController.setOnSetTarget
+      // handleSetRoverTarget(event); // ВИДАЛЕНО - дублювання
       
       // Коригуємо висоту на основі terrain
       if (mapLogicRef.current) {
@@ -751,7 +728,7 @@ const Scene3D: React.FC = () => {
       
       isLeftMouseDownRef.current = false;
       isDraggingRef.current = false;
-    } else if (event.button === 2) { // Права кнопка
+    } else if (event.button === 2) { // Права кнопка - вибір цілі для селекшну
       isRightMouseDownRef.current = false
       
       // Коригуємо висоту на основі terrain
@@ -1146,8 +1123,8 @@ const Scene3D: React.FC = () => {
       if (mountRef.current && renderer.domElement) {
         mountRef.current.removeChild(renderer.domElement)
       }
-      if (selectionManagerRef.current) {
-        selectionManagerRef.current.dispose()
+      if (selectionRendererRef.current) {
+        selectionRendererRef.current.clearAll()
       }
     }
   }, [scene, camera, renderer, cameraController])
@@ -1202,7 +1179,7 @@ const Scene3D: React.FC = () => {
         <div>Viewport Bounds: Z[{Math.round((viewportData.centerY - viewportData.height/2) * 100) / 100}, {Math.round((viewportData.centerY + viewportData.height/2) * 100) / 100}]</div>
         <div>Terrain: Active (Height: 0 to 20)</div>
         <div>Focus Point: ({Math.round(cameraController.getTarget().x * 100) / 100}, {Math.round(cameraController.getTarget().y * 100) / 100}, {Math.round(cameraController.getTarget().z * 100) / 100})</div>
-        <div>Selected Objects: {selectionManagerRef.current?.getSelectedObjects().length || 0}</div>
+        <div>Selected Objects: {mapLogicRef.current?.selection.getSelectedCount() || 0}</div>
       </div>
       
       {/* Resources Bar */}

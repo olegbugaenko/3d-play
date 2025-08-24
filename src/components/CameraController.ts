@@ -127,9 +127,9 @@ export class CameraController {
       if (this.onDragStart) {
         this.onDragStart(this.dragStart)
       }
-    } else if (event.button === 2) { // Права кнопка
+    } else if (event.button === 1) { // Середня кнопка (колесо миші) - ротейшн камери
       this.isRightMouseDown = true
-      
+    } else if (event.button === 2) { // Права кнопка - вибір цілі для селекшну
       if (this.onSetTarget) {
         this.onSetTarget(event)
       }
@@ -156,7 +156,7 @@ export class CameraController {
       
       this.adjustHeightToTerrain()
     } else if (this.isRightMouseDown) {
-      // Обробка обертання камери правою кнопкою
+      // Обробка обертання камери середньою кнопкою (колесо миші)
       const deltaX = event.movementX * this.options.rotateSpeed
       const deltaY = event.movementY * this.options.rotateSpeed
       
@@ -179,8 +179,9 @@ export class CameraController {
       
       this.isLeftMouseDown = false
       this.isDragging = false
-    } else if (event.button === 2) { // Права кнопка
+    } else if (event.button === 1) { // Середня кнопка (колесо миші) - ротейшн камери
       this.isRightMouseDown = false
+    } else if (event.button === 2) { // Права кнопка - вибір цілі для селекшну
       this.adjustHeightToTerrain()
     }
   }

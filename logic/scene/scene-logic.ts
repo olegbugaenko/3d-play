@@ -366,7 +366,7 @@ export class SceneLogic {
         }
     }
 
-    getVisibleObjects() {
+    getVisibleObjects(options: { filterByCommands?: Set<string> } = {}) {
         // Отримуємо грід-села в межах viewport
         const visibleGridCells = this.getVisibleGridCells();
 
@@ -386,11 +386,24 @@ export class SceneLogic {
             }
         });
         
-        
-        // Повертаємо об'єкти без додаткової фільтрації
-        return Array.from(visibleObjectIds)
+        // Отримуємо базові видимі об'єкти
+        let objects = Array.from(visibleObjectIds)
             .map(id => this.objects[id])
             .filter(Boolean);
+        
+        // Додатковий фільтр по командах якщо потрібно
+        if (options.filterByCommands?.size) {
+            objects = objects.filter(obj => 
+                obj.targetType && 
+                this.hasMatchingCommands(obj.targetType, options.filterByCommands!)
+            );
+        }
+        
+        return objects;
+    }
+    
+    private hasMatchingCommands(targetType: string[], availableCommands: Set<string>): boolean {
+        return targetType.some(cmd => availableCommands.has(cmd));
     }
     
     // Методи для роботи з тегами

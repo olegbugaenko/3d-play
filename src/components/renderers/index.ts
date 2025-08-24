@@ -9,3 +9,4 @@ export { RendererManager } from './RendererManager';
 export { CloudRenderer } from './CloudRenderer';
 export { FireRenderer } from './FireRenderer';
 export { ExplosionRenderer } from './ExplosionRenderer';
+export { SelectionRenderer } from './SelectionRenderer';

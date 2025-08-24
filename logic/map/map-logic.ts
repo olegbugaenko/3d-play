@@ -4,15 +4,20 @@ import { TSceneObject } from '../scene/scene.types';
 import { DynamicsLogic } from '../scene/dynamics-logic';
 import { MAP_CONFIG } from './map-config';
 import { ResourceManager } from '../resources';
+import { CommandSystem } from '../commands';
+import { SelectionLogic } from '../selection';
 
 export class MapLogic {
+    public commandSystem: CommandSystem;
+    public selection: SelectionLogic;
 
     constructor(
         public scene: SceneLogic, 
         public dynamics: DynamicsLogic,
         public resources: ResourceManager
     ) {
-        // Constructor implementation
+        this.commandSystem = new CommandSystem(this.scene);
+        this.selection = new SelectionLogic(this.scene);
     }
 
     initMap(cameraProps: TCameraProps) {
@@ -216,7 +221,7 @@ export class MapLogic {
                         size: baseSize, // Базовий розмір для рендерера
                         smoothness, // Використовуємо smoothness замість roughness
                         resourceId: resourceType, // Додаємо тип ресурсу
-                        resourceAmount: 1 + Math.floor(Math.random() * 3), // 1-3 одиниці ресурсу
+                        resourceAmount: 10 + Math.floor(Math.random() * 30), // 1-3 одиниці ресурсу
                         modelPath: (() => {
                             const rand = Math.random();
                             if (rand < 0.33) return '/models/stone4.glb';
@@ -226,7 +231,8 @@ export class MapLogic {
                     },
                     tags: ['on-ground', 'static', 'rock', 'resource'], // Автоматично розміститься на terrain
                     bottomAnchor: -baseSize * 0.3, // Каменюк стоїть на своєму низу
-                    terrainAlign: true // Нахиляється по нормалі terrain
+                    terrainAlign: true, // Нахиляється по нормалі terrain
+                    targetType: ['collect-resource'],
                 };
                 
                 // Додаємо з terrain constraint
@@ -444,16 +450,19 @@ export class MapLogic {
                      y: Math.atan2(z, x) + Math.random() * 0.5 + (Math.PI / 2), // Направляємо в сторону від центру + корекція кута
                      z: 0 
                  },
-                                   data: { 
+                 data: { 
                       modelPath: '/models/playtest-rover.glb', // Шлях відносно public директорії
                       scale: scale,
                       maxSpeed: 2.0, // Базова швидкість руху
                       rotatable: true, // Ровер може обертатися в напрямку руху
-                      rotationOffset: -Math.PI / 2 // Корекція кута (90 градусів) - модель дивиться в сторону осі Z
+                      rotationOffset: -Math.PI / 2,
+                      collectionSpeed: 0.5,
+                      maxCapacity: 5
                   },
                  tags: ['on-ground', 'dynamic', 'rover', 'controlled'], // Динамічний об'єкт на terrain, який можна контролювати
                  bottomAnchor: -0.1, // Rover стоїть на своєму низу
-                 terrainAlign: true // Нахиляється по нормалі terrain
+                 terrainAlign: true, // Нахиляється по нормалі terrain
+                 commandType: ['move-to', 'collect-resource', 'build'] // Доступні команди для ровера
              };
             
             // Додаємо з terrain constraint
@@ -470,12 +479,17 @@ export class MapLogic {
     tick() {
         const dT = 0.1;
         this.processSceneTick(dT);
+        
+        // Оновлюємо систему команд
+        this.commandSystem.update(dT);
+        
+        // Переміщуємо об'єкти (швидкість встановлюється командами)
         this.dynamics.moveObjects(dT);
         
         // Генеруємо нові вибухи кожні 5 секунд
         const currentTime = performance.now();
         if (currentTime - this.lastExplosionTime >= this.explosionInterval) {
-            this.generateRandomExplosion();
+            //this.generateRandomExplosion();
             this.lastExplosionTime = currentTime;
         }
     }
@@ -483,36 +497,29 @@ export class MapLogic {
     processSceneTick(_dT: number) {
         // contains custom logic, managing objects, custom structures and so on...
         const testMovingObj = this.scene.getObjectById('dynamic_test_cube');
-        if(testMovingObj && !testMovingObj.data?.target) {
-            // Тільки якщо немає цілі - додаємо тестову анімацію
+        if(testMovingObj && !this.commandSystem.hasActiveCommands(testMovingObj.id)) {
+            // Тільки якщо немає активних команд - додаємо тестову анімацію
             if(!testMovingObj.speed) {
                 testMovingObj.speed = {x: 0, y: 0, z: 0}
             }
             testMovingObj.speed.x += Math.cos(testMovingObj.coordinates.x*Math.PI);
         }
-        
-        // Логіка руху динамічних об'єктів
-        this.processDynamicObjectsMovement(_dT);
     }
     
     /**
      * Розподіляє цілі для групи динамічних об'єктів, щоб вони не злипалися
      */
-    public distributeTargetsForObjects(objectIds: string[], centerPoint: { x: number; z: number }) {
+    public distributeTargetsForObjects(objectIds: string[], centerPoint: { x: number; y: number; z: number }) {
         const dynamicObjects = objectIds
             .map(id => this.scene.getObjectById(id))
             .filter(obj => obj && obj.tags?.includes('dynamic')) as TSceneObject[];
         
         if (dynamicObjects.length === 0) return;
         
-        // Якщо тільки один об'єкт - просто встановлюємо ціль
+        // Якщо тільки один об'єкт - просто додаємо команду руху
         if (dynamicObjects.length === 1) {
             const obj = dynamicObjects[0];
-            const objData = obj.data as any;
-            if (objData) {
-                objData.target = { x: centerPoint.x, z: centerPoint.z };
-                                 // Об'єкт отримав ціль
-            }
+            this.addMoveCommand(obj.id, { x: centerPoint.x, y: centerPoint.y, z: centerPoint.z });
             return;
         }
         
@@ -521,27 +528,33 @@ export class MapLogic {
         const angleStep = (2 * Math.PI) / dynamicObjects.length;
         
         dynamicObjects.forEach((obj, index) => {
-            const objData = obj.data as any;
-            if (!objData) return;
-            
             // Розраховуємо позицію на колі
             const angle = index * angleStep;
             const targetX = centerPoint.x + Math.cos(angle) * radius;
             const targetZ = centerPoint.z + Math.sin(angle) * radius;
             
-            // Коригуємо висоту на основі terrain
-            const terrainManager = this.scene.getTerrainManager();
-            if (terrainManager) {
-                const terrainHeight = terrainManager.getHeightAt(targetX, targetZ);
-                if (terrainHeight !== undefined) {
-                    // targetY = terrainHeight; // Можна використовувати для майбутнього
-                }
-            }
-            
-            objData.target = { x: targetX, z: targetZ };
-                         // Об'єкт отримав ціль
+            this.addMoveCommand(obj.id, { x: targetX, y: centerPoint.y, z: targetZ });
         });
     }
+
+    /**
+     * Додає команду руху для об'єкта
+     */
+    private addMoveCommand(objectId: string, target: { x: number; y: number; z: number }) {
+        const command = {
+            id: `move_${objectId}_${Date.now()}`,
+            type: 'move-to',
+            position: target,
+            parameters: {},
+            status: 'pending' as const,
+            priority: 1,
+            createdAt: Date.now()
+        };
+
+        this.commandSystem.addCommand(objectId, command);
+    }
+
+
 
     /**
      * Генерує пилові хмари на землі
@@ -578,75 +591,7 @@ export class MapLogic {
     
 }
 
-    /**
-     * Обробляє рух всіх динамічних об'єктів
-     */
-    private processDynamicObjectsMovement(dT: number) {
-        const dynamicObjects = this.scene.getObjectsByTag('dynamic');
-        
-        dynamicObjects.forEach(obj => {
-            const objData = obj.data as any;
-            if (!objData || !objData.target) return;
-            
-            const target = objData.target;
-            const maxSpeed = objData.maxSpeed || 2.0;
-            
-            // Розраховуємо відстань до цілі
-            const distanceToTarget = Math.sqrt(
-                Math.pow(obj.coordinates.x - target.x, 2) + 
-                Math.pow(obj.coordinates.z - target.z, 2)
-            );
-            
-            // Якщо досягли цілі - зупиняємося
-            if (distanceToTarget < 0.5) {
-                                 // Об'єкт досяг цілі
-                objData.target = undefined; // Видаляємо ціль
-                if (obj.speed) {
-                    obj.speed.x = 0;
-                    obj.speed.z = 0;
-                    // Для on-ground об'єктів Y швидкість завжди 0
-                    if (obj.tags?.includes('on-ground')) {
-                        obj.speed.y = 0;
-                    }
-                }
-                
-                // Видаляємо індикатор цілі (якщо є SelectionManager)
-                // Це буде зроблено в Scene3D при оновленні
-                return;
-            }
-            
-            // Розраховуємо напрямок до цілі
-            const directionX = target.x - obj.coordinates.x;
-            const directionZ = target.z - obj.coordinates.z;
-            const directionLength = Math.sqrt(directionX * directionX + directionZ * directionZ);
-            
-            // Нормалізуємо напрямок
-            const normalizedDirectionX = directionX / directionLength;
-            const normalizedDirectionZ = directionZ / directionLength;
-            
-            // Встановлюємо швидкість
-            if (!obj.speed) {
-                obj.speed = { x: 0, y: 0, z: 0 };
-            }
-            
-            obj.speed.x = normalizedDirectionX * maxSpeed;
-            obj.speed.z = normalizedDirectionZ * maxSpeed;
-            
-            // Для on-ground об'єктів Y швидкість завжди 0 (не літають)
-            if (obj.tags?.includes('on-ground')) {
-                obj.speed.y = 0;
-            }
-            
-            // Оновлюємо обертання об'єкта в напрямку руху (якщо це ровер або інший об'єкт що може обертатися)
-            if (objData.rotatable !== false) {
-                const baseRotation = Math.atan2(normalizedDirectionZ, normalizedDirectionX);
-                const rotationOffset = objData.rotationOffset || 0;
-                obj.rotation.y = -(baseRotation + rotationOffset);
-            }
-            
-                         // Об'єкт рухається до цілі
-        });
-    }
+
 
          /**
       * Генерує процедурні вибухи на карті
