@@ -24,7 +24,6 @@ export class SelectionLogic {
      * Знімає вибір з усіх об'єктів
      */
     deselectAll(): void {
-        console.log('[SelectionLogic] deselectAll called from:', new Error().stack);
         this.selectedObjects.clear();
     }
     

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 
 interface AreaSelectionSystemProps {
   isActive: boolean;
@@ -13,41 +13,30 @@ export const AreaSelectionSystem: React.FC<AreaSelectionSystemProps> = ({
   onConfirm,
   onCancel
 }) => {
-  console.log('[AreaSelectionSystem] Rendering with props:', { isActive, radius });
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    console.log('[AreaSelectionSystem] useEffect triggered, isActive:', isActive);
-    
     if (!isActive) {
-      console.log('[AreaSelectionSystem] Not active, returning');
       return;
     }
     
     if (!canvasRef.current) {
-      console.log('[AreaSelectionSystem] No canvas ref, returning');
       return;
     }
 
-    console.log('[AreaSelectionSystem] Setting up canvas and listeners');
-    
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     
     if (!ctx) {
-      console.log('[AreaSelectionSystem] No canvas context, returning');
       return;
     }
 
     // Встановлюємо розміри
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    console.log('[AreaSelectionSystem] Canvas size set to:', canvas.width, 'x', canvas.height);
 
     const handleMouseMove = (e: MouseEvent) => {
-      console.log('[AreaSelectionSystem] Mouse move at:', e.clientX, e.clientY);
-      
       // Очищаємо canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -56,26 +45,32 @@ export const AreaSelectionSystem: React.FC<AreaSelectionSystemProps> = ({
       ctx.beginPath();
       ctx.arc(e.clientX, e.clientY, radius, 0, 2 * Math.PI);
       ctx.fill();
-      
-      console.log('[AreaSelectionSystem] Red sphere drawn at:', e.clientX, e.clientY, 'radius:', radius);
     };
 
-    // Додаємо тільки mouse move listener
-    console.log('[AreaSelectionSystem] Adding mouse move listener to window');
+    const handleClick = (e: MouseEvent) => {
+      if (e.button === 0) { // Ліва кнопка - підтверджуємо
+        onConfirm({ x: e.clientX, y: e.clientY, z: 0 });
+      } else if (e.button === 2) { // Права кнопка - скасовуємо
+        e.preventDefault();
+        onCancel();
+      }
+    };
+
+    // Додаємо mouse move та click listeners
     window.addEventListener('mousemove', handleMouseMove);
+    // window.addEventListener('mousedown', handleClick);
+    window.addEventListener('contextmenu', (e) => e.preventDefault()); // Вимікаємо контекстне меню
 
     return () => {
-      console.log('[AreaSelectionSystem] Cleaning up mouse move listener');
       window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mousedown', handleClick);
     };
   }, [isActive, radius, onConfirm, onCancel]);
 
   if (!isActive) {
-    console.log('[AreaSelectionSystem] Not active, returning null');
     return null;
   }
 
-  console.log('[AreaSelectionSystem] Rendering canvas');
   return (
     <canvas
       ref={canvasRef}

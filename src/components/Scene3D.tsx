@@ -42,6 +42,9 @@ const Scene3D: React.FC = () => {
   // Використовуємо useState для вибраних юнітів
   const [selectedUnits, setSelectedUnits] = useState<string[]>([]);
   
+  // Використовуємо useState для вибраної команди
+  const [selectedCommand, setSelectedCommand] = useState<any>(null);
+  
   // Функція для оновлення вибраних юнітів
   const updateSelectedUnits = useCallback(() => {
     if (mapLogicRef.current) {
@@ -50,19 +53,21 @@ const Scene3D: React.FC = () => {
     }
   }, []);
 
+  // Callback для зміни вибраної команди
+  const handleCommandChange = useCallback((commandGroup: any) => {
+    setSelectedCommand(commandGroup);
+  }, []);
+
   const frameCountRef = useRef(0)
   const lastTimeRef = useRef(performance.now())
 
   // Callback для підтвердження області
   const handleAreaConfirm = useCallback((position: { x: number; y: number; z: number }) => {
     if (areaSelectionModeRef.current?.commandGroup) {
-      console.log('[Scene3D] Area confirmed for command:', areaSelectionModeRef.current.commandGroup.id, 'at position:', position);
-      
       // Конвертуємо 2D координати в 3D світові координати
       const worldPosition = getWorldPositionFromMouse(position.x, position.y);
-      console.log('[Scene3D] Converted to world position:', worldPosition);
       
-      // Запускаємо команду
+      // Запускаємо команду з правильною позицією
       handleCommandSelect(areaSelectionModeRef.current.commandGroup, worldPosition);
       
       // Скидаємо режим вибору області
@@ -72,28 +77,33 @@ const Scene3D: React.FC = () => {
 
   // Callback для скасування області
   const handleAreaCancel = useCallback(() => {
-    console.log('[Scene3D] Area selection cancelled');
     if (areaSelectionModeRef.current) {
       areaSelectionModeRef.current = { isActive: false, commandGroup: null, radius: 50 };
     }
   }, []);
 
+  // Callback для зміни режиму вибору області
+  const handleAreaSelectionModeChange = useCallback((mode: { isActive: boolean; commandGroup: any; radius: number }) => {
+    if (areaSelectionModeRef.current) {
+      areaSelectionModeRef.current = mode;
+    }
+  }, []);
+
   // Обробник вибору команди
   const handleCommandSelect = useCallback((commandGroup: any, centerPosition: { x: number; y: number; z: number }) => {
-    console.log(`[CommandPanel] Selected command: ${commandGroup.id} at position:`, centerPosition);
-    console.log(`[CommandPanel] Current selectedUnits:`, selectedUnits);
-    
     // Тут буде логіка запуску команди для всіх вибраних юнітів
     if (selectedUnits.length > 0 && mapLogicRef.current) {
       // Запускаємо команду для кожного вибраного юніта
       selectedUnits.forEach((unitId: string) => {
         const context = {
           objectId: unitId,
-          targets: { center: centerPosition },
+          targets: { 
+            center: centerPosition, // Для gather команд
+            resource: undefined,    // Для інших команд
+            base: undefined         // Для інших команд
+          },
           parameters: {}
         };
-        
-        console.log(`[CommandPanel] Adding command group for ${unitId} with context:`, context);
         
         const success = mapLogicRef.current?.commandGroupSystem.addCommandGroup(
           unitId,
@@ -101,20 +111,10 @@ const Scene3D: React.FC = () => {
           context
         );
         
-        if (success) {
-          console.log(`[CommandPanel] Command ${commandGroup.id} started for ${unitId}`);
-        } else {
-          console.error(`[CommandPanel] Failed to start command ${commandGroup.id} for ${unitId}`);
+        if (!success) {
+          console.error(`Failed to start command ${commandGroup.id} for ${unitId}`);
         }
       });
-      
-      // Перевіряємо стан селекції після додавання команди
-      setTimeout(() => {
-        if (mapLogicRef.current) {
-          const currentSelected = mapLogicRef.current.selection.getSelectedObjects();
-          console.log(`[CommandPanel] Selected objects after command:`, currentSelected);
-        }
-      }, 100);
     }
   }, [selectedUnits]);
 
@@ -190,8 +190,6 @@ const Scene3D: React.FC = () => {
     
     const intersectionPoint = new THREE.Vector3();
     raycaster.ray.intersectPlane(plane, intersectionPoint);
-    
-    console.log(`[Scene3D] Mouse (${mouseX}, ${mouseY}) -> World (${intersectionPoint.x.toFixed(2)}, ${intersectionPoint.y.toFixed(2)}, ${intersectionPoint.z.toFixed(2)})`);
     
     return {
       x: intersectionPoint.x,
@@ -276,9 +274,17 @@ const Scene3D: React.FC = () => {
     newController.setOnSetTarget((event) => {
       // Якщо активний режим вибору області - не обробляємо ПКМ
       if (areaSelectionModeRef.current?.isActive) {
-        console.log('[Scene3D] Area selection mode active, ignoring right click');
         return;
       }
+      
+      // Якщо є вибрана команда - використовуємо її для встановлення цілі
+      if (selectedCommand) {
+        const worldPosition = getWorldPositionFromMouse(event.clientX, event.clientY);
+        handleCommandSelect(selectedCommand, worldPosition);
+        setSelectedCommand(null); // Скидаємо вибрану команду після використання
+        return;
+      }
+      
       handleSetRoverTarget(event);
     })
     
@@ -292,7 +298,7 @@ const Scene3D: React.FC = () => {
     })
     
     return newController
-  }, [camera, renderer])
+  }, [camera, renderer, selectedCommand, handleCommandSelect, getWorldPositionFromMouse])
 
   // Ініціалізуємо менеджер рендерерів та SceneLogic (тільки один раз)
   useEffect(() => {
@@ -316,12 +322,10 @@ const Scene3D: React.FC = () => {
       // Ініціалізуємо TerrainRenderer після створення mapLogic
       if (mapLogicRef.current) {
         const terrainManager = mapLogicRef.current.scene.getTerrainManager();
-        console.log('TerrainManager:', terrainManager);
 
         if (terrainManager) {
           // Створюємо TerrainRenderer
           terrainRendererRef.current = new TerrainRenderer(scene, terrainManager);
-          console.log('TerrainRenderer created');
           
           // Рендеримо terrain (очікуємо завантаження текстур)
           terrainRendererRef.current.renderTerrain({
@@ -329,7 +333,6 @@ const Scene3D: React.FC = () => {
               y: camera.position.y,
               z: camera.position.z
           }).then(() => {
-              console.log('Initial terrain rendered');
           }).catch(error => {
               console.error('Failed to render initial terrain:', error);
           });
@@ -338,7 +341,6 @@ const Scene3D: React.FC = () => {
         }
       }
       
-      console.log('CALL INIT');
     }
   }, [scene]); // Тільки scene як залежність
 
@@ -393,7 +395,6 @@ const Scene3D: React.FC = () => {
           
           if (!terrainRendererRef.current) {
             terrainRendererRef.current = new TerrainRenderer(scene, terrainManager);
-            console.log('TerrainRenderer created in updateViewport');
             
             // Рендеримо terrain (очікуємо завантаження текстур)
             terrainRendererRef.current.renderTerrain({
@@ -401,7 +402,7 @@ const Scene3D: React.FC = () => {
                 y: camera.position.y,
                 z: camera.position.z
             }).then(() => {
-                console.log('Terrain rendered in updateViewport');
+                // Terrain rendered in updateViewport
             }).catch(error => {
                 console.error('Failed to render terrain:', error);
             });
@@ -443,14 +444,12 @@ const Scene3D: React.FC = () => {
       
       // Якщо камера змінилася значно - генеруємо новий terrain
       if (distance > 50) {
-        console.log('Generating new terrain at:', camera.position);
-        
         terrainRendererRef.current.renderTerrain({
           x: camera.position.x,
           y: camera.position.y,
           z: camera.position.z
         }).then(() => {
-          console.log('New terrain generated successfully');
+          // Terrain generated successfully
         }).catch(error => {
           console.error('Failed to generate new terrain:', error);
         });
@@ -647,7 +646,6 @@ const Scene3D: React.FC = () => {
         const terrainManager = mapLogicRef.current.scene.getTerrainManager();
         if (terrainManager) {
           // Отримуємо висоту terrain в точці фокусу
-          console.log('getHeightAt call');
           const terrainHeight = terrainManager.getHeightAt(cameraController.getTarget().x, cameraController.getTarget().z);
           
           // Якщо точка фокусу не на terrain - коригуємо її
@@ -705,7 +703,6 @@ const Scene3D: React.FC = () => {
     
     // Якщо клікнули по ресурсу - запускаємо добування
     if (clickedObject && clickedObject.tags?.includes('resource')) {
-      console.log(`🎯 Клікнули по ресурсу ${clickedObject.id}, запускаємо добування`);
       mapLogicRef.current.mineResource(clickedObject.id, selectedObjects);
       return;
     }
@@ -728,7 +725,6 @@ const Scene3D: React.FC = () => {
     
     // Якщо клікнули по зарядній станції - запускаємо зарядку
     if (clickedChargingStation && clickedChargingStation.tags?.includes('charge')) {
-      console.log(`🔋 Клікнули по зарядній станції ${clickedChargingStation.id}, запускаємо зарядку`);
       mapLogicRef.current.chargeObject(selectedObjects);
       return;
     }
@@ -769,14 +765,10 @@ const Scene3D: React.FC = () => {
       // Встановлюємо точну позицію на terrain
       intersectionPoint.copy(bestPoint);
       
-      console.log(`Точка кліку на terrain: (${intersectionPoint.x.toFixed(1)}, ${intersectionPoint.y.toFixed(1)}, ${intersectionPoint.z.toFixed(1)})`);
     }
-    
-    console.log(`Встановлюємо ціль для ${selectedObjects.length} динамічних об'єктів: (${intersectionPoint.x.toFixed(1)}, ${intersectionPoint.z.toFixed(1)})`);
     
     // Викликаємо метод логіки для розподілення цілей
     if (mapLogicRef.current) {
-      console.log('🎯 Викликаю distributeTargetsForObjects для точки:', intersectionPoint);
       mapLogicRef.current.distributeTargetsForObjects(selectedObjects, {
         x: intersectionPoint.x,
         y: intersectionPoint.y,
@@ -815,21 +807,25 @@ const Scene3D: React.FC = () => {
   const handleObjectSelection = (event: MouseEvent) => {
     if (!selectionHandlerRef.current || !mapLogicRef.current) return;
     
+    // Додаємо перевірку selectionRenderer
+    if (!selectionRendererRef.current) {
+      console.log('SelectionRenderer not ready yet');
+      return;
+    }
+    
     const allObjects = Object.values(mapLogicRef.current.scene.getObjects());
     const controlledObjects = allObjects.filter(obj => obj.tags?.includes('controlled'));
     
     selectionHandlerRef.current.handleObjectClick(event, controlledObjects);
     
     // Підсвічуємо інтерактивні об'єкти після вибору об'єкта
-    if (mapLogicRef.current && selectionRendererRef.current) {
-      const interactiveObjects = mapLogicRef.current.selection.findInteractableObjects();
-      selectionRendererRef.current.highlightInteractiveObjects(interactiveObjects);
-      
-      // Оновлюємо вибрані юніти для CommandPanel
-      updateSelectedUnits();
-    }
+    const interactiveObjects = mapLogicRef.current.selection.findInteractableObjects();
+    selectionRendererRef.current.highlightInteractiveObjects(interactiveObjects);
+    
+    // Оновлюємо вибрані юніти для CommandPanel
+    updateSelectedUnits();
   }
-
+  
   // Обробка натискання кнопок миші
   const handleMouseDown = (event: MouseEvent) => {
     if (event.button === 0) { // Ліва кнопка - вибір об'єкта
@@ -840,14 +836,12 @@ const Scene3D: React.FC = () => {
       
       // Якщо активний режим вибору області - скасовуємо область
       if (areaSelectionModeRef.current?.isActive) {
-        console.log('[Scene3D] Area selection mode active, cancelling area selection');
         handleAreaCancel();
         return;
       }
       
       // Якщо не затискаємо Shift - знімаємо попередній вибір
       if (!event.shiftKey && selectionHandlerRef.current) {
-        console.warn('Empty click - remove selection');
         selectionHandlerRef.current.handleEmptyClick();
         
         // Очищаємо підсвічування інтерактивних об'єктів після зняття селекшину
@@ -863,8 +857,14 @@ const Scene3D: React.FC = () => {
       
       // Якщо активний режим вибору області - підтверджуємо область
       if (areaSelectionModeRef.current?.isActive) {
-        console.log('[Scene3D] Area selection mode active, confirming area at:', event.clientX, event.clientY);
         handleAreaConfirm({ x: event.clientX, y: event.clientY, z: 0 });
+        return;
+      }
+      
+      // Якщо є вибрана команда - використовуємо її для встановлення цілі
+      if (selectedCommand) {
+        handleCommandSelect(selectedCommand, getWorldPositionFromMouse(event.clientX, event.clientY));
+        setSelectedCommand(null); // Скидаємо вибрану команду після використання
         return;
       }
       
@@ -902,7 +902,6 @@ const Scene3D: React.FC = () => {
     // Перевіряємо чи клік був по UI елементах (CommandPanel)
     const target = event.target as HTMLElement;
     if (target && (target.closest('.command-panel') || target.closest('button'))) {
-      console.log('[Scene3D] Click was on UI element, skipping handleObjectSelection');
       isLeftMouseDownRef.current = false;
       isDraggingRef.current = false;
       return;
@@ -1389,6 +1388,7 @@ const Scene3D: React.FC = () => {
         <div>Terrain: Active (Height: 0 to 20)</div>
         <div>Focus Point: ({Math.round(cameraController.getTarget().x * 100) / 100}, {Math.round(cameraController.getTarget().y * 100) / 100}, {Math.round(cameraController.getTarget().z * 100) / 100})</div>
         <div>Selected Objects: {mapLogicRef.current?.selection.getSelectedCount() || 0}</div>
+        <div>Selected Command: {selectedCommand ? (selectedCommand.ui?.name || selectedCommand.name) : 'None'}</div>
       </div>
       
       {/* Resources Bar */}
@@ -1413,6 +1413,13 @@ const Scene3D: React.FC = () => {
           }}
         />
       )}
+
+      {/* Command Panel */}
+      <CommandPanel
+        selectedUnits={selectedUnits}
+        onCommandSelect={handleCommandSelect}
+        onCommandChange={handleCommandChange}
+      />
 
     </div>
   )
