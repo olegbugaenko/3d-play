@@ -575,6 +575,53 @@ const Scene3D: React.FC = () => {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, camera);
     
+    // Спочатку перевіряємо чи клікнули по об'єкту (ресурсу)
+    const allObjects = Object.values(mapLogicRef.current.scene.getObjects());
+    const clickedObject = allObjects.find(obj => {
+      if (!obj.tags?.includes('resource')) return false;
+      
+      // Перевіряємо чи клік потрапив по об'єкт
+      const mesh = rendererManagerRef.current?.getMeshById(obj.id);
+      if (!mesh) return false;
+      
+      // Створюємо сферу навколо об'єкта для перевірки кліку
+      const sphere = new THREE.Sphere();
+      sphere.center.copy(new THREE.Vector3(obj.coordinates.x, obj.coordinates.y, obj.coordinates.z));
+      sphere.radius = Math.max(obj.scale.x, obj.scale.y, obj.scale.z) * 0.5;
+      
+      return raycaster.ray.intersectsSphere(sphere);
+    });
+    
+    // Якщо клікнули по ресурсу - запускаємо добування
+    if (clickedObject && clickedObject.tags?.includes('resource')) {
+      console.log(`🎯 Клікнули по ресурсу ${clickedObject.id}, запускаємо добування`);
+      mapLogicRef.current.mineResource(clickedObject.id, selectedObjects);
+      return;
+    }
+
+    // Перевіряємо чи клікнули по зарядній станції
+    const clickedChargingStation = allObjects.find(obj => {
+      if (!obj.tags?.includes('charge')) return false;
+      
+      // Перевіряємо чи клік потрапив по об'єкт
+      const mesh = rendererManagerRef.current?.getMeshById(obj.id);
+      if (!mesh) return false;
+      
+      // Створюємо сферу навколо об'єкта для перевірки кліку
+      const sphere = new THREE.Sphere();
+      sphere.center.copy(new THREE.Vector3(obj.coordinates.x, obj.coordinates.y, obj.coordinates.z));
+      sphere.radius = Math.max(obj.scale.x, obj.scale.y, obj.scale.z) * 0.5;
+      
+      return raycaster.ray.intersectsSphere(sphere);
+    });
+    
+    // Якщо клікнули по зарядній станції - запускаємо зарядку
+    if (clickedChargingStation && clickedChargingStation.tags?.includes('charge')) {
+      console.log(`🔋 Клікнули по зарядній станції ${clickedChargingStation.id}, запускаємо зарядку`);
+      mapLogicRef.current.chargeObject(selectedObjects);
+      return;
+    }
+    
     // Створюємо площину на висоті камери для кращого перетину
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -camera.position.y);
     const intersectionPoint = new THREE.Vector3();
@@ -1125,6 +1172,24 @@ const Scene3D: React.FC = () => {
       }
       if (selectionRendererRef.current) {
         selectionRendererRef.current.clearAll()
+      }
+      
+      // Очищаємо рендерери при HMR
+      if (rendererManagerRef.current) {
+        rendererManagerRef.current.dispose()
+      }
+      if (terrainRendererRef.current) {
+        terrainRendererRef.current.dispose()
+      }
+      
+      // Очищаємо сцену
+      if (scene) {
+        scene.clear()
+      }
+      
+      // Очищаємо WebGL контекст
+      if (renderer) {
+        renderer.dispose()
       }
     }
   }, [scene, camera, renderer, cameraController])

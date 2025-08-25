@@ -1,12 +1,31 @@
+export type CommandStatus = 'pending' | 'executing' | 'completed' | 'failed' | 'cancelled';
+
 export interface Command {
     id: string;
-    type: string;
+    type: CommandType;
     targetId?: string;
-    position?: { x: number; y: number; z: number };
+    position: { x: number; y: number; z: number };
     parameters?: Record<string, any>;
-    status: 'pending' | 'executing' | 'completed' | 'failed' | 'cancelled';
+    status: CommandStatus;
     priority: number;
     createdAt: number;
+    groupId?: string; // ID групи команд (опціонально)
+    // Шаблони для динамічної резолюції параметрів
+    parameterTemplates?: {
+        position?: ParameterTemplate;
+        targetId?: ParameterTemplate;
+        [key: string]: ParameterTemplate | undefined;
+    };
+    // Явне мапінг параметрів з resolvePipeline
+    resolvedParamsMapping?: {
+        [commandField: string]: string; // поле команди -> ID параметра з resolvePipeline
+    };
+}
+
+export interface ParameterTemplate {
+    type: 'resolved';
+    parameterId: string;
+    resolveWhen: 'group-start' | 'before-command';
 }
 
 export interface CommandResult {
@@ -19,6 +38,7 @@ export interface CommandContext {
     objectId: string;
     scene: any;
     deltaTime: number;
+    mapLogic?: any; // MapLogic instance for executors to access resources and other logic
 }
 
-export type CommandType = 'move-to' | 'collect-resource' | 'wait' | 'attack' | 'build';
+export type CommandType = 'move-to' | 'collect-resource' | 'unload-resources' | 'wait' | 'attack' | 'build' | 'charge';

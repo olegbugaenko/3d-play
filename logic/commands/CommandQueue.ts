@@ -63,6 +63,32 @@ export class CommandQueue {
     }
 
     /**
+     * Очищає всі команди (alias для clear)
+     */
+    clearAll(): void {
+        this.clear();
+    }
+
+    /**
+     * Видаляє команду по ID
+     */
+    removeCommand(commandId: string): boolean {
+        const index = this.commands.findIndex(cmd => cmd.id === commandId);
+        if (index !== -1) {
+            this.commands.splice(index, 1);
+            
+            // Коригуємо індекс поточної команди
+            if (this.commands.length === 0) {
+                this.currentCommandIndex = -1;
+            } else if (index <= this.currentCommandIndex) {
+                this.currentCommandIndex = Math.max(0, this.currentCommandIndex - 1);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Очищає всі команди після поточної
      */
     clearAfterCurrent(): void {

@@ -71,4 +71,17 @@ export abstract class BaseRenderer {
         // console.log(`BaseRenderer.getMeshById: шукаємо об'єкт ${id} в ${this.constructor.name}, знайдено: ${mesh ? 'так' : 'ні'}`);
         return mesh;
     }
+
+    // -------------------------
+    // Очищення ресурсів (важливо для HMR!)
+    // -------------------------
+    public dispose(): void {
+        // Очищаємо всі меші з сцени
+        for (const [id, mesh] of this.meshes) {
+            this.scene.remove(mesh);
+        }
+        
+        // Очищаємо Map
+        this.meshes.clear();
+    }
 }

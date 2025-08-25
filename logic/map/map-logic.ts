@@ -6,18 +6,25 @@ import { MAP_CONFIG } from './map-config';
 import { ResourceManager } from '../resources';
 import { CommandSystem } from '../commands';
 import { SelectionLogic } from '../selection';
+import { CommandGroupSystem } from '../commands/CommandGroupSystem';
+import { AutoGroupMonitor } from '../commands/AutoGroupMonitor';
+import { CommandGroupContext } from '../commands/command-group.types';
 
 export class MapLogic {
     public commandSystem: CommandSystem;
     public selection: SelectionLogic;
+    public commandGroupSystem: CommandGroupSystem;
+    public autoGroupMonitor: AutoGroupMonitor;
 
     constructor(
         public scene: SceneLogic, 
         public dynamics: DynamicsLogic,
         public resources: ResourceManager
     ) {
-        this.commandSystem = new CommandSystem(this.scene);
+        this.commandSystem = new CommandSystem(this);
         this.selection = new SelectionLogic(this.scene);
+        this.commandGroupSystem = new CommandGroupSystem(this.commandSystem, this);
+        this.autoGroupMonitor = new AutoGroupMonitor(this);
     }
 
     initMap(cameraProps: TCameraProps) {
@@ -41,6 +48,9 @@ export class MapLogic {
         
         // Генеруємо rover об'єкти
         this.generateRovers();
+        
+        // Генеруємо будівлі
+        this.generateBuildings();
         
         // Генеруємо хмари
         console.log('🗺️ MapLogic: починаємо генерувати хмари...');
@@ -221,7 +231,7 @@ export class MapLogic {
                         size: baseSize, // Базовий розмір для рендерера
                         smoothness, // Використовуємо smoothness замість roughness
                         resourceId: resourceType, // Додаємо тип ресурсу
-                        resourceAmount: 10 + Math.floor(Math.random() * 30), // 1-3 одиниці ресурсу
+                        resourceAmount: 400 + Math.floor(Math.random() * 300), // 1-3 одиниці ресурсу
                         modelPath: (() => {
                             const rand = Math.random();
                             if (rand < 0.33) return '/models/stone4.glb';
@@ -440,14 +450,14 @@ export class MapLogic {
             // Випадковий масштаб для різноманітності
             const scale = 0.4;
             
-                         const rover: TSceneObject = {
+            const rover: TSceneObject = {
                  id: `rover_${i}`,
                  type: 'rover',
                  coordinates: { x, y: 0, z }, // Y буде автоматично встановлено terrain системою
                  scale: { x: scale, y: scale, z: scale },
                  rotation: { 
                      x: 0, 
-                     y: Math.atan2(z, x) + Math.random() * 0.5 + (Math.PI / 2), // Направляємо в сторону від центру + корекція кута
+                     y: Math.atan2(z, x) + Math.random() * 0.5 + (Math.PI), // Направляємо в сторону від центру + корекція кута
                      z: 0 
                  },
                  data: { 
@@ -455,14 +465,19 @@ export class MapLogic {
                       scale: scale,
                       maxSpeed: 2.0, // Базова швидкість руху
                       rotatable: true, // Ровер може обертатися в напрямку руху
-                      rotationOffset: -Math.PI / 2,
+                      rotationOffset: 0, //-Math.PI / 2,
                       collectionSpeed: 0.5,
-                      maxCapacity: 5
+                      maxCapacity: 5,
+                      unloadSpeed: 2,
+                      storage: {},
+                      power: 10,
+                      maxPower: 15,
+                      efficiencyMultiplier: 1.5, // Від 1.0 до 2.0 (різна ефективність)
                   },
                  tags: ['on-ground', 'dynamic', 'rover', 'controlled'], // Динамічний об'єкт на terrain, який можна контролювати
                  bottomAnchor: -0.1, // Rover стоїть на своєму низу
                  terrainAlign: true, // Нахиляється по нормалі terrain
-                 commandType: ['move-to', 'collect-resource', 'build'] // Доступні команди для ровера
+                 commandType: ['move-to', 'collect-resource', 'build', 'charge'] // Доступні команди для ровера
              };
             
             // Додаємо з terrain constraint
@@ -470,6 +485,62 @@ export class MapLogic {
             if (success) {
                                  // Додано rover
             }
+        }
+    }
+
+    /**
+     * Генерує будівлі на карті
+     */
+    private generateBuildings() {
+        // Створюємо головну будівлю (базу) у точці 0, terrainHeight, 0
+        const baseBuilding: TSceneObject = {
+            id: 'base_building',
+            type: 'building',
+            coordinates: { x: 5, y: 0, z: -5 }, // Y буде автоматично встановлено terrain системою
+            scale: { x: 2, y: 2, z: 2 },
+            rotation: { x: 0, y: 0, z: 0 },
+            data: { 
+                buildingType: 'base',
+                maxStorage: {
+                    stone: 1000,
+                    ore: 1000,
+                    power: 1000
+                }
+            },
+            tags: ['on-ground', 'static', 'building', 'base', 'storage'],
+            bottomAnchor: -1, // Будівля стоїть на своєму низу
+            terrainAlign: true, // Нахиляється по нормалі terrain
+            targetType: ['unload-resource', 'repair', 'upgrade'],
+        };
+        
+        // Додаємо з terrain constraint
+        const success = this.scene.pushObjectWithTerrainConstraint(baseBuilding);
+        if (success) {
+            console.log('🏗️ MapLogic: Додано базову будівлю');
+        }
+
+        // Створюємо будівлю для зарядки поруч з базою
+        const chargingStation: TSceneObject = {
+            id: 'charging_station',
+            type: 'building',
+            coordinates: { x: -5, y: 0, z: -5 }, // Поруч з базою, але в іншій стороні
+            scale: { x: 1.5, y: 1.5, z: 1.5 },
+            rotation: { x: 0, y: 0, z: 0 },
+            data: { 
+                buildingType: 'charging',
+                chargeRate: 0.5, // Швидкість зарядки
+                maxPower: 1000
+            },
+            tags: ['on-ground', 'static', 'building', 'charging', 'charge'],
+            bottomAnchor: -1,
+            terrainAlign: true,
+            targetType: ['charge'],
+        };
+        
+        // Додаємо зарядну станцію
+        const chargingSuccess = this.scene.pushObjectWithTerrainConstraint(chargingStation);
+        if (chargingSuccess) {
+            console.log('🔋 MapLogic: Додано зарядну станцію');
         }
     }
 
@@ -482,6 +553,12 @@ export class MapLogic {
         
         // Оновлюємо систему команд
         this.commandSystem.update(dT);
+        
+        // Оновлюємо групи команд
+        this.commandGroupSystem.update(dT);
+        
+        // Оновлюємо монітор автоматичних груп
+        this.autoGroupMonitor.update(dT);
         
         // Переміщуємо об'єкти (швидкість встановлюється командами)
         this.dynamics.moveObjects(dT);
@@ -543,7 +620,7 @@ export class MapLogic {
     private addMoveCommand(objectId: string, target: { x: number; y: number; z: number }) {
         const command = {
             id: `move_${objectId}_${Date.now()}`,
-            type: 'move-to',
+            type: 'move-to' as const,
             position: target,
             parameters: {},
             status: 'pending' as const,
@@ -672,6 +749,104 @@ export class MapLogic {
          this.scene.pushObject(explosion);
          
          console.log(`💥 MapLogic: згенеровано динамічний вибух ${explosionId} на позиції (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) з TTL 3 сек`);
+     }
+
+     /**
+      * Добування ресурсів з каменюки
+      */
+     mineResource(resourceId: string, selectedObjectIds: string[]): void {
+         if (selectedObjectIds.length === 0) {
+             console.warn('No objects selected for mining');
+             return;
+         }
+
+         const resource = this.scene.getObjectById(resourceId);
+         if (!resource) {
+             console.error(`Resource ${resourceId} not found`);
+             return;
+         }
+
+         // Перевіряємо чи можуть вибрані об'єкти добувати ресурси
+         const miners = selectedObjectIds.filter(id => {
+             const obj = this.scene.getObjectById(id);
+             return obj && obj.commandType && obj.commandType.includes('collect-resource');
+         });
+
+         if (miners.length === 0) {
+             console.warn('No valid miners selected');
+             return;
+         }
+
+         console.log(`Starting mining operation: ${miners.length} miners -> resource ${resourceId}`);
+
+         // Запускаємо групу команд для кожного майнера
+         miners.forEach(minerId => {
+             const context: CommandGroupContext = {
+                 objectId: minerId,
+                 targets: {
+                     resource: resourceId,
+                 },
+                 parameters: {
+                     amount: 100
+                 }
+             };
+
+             const success = this.commandGroupSystem.addCommandGroup(
+                 minerId,
+                 'collect-resource',
+                 context
+             );
+
+             if (success) {
+                 console.log(`Mining command group started for ${minerId}`);
+             } else {
+                 console.error(`Failed to start mining command group for ${minerId}`);
+             }
+         });
+     }
+
+     /**
+      * Зарядка об'єктів
+      */
+     chargeObject(selectedObjectIds: string[]): void {
+         if (selectedObjectIds.length === 0) {
+             console.warn('No objects selected for charging');
+             return;
+         }
+
+         // Перевіряємо чи можуть вибрані об'єкти заряджатися
+         const chargeableObjects = selectedObjectIds.filter(id => {
+             const obj = this.scene.getObjectById(id);
+             return obj && obj.commandType && obj.commandType.includes('charge');
+         });
+
+         if (chargeableObjects.length === 0) {
+             console.warn('No valid chargeable objects selected');
+             return;
+         }
+
+         console.log(`Starting charging operation: ${chargeableObjects.length} objects`);
+
+         // Запускаємо групу команд для кожного об'єкта
+         chargeableObjects.forEach(objectId => {
+             const context: CommandGroupContext = {
+                 objectId: objectId,
+                 targets: {},
+                 parameters: {}
+             };
+
+             const success = this.commandGroupSystem.addCommandGroup(
+                 objectId,
+                 'charge-group',
+                 context
+             );
+
+             if (success) {
+                 console.log(`Charging command group started for ${objectId}`);
+             } else {
+                 console.error(`Failed to start charging command group for ${objectId}`);
+             }
+         });
      }
 
 }

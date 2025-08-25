@@ -1,12 +1,13 @@
-export { BaseRenderer, type SceneObject } from './BaseRenderer';
-export { CubeRenderer } from './CubeRenderer';
-export { SphereRenderer } from './SphereRenderer';
-export { BoulderRenderer } from './BoulderRenderer';
+export { BaseRenderer } from './BaseRenderer';
 export { RockRenderer } from './RockRenderer';
+export { BoulderRenderer } from './BoulderRenderer';
 export { RoverRenderer } from './RoverRenderer';
-export { RendererManager } from './RendererManager';
-
 export { CloudRenderer } from './CloudRenderer';
+export { SmokeRenderer } from './SmokeRenderer';
 export { FireRenderer } from './FireRenderer';
 export { ExplosionRenderer } from './ExplosionRenderer';
+export { ElectricArcRenderer } from './ArcRenderer';
+export { TerrainRenderer } from './TerrainRenderer';
+export { TextureManager } from './TextureManager';
 export { SelectionRenderer } from './SelectionRenderer';
+export { BuildingRenderer } from './BuildingRenderer';

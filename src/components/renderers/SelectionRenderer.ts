@@ -317,10 +317,9 @@ export class SelectionRenderer {
 
   // ---------- матеріали ----------
   private static MAT_SELECTION = new THREE.MeshBasicMaterial({
-    color: 0x00ffae,
-    wireframe: true,
+    color: 0x00ff00, // зелений колір
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.6,
     depthTest: false,
     depthWrite: false,
     toneMapped: false,
@@ -432,8 +431,6 @@ export class SelectionRenderer {
     
     this.hoveredObjectId = objectId;
 
-    console.log('HW: ', this.hoveredObjectId, this.interactiveHoverMesh, objectId ? this.getMeshById(objectId) : 'EMPTY')
-    
     if (!this.interactiveHoverMesh) return;
     
     if (objectId) {
@@ -441,7 +438,6 @@ export class SelectionRenderer {
       const mesh = this.getMeshById(objectId);
       if (mesh) {
         const { pos, scale } = this.getCorrectPositionAndScale(objectId, mesh);
-        console.log('HOVERING: ', pos, scale);
         const hoverScale = scale.clone().multiplyScalar(this.interactiveGlowMul * 1.4); // ще більший для помітності
         
         // Позиціонуємо hover диск трохи вище землі
@@ -468,7 +464,7 @@ export class SelectionRenderer {
   private initInstancedMeshes() {
     // Selection (основний)
     this.selectionIMesh = new THREE.InstancedMesh(
-      SelectionRenderer.BOX_GEO,
+      SelectionRenderer.RING_GEO, // Змінюємо з BOX_GEO на RING_GEO
       SelectionRenderer.MAT_SELECTION,
       this.MAX_SELECTION
     );
@@ -479,17 +475,8 @@ export class SelectionRenderer {
     for (let i = 0; i < this.MAX_SELECTION; i++) this.selectionIndexFree.push(i);
     this.hideAllInstances(this.selectionIMesh);
 
-    // Selection outline
-    this.selectionOutlineIMesh = new THREE.InstancedMesh(
-      SelectionRenderer.BOX_GEO,
-      SelectionRenderer.MAT_SELECTION_OUTLINE,
-      this.MAX_SELECTION
-    );
-    this.selectionOutlineIMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.selectionOutlineIMesh.frustumCulled = false;
-    this.selectionOutlineIMesh.renderOrder = 9998;
-    this.scene.add(this.selectionOutlineIMesh);
-    this.hideAllInstances(this.selectionOutlineIMesh);
+    // Selection outline (прибираємо, бо для диску не потрібен)
+    this.selectionOutlineIMesh = null; // Вимикаємо outline для диску
 
     // Target (glow sphere)
     this.targetIMesh = new THREE.InstancedMesh(
@@ -609,42 +596,41 @@ export class SelectionRenderer {
   // ============================================================
 
   addSelectionHighlight(objectId: string, objectMesh: THREE.Mesh): void {
-    if (!this.selectionIMesh || !this.selectionOutlineIMesh || this.selectionIndexById.has(objectId)) return;
+    if (!this.selectionIMesh || this.selectionIndexById.has(objectId)) return;
     const slot = this.selectionIndexFree.pop();
     if (slot === undefined) return;
 
     const { pos, scale } = this.getCorrectPositionAndScale(objectId, objectMesh);
     const { quat } = this.getWorldTRS(objectMesh);
-    const boxScale = scale.clone().multiplyScalar(this.selectionBoxMul);
-    const outlineScale = boxScale.clone().multiplyScalar(this.selectionOutlineMul);
+    
+    // Для диску встановлюємо плоску орієнтацію (лежить на землі)
+    const diskQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    const diskScale = scale.clone().multiplyScalar(this.selectionBoxMul);
 
-    this.setInstance(this.selectionIMesh, slot, pos, quat, boxScale);
-    this.setInstance(this.selectionOutlineIMesh, slot, pos, quat, outlineScale);
+    this.setInstance(this.selectionIMesh, slot, pos, diskQuat, diskScale);
 
     this.selectionIndexById.set(objectId, slot);
   }
 
   removeSelectionHighlight(objectId: string): void {
-    if (!this.selectionIMesh || !this.selectionOutlineIMesh) return;
+    if (!this.selectionIMesh) return;
     const idx = this.selectionIndexById.get(objectId);
     if (idx === undefined) return;
     this.hideInstance(this.selectionIMesh, idx);
-    this.hideInstance(this.selectionOutlineIMesh, idx);
     this.selectionIndexById.delete(objectId);
     this.selectionIndexFree.push(idx);
   }
 
   updateHighlightPosition(objectId: string, newPosition: THREE.Vector3, newScale: THREE.Vector3, newRotation: THREE.Euler): void {
-    if (!this.selectionIMesh || !this.selectionOutlineIMesh) return;
+    if (!this.selectionIMesh) return;
     const idx = this.selectionIndexById.get(objectId);
     if (idx === undefined) return;
 
-    const quat = new THREE.Quaternion().setFromEuler(newRotation);
-    const boxScale = newScale.clone().multiplyScalar(this.selectionBoxMul);
-    const outlineScale = boxScale.clone().multiplyScalar(this.selectionOutlineMul);
+    // Для диску встановлюємо плоску орієнтацію (лежить на землі)
+    const diskQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
+    const diskScale = newScale.clone().multiplyScalar(this.selectionBoxMul);
 
-    this.setInstance(this.selectionIMesh, idx, newPosition, quat, boxScale);
-    this.setInstance(this.selectionOutlineIMesh, idx, newPosition, quat, outlineScale);
+    this.setInstance(this.selectionIMesh, idx, newPosition, diskQuat, diskScale);
   }
 
   // ============================================================
@@ -735,9 +721,8 @@ export class SelectionRenderer {
   // ============================================================
 
   clearAll(): void {
-    if (this.selectionIMesh && this.selectionOutlineIMesh) {
+    if (this.selectionIMesh) {
       this.hideAllInstances(this.selectionIMesh);
-      this.hideAllInstances(this.selectionOutlineIMesh);
       this.selectionIndexById.clear();
       this.selectionIndexFree.length = 0;
       for (let i = 0; i < this.MAX_SELECTION; i++) this.selectionIndexFree.push(i);
@@ -764,7 +749,6 @@ export class SelectionRenderer {
   dispose(): void {
     const ims: (THREE.InstancedMesh | null)[] = [
       this.selectionIMesh,
-      this.selectionOutlineIMesh,
       this.targetIMesh,
       this.targetRingIMesh,
       this.interactiveIMesh,

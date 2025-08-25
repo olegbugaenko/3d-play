@@ -3,6 +3,7 @@ import { BaseRenderer, SceneObject } from './BaseRenderer'
 import { BoulderRenderer } from './BoulderRenderer'
 import { RockRenderer } from './RockRenderer'
 import { RoverRenderer } from './RoverRenderer'
+import { BuildingRenderer } from './BuildingRenderer'
 
 import { CloudRenderer } from './CloudRenderer'
 
@@ -31,6 +32,7 @@ export class RendererManager {
             usePaletteBuckets: true
         })); // Каменюки типу rock з звичайним рендерингом
         this.registerRenderer('rover', new RoverRenderer(this.scene)); // Rover об'єкти
+        this.registerRenderer('building', new BuildingRenderer(this.scene)); // Будівлі
         // this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Хмари
         this.registerRenderer('smoke', new SmokeRenderer(this.scene, this.renderer)); // Дим (GPU)
         this.registerRenderer('fire', new FireRenderer(this.scene, this.renderer)); // Вогонь (GPU)
@@ -87,5 +89,20 @@ export class RendererManager {
     // Очищаємо всі об'єкти при зміні сцени
     clearAll(): void {
 
+    }
+
+    // -------------------------
+    // Очищення ресурсів (важливо для HMR!)
+    // -------------------------
+    public dispose(): void {
+        // Очищаємо всі рендерери
+        for (const renderer of this.renderers.values()) {
+            if (renderer.dispose) {
+                renderer.dispose();
+            }
+        }
+        
+        // Очищаємо Map
+        this.renderers.clear();
     }
 }

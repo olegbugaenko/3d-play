@@ -618,6 +618,7 @@ export class FireRenderer extends BaseRenderer {
 
   // інтеграція з твоїм SceneObject
   render(object: SceneObject): THREE.Object3D {
+    console.log('AddEmitter: ', `${this.emitterCount} of ${this.MAX_EMITTERS}`);
     const idx = this.addEmitter(
       object.coordinates,
       object.data?.color,

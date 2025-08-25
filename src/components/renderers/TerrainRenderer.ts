@@ -337,4 +337,29 @@ export class TerrainRenderer {
       }
     `;
   }
+
+  // -------------------------
+  // Очищення ресурсів (важливо для HMR!)
+  // -------------------------
+  public dispose(): void {
+    // Очищаємо геометрію
+    if (this.geometry) {
+      this.geometry.dispose();
+      this.geometry = null;
+    }
+    
+    // Очищаємо матеріал
+    if (this.material) {
+      this.material.dispose();
+      this.material = null;
+    }
+    
+    // Очищаємо меш
+    if (this.terrainMesh) {
+      this.scene.remove(this.terrainMesh);
+      this.terrainMesh = null;
+    }
+    
+    // TextureManager очищається автоматично
+  }
 }

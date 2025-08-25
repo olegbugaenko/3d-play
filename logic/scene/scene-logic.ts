@@ -26,6 +26,7 @@ export class SceneLogic {
 
     constructor() {
         // TerrainManager буде створений в initializeViewport
+        // ResourceManager буде встановлений ззовні
     }
 
     /*
@@ -224,8 +225,8 @@ export class SceneLogic {
                         const angleX = Math.atan2(normal.z, normal.y); // Нахил вперед/назад
                         const angleZ = Math.atan2(normal.x, normal.y); // Нахил вліво/вправо
                         
-                        obj.rotation.x = angleX;
-                        obj.rotation.z = angleZ;
+                        obj.rotation.x = -angleX;
+                        obj.rotation.z = -angleZ;
                         
                         // console.log(`Object ${obj.id} aligned to terrain: normal(${normal.x.toFixed(2)}, ${normal.y.toFixed(2)}, ${normal.z.toFixed(2)}), rotation(${(angleX * 180 / Math.PI).toFixed(1)}°, ${(angleZ * 180 / Math.PI).toFixed(1)}°)`);
                     }
@@ -495,5 +496,21 @@ export class SceneLogic {
 
     getObjectsCountByTag(tag: string): number {
         return this.tagCache.get(tag)?.size || 0;
+    }
+
+    /**
+     * Знаходить об'єкти з певним тегом в межах радіуса від центру
+     */
+    getObjectsByTagInRadius(tag: string, center: { x: number; y: number; z: number }, radius: number): TSceneObject<any>[] {
+        const objectsWithTag = this.getObjectsByTag(tag);
+        
+        return objectsWithTag.filter(obj => {
+            const distance = Math.sqrt(
+                Math.pow(obj.coordinates.x - center.x, 2) + 
+                Math.pow(obj.coordinates.y - center.y, 2) + 
+                Math.pow(obj.coordinates.z - center.z, 2)
+            );
+            return distance <= radius;
+        });
     }
 }
