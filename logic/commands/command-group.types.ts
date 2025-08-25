@@ -48,8 +48,8 @@ export interface ParameterArg {
   value: any;
 }
 
-// Шаблон параметра для резолюції
-export interface ParameterTemplate {
+// Шаблон параметра для резолюції групи команд
+export interface GroupParameterTemplate {
   id: string;
   getterType: string;
   args: ParameterArg[];
@@ -62,6 +62,14 @@ export interface ResolveParametersPipeline {
   getterType: string;
   args: ParameterArg[];
   resolveWhen: 'group-start' | 'before-command';
+}
+
+// UI метадані для групи команд
+export interface CommandGroupUI {
+  scope: 'gather' | 'build' | 'none';
+  category: string; // 'stone', 'ore', 'all', 'building', 'repair'
+  name: string;
+  description: string;
 }
 
 // Група команд
@@ -77,6 +85,7 @@ export interface CommandGroup {
   autoExecute?: AutoExecuteConfig; // Автоматичне виконання
   resolveParametersPipeline?: ResolveParametersPipeline[]; // Пайплайн резолюції параметрів
   tasksPipeline: CommandGroupPipeline;
+  ui?: CommandGroupUI; // UI метадані
 }
 
 // Стан групи команд

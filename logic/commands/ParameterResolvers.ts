@@ -98,4 +98,11 @@ export class ParameterResolvers {
   getClosestChargingStation(fromPosition: Vector3, maxDistance: number = 1000): any {
     return this.getClosestObjectByTag('charge', fromPosition, maxDistance);
   }
+
+  /**
+   * Знаходить всі ресурси з вказаним тегом в межах радіуса
+   */
+  getResourcesInRadius(tag: string, center: { x: number; y: number; z: number }, radius: number): any[] {
+    return this.mapLogic.scene.getObjectsByTagInRadius(tag, center, radius);
+  }
 }

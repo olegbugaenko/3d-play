@@ -91,6 +91,12 @@ export class ParameterResolutionService {
         const fromPosCharging = this.getFromPosition(context);
         return this.parameterResolvers.getClosestChargingStation(fromPosCharging, maxDistCharging);
       
+      case 'getResourcesInRadius':
+        const resourceTag = resolvedArgs[0];
+        const resourceCenter = resolvedArgs[1];
+        const resourceRadius = resolvedArgs[2] || 5;
+        return this.parameterResolvers.getResourcesInRadius(resourceTag, resourceCenter, resourceRadius);
+      
       default:
         console.warn(`Unknown getter type: ${param.getterType}`);
         return null;

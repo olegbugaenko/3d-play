@@ -111,21 +111,21 @@ export class SelectionHandler {
         const objectMesh = this.rendererManager.getMeshById(selectedObjectId);
         if (!objectMesh || !(objectMesh instanceof THREE.Mesh)) return;
 
-        if (isShiftKey) {
-            // Shift+клік - додаємо до селекції
-            if (this.selectionLogic.isSelected(selectedObjectId)) {
-                this.selectionLogic.deselectObject(selectedObjectId);
-                this.selectionRenderer.removeSelectionHighlight(selectedObjectId);
-            } else {
-                this.selectionLogic.selectObject(selectedObjectId);
-                this.selectionRenderer.addSelectionHighlight(selectedObjectId, objectMesh);
-            }
-        } else {
-            // Звичайний клік - знімаємо попередній вибір і вибираємо новий
-            this.selectionLogic.deselectAll();
-            this.selectionRenderer.clearAll();
+                if (isShiftKey) {
+          // Shift+клік - додаємо до селекції
+          if (this.selectionLogic.isSelected(selectedObjectId)) {
+            this.selectionLogic.deselectObject(selectedObjectId);
+            this.selectionRenderer.removeSelectionHighlight(selectedObjectId);
+          } else {
             this.selectionLogic.selectObject(selectedObjectId);
             this.selectionRenderer.addSelectionHighlight(selectedObjectId, objectMesh);
+          }
+        } else {
+          // Звичайний клік - знімаємо попередній вибір і вибираємо новий
+          this.selectionLogic.deselectAll();
+          this.selectionRenderer.clearAll();
+          this.selectionLogic.selectObject(selectedObjectId);
+          this.selectionRenderer.addSelectionHighlight(selectedObjectId, objectMesh);
         }
     }
 

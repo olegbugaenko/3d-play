@@ -199,6 +199,205 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         }
       }
     ]
+  },
+
+  // Групи для збору ресурсів у радіусі
+  {
+    id: 'gather-stone-radius',
+    name: 'Gather Stone',
+    description: 'Gather all stone in radius',
+    startCondition: null,
+    endCondition: null,
+    loopCondition: null,
+    isLoop: false,
+    ui: {
+      scope: 'gather',
+      category: 'stone',
+      name: 'Gather Stone',
+      description: 'Gather all stone in radius'
+    },
+    resolveParametersPipeline: [
+      {
+        id: 'centerPosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'targets.center'}],
+        resolveWhen: 'group-start'
+      },
+      {
+        id: 'stoneResources',
+        getterType: 'getResourcesInRadius',
+        args: [
+          {type: 'lit', value: 'stone'},
+          {type: 'var', value: 'resolved.centerPosition'},
+          {type: 'lit', value: 5}
+        ],
+        resolveWhen: 'group-start'
+      }
+    ],
+    tasksPipeline: (context): Command[] => {
+      const stoneResources = context.resolved?.stoneResources || [];
+      console.log(`[gather-stone-radius] Found ${stoneResources.length} stone resources in radius`);
+      
+      if (stoneResources.length === 0) {
+        return [];
+      }
+      
+      // Створюємо команди збору для кожного ресурсу
+      return stoneResources.map((resource: any, index: number) => [
+        {
+          id: `move-to-stone-${resource.id}-${Date.now()}`,
+          type: 'move-to',
+          targetId: undefined,
+          position: resource.coordinates,
+          parameters: { priority: 'high' },
+          status: 'pending',
+          priority: index * 2 + 1,
+          createdAt: Date.now()
+        },
+        {
+          id: `collect-stone-${resource.id}-${Date.now()}`,
+          type: 'collect-resource',
+          targetId: resource.id,
+          position: resource.coordinates,
+          parameters: { amount: 100 },
+          status: 'pending',
+          priority: index * 2 + 2,
+          createdAt: Date.now()
+        }
+      ]).flat();
+    }
+  },
+
+  {
+    id: 'gather-ore-radius',
+    name: 'Gather Ore',
+    description: 'Gather all ore in radius',
+    startCondition: null,
+    endCondition: null,
+    loopCondition: null,
+    isLoop: false,
+    ui: {
+      scope: 'gather',
+      category: 'ore',
+      name: 'Gather Ore',
+      description: 'Gather all ore in radius'
+    },
+    resolveParametersPipeline: [
+      {
+        id: 'centerPosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'targets.center'}],
+        resolveWhen: 'group-start'
+      },
+      {
+        id: 'oreResources',
+        getterType: 'getResourcesInRadius',
+        args: [
+          {type: 'lit', value: 'ore'},
+          {type: 'var', value: 'resolved.centerPosition'},
+          {type: 'lit', value: 5}
+        ],
+        resolveWhen: 'group-start'
+      }
+    ],
+    tasksPipeline: (context): Command[] => {
+      const oreResources = context.resolved?.oreResources || [];
+      console.log(`[gather-ore-radius] Found ${oreResources.length} ore resources in radius`);
+      
+      if (oreResources.length === 0) {
+        return [];
+      }
+      
+      // Створюємо команди збору для кожного ресурсу
+      return oreResources.map((resource: any, index: number) => [
+        {
+          id: `move-to-ore-${resource.id}-${Date.now()}`,
+          type: 'move-to',
+          targetId: undefined,
+          position: resource.coordinates,
+          parameters: { priority: 'high' },
+          status: 'pending',
+          priority: index * 2 + 1,
+          createdAt: Date.now()
+        },
+        {
+          id: `collect-ore-${resource.id}-${Date.now()}`,
+          type: 'collect-resource',
+          targetId: resource.id,
+          position: resource.coordinates,
+          parameters: { amount: 100 },
+          status: 'pending',
+          priority: index * 2 + 2,
+          createdAt: Date.now()
+        }
+      ]).flat();
+    }
+  },
+
+  {
+    id: 'gather-all-radius',
+    name: 'Gather All',
+    description: 'Gather all resources in radius',
+    startCondition: null,
+    endCondition: null,
+    loopCondition: null,
+    isLoop: false,
+    ui: {
+      scope: 'gather',
+      category: 'all',
+      name: 'Gather All',
+      description: 'Gather all resources in radius'
+    },
+    resolveParametersPipeline: [
+      {
+        id: 'centerPosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'targets.center'}],
+        resolveWhen: 'group-start'
+      },
+      {
+        id: 'allResources',
+        getterType: 'getResourcesInRadius',
+        args: [
+          {type: 'lit', value: 'resource'},
+          {type: 'var', value: 'resolved.centerPosition'},
+          {type: 'lit', value: 5}
+        ],
+        resolveWhen: 'group-start'
+      }
+    ],
+    tasksPipeline: (context): Command[] => {
+      const allResources = context.resolved?.allResources || [];
+      console.log(`[gather-all-radius] Found ${allResources.length} resources in radius`);
+      
+      if (allResources.length === 0) {
+        return [];
+      }
+      
+      // Створюємо команди збору для кожного ресурсу
+      return allResources.map((resource: any, index: number) => [
+        {
+          id: `move-to-resource-${resource.id}-${Date.now()}`,
+          type: 'move-to',
+          targetId: undefined,
+          position: resource.coordinates,
+          parameters: { priority: 'high' },
+          status: 'pending',
+          priority: index * 2 + 1,
+          createdAt: Date.now()
+        },
+        {
+          id: `collect-resource-${resource.id}-${Date.now()}`,
+          type: 'collect-resource',
+          targetId: resource.id,
+          position: resource.coordinates,
+          parameters: { amount: 100 },
+          status: 'pending',
+          priority: index * 2 + 2,
+          createdAt: Date.now()
+        }
+      ]).flat();
+    }
   }
 ];
 
@@ -221,4 +420,27 @@ export function getCommandGroup(id: string): CommandGroup | undefined {
  */
 export function getAutoExecuteGroups(): CommandGroup[] {
   return COMMAND_GROUPS.filter(group => group.autoExecute);
+}
+
+/**
+ * Отримати групи команд з UI метаданими
+ */
+export function getUIGroups(): CommandGroup[] {
+  return COMMAND_GROUPS.filter(group => group.ui);
+}
+
+/**
+ * Отримати групи команд по scope
+ */
+export function getGroupsByScope(scope: 'gather' | 'build' | 'none'): CommandGroup[] {
+  return COMMAND_GROUPS.filter(group => group.ui?.scope === scope);
+}
+
+/**
+ * Отримати групи команд по scope та категорії
+ */
+export function getGroupsByScopeAndCategory(scope: 'gather' | 'build' | 'none', category: string): CommandGroup[] {
+  return COMMAND_GROUPS.filter(group => 
+    group.ui?.scope === scope && group.ui?.category === category
+  );
 }
