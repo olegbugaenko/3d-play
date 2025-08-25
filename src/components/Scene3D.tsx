@@ -42,20 +42,12 @@ const Scene3D: React.FC = () => {
   // Використовуємо useState для вибраних юнітів
   const [selectedUnits, setSelectedUnits] = useState<string[]>([]);
   
-  // Використовуємо useState для вибраної команди
-  const [selectedCommand, setSelectedCommand] = useState<any>(null);
-  
   // Функція для оновлення вибраних юнітів
   const updateSelectedUnits = useCallback(() => {
     if (mapLogicRef.current) {
       const currentSelected = mapLogicRef.current.selection.getSelectedObjects();
       setSelectedUnits(currentSelected);
     }
-  }, []);
-
-  // Callback для зміни вибраної команди
-  const handleCommandChange = useCallback((commandGroup: any) => {
-    setSelectedCommand(commandGroup);
   }, []);
 
   const frameCountRef = useRef(0)
@@ -276,15 +268,6 @@ const Scene3D: React.FC = () => {
       if (areaSelectionModeRef.current?.isActive) {
         return;
       }
-      
-      // Якщо є вибрана команда - використовуємо її для встановлення цілі
-      if (selectedCommand) {
-        const worldPosition = getWorldPositionFromMouse(event.clientX, event.clientY);
-        handleCommandSelect(selectedCommand, worldPosition);
-        setSelectedCommand(null); // Скидаємо вибрану команду після використання
-        return;
-      }
-      
       handleSetRoverTarget(event);
     })
     
@@ -298,7 +281,7 @@ const Scene3D: React.FC = () => {
     })
     
     return newController
-  }, [camera, renderer, selectedCommand, handleCommandSelect, getWorldPositionFromMouse])
+  }, [camera, renderer])
 
   // Ініціалізуємо менеджер рендерерів та SceneLogic (тільки один раз)
   useEffect(() => {
@@ -807,25 +790,21 @@ const Scene3D: React.FC = () => {
   const handleObjectSelection = (event: MouseEvent) => {
     if (!selectionHandlerRef.current || !mapLogicRef.current) return;
     
-    // Додаємо перевірку selectionRenderer
-    if (!selectionRendererRef.current) {
-      console.log('SelectionRenderer not ready yet');
-      return;
-    }
-    
     const allObjects = Object.values(mapLogicRef.current.scene.getObjects());
     const controlledObjects = allObjects.filter(obj => obj.tags?.includes('controlled'));
     
     selectionHandlerRef.current.handleObjectClick(event, controlledObjects);
     
     // Підсвічуємо інтерактивні об'єкти після вибору об'єкта
-    const interactiveObjects = mapLogicRef.current.selection.findInteractableObjects();
-    selectionRendererRef.current.highlightInteractiveObjects(interactiveObjects);
-    
-    // Оновлюємо вибрані юніти для CommandPanel
-    updateSelectedUnits();
+    if (mapLogicRef.current && selectionRendererRef.current) {
+      const interactiveObjects = mapLogicRef.current.selection.findInteractableObjects();
+      selectionRendererRef.current.highlightInteractiveObjects(interactiveObjects);
+      
+      // Оновлюємо вибрані юніти для CommandPanel
+      updateSelectedUnits();
+    }
   }
-  
+
   // Обробка натискання кнопок миші
   const handleMouseDown = (event: MouseEvent) => {
     if (event.button === 0) { // Ліва кнопка - вибір об'єкта
@@ -858,13 +837,6 @@ const Scene3D: React.FC = () => {
       // Якщо активний режим вибору області - підтверджуємо область
       if (areaSelectionModeRef.current?.isActive) {
         handleAreaConfirm({ x: event.clientX, y: event.clientY, z: 0 });
-        return;
-      }
-      
-      // Якщо є вибрана команда - використовуємо її для встановлення цілі
-      if (selectedCommand) {
-        handleCommandSelect(selectedCommand, getWorldPositionFromMouse(event.clientX, event.clientY));
-        setSelectedCommand(null); // Скидаємо вибрану команду після використання
         return;
       }
       
@@ -1388,7 +1360,6 @@ const Scene3D: React.FC = () => {
         <div>Terrain: Active (Height: 0 to 20)</div>
         <div>Focus Point: ({Math.round(cameraController.getTarget().x * 100) / 100}, {Math.round(cameraController.getTarget().y * 100) / 100}, {Math.round(cameraController.getTarget().z * 100) / 100})</div>
         <div>Selected Objects: {mapLogicRef.current?.selection.getSelectedCount() || 0}</div>
-        <div>Selected Command: {selectedCommand ? (selectedCommand.ui?.name || selectedCommand.name) : 'None'}</div>
       </div>
       
       {/* Resources Bar */}
@@ -1414,12 +1385,7 @@ const Scene3D: React.FC = () => {
         />
       )}
 
-      {/* Command Panel */}
-      <CommandPanel
-        selectedUnits={selectedUnits}
-        onCommandSelect={handleCommandSelect}
-        onCommandChange={handleCommandChange}
-      />
+     
 
     </div>
   )
