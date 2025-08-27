@@ -10,6 +10,7 @@ export interface Command {
     priority: number;
     createdAt: number;
     groupId?: string; // ID групи команд (опціонально)
+
     // Шаблони для динамічної резолюції параметрів
     parameterTemplates?: {
         position?: ParameterTemplate;
@@ -20,6 +21,9 @@ export interface Command {
     resolvedParamsMapping?: {
         [commandField: string]: string; // поле команди -> ID параметра з resolvePipeline
     };
+    
+    // Коди фейлу при яких група команд має перезапуститися
+    groupRestartCodes?: CommandFailureCode[];
 }
 
 export interface ParameterTemplate {
@@ -28,10 +32,28 @@ export interface ParameterTemplate {
     resolveWhen: 'group-start' | 'before-command';
 }
 
+/**
+ * Коди фейлу команд для ідентифікації причини помилки
+ */
+export enum CommandFailureCode {
+  RESOURCE_FINISHED = 'RESOURCE_FINISHED',
+  RESOURCE_NOT_FOUND = 'RESOURCE_NOT_FOUND',
+  STORAGE_FULL = 'STORAGE_FULL',
+  INSUFFICIENT_POWER = 'INSUFFICIENT_POWER',
+  TARGET_UNREACHABLE = 'TARGET_UNREACHABLE',
+  OBJECT_NOT_FOUND = 'OBJECT_NOT_FOUND',
+  INVALID_TARGET = 'INVALID_TARGET',
+  OBJECT_STUCK = 'OBJECT_STUCK',
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR'
+}
+
+/**
+ * Результат виконання команди
+ */
 export interface CommandResult {
     success: boolean;
-    message?: string;
-    data?: any;
+    message: string;
+    code?: CommandFailureCode; // Код фейлу для ідентифікації причини помилки
 }
 
 export interface CommandContext {

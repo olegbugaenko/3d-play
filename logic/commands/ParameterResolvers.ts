@@ -1,4 +1,5 @@
 import { Vector3 } from 'three';
+import { SceneObject } from '../../src/components/renderers/BaseRenderer';
 
 export interface ParameterResolverContext {
   objectId: string;
@@ -103,6 +104,24 @@ export class ParameterResolvers {
    * Знаходить всі ресурси з вказаним тегом в межах радіуса
    */
   getResourcesInRadius(tag: string, center: { x: number; y: number; z: number }, radius: number): any[] {
-    return this.mapLogic.scene.getObjectsByTagInRadius(tag, center, radius);
+            // Пошук об'єктів у радіусі
+    return this.mapLogic.scene.getObjectsByTagInRadius('resource', center, radius).filter((one: SceneObject) => one.data.resourceId === tag).map((one: SceneObject) => one.id);
+  }
+
+  /**
+   * Отримує тип ресурсу з параметрів команди
+   */
+  getResourceType(resourceType: string): string {
+    return resourceType;
+  }
+
+  /**
+   * Отримує перший елемент з масиву
+   */
+  getFirstOfList(list: any[]): any {
+    if (!Array.isArray(list) || list.length === 0) {
+      return null;
+    }
+    return list[0];
   }
 }

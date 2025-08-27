@@ -351,7 +351,7 @@ export class RockRenderer extends BaseRenderer {
       this.nextInstanceId.set(bucketKey, 0);
       this.freeInstanceIds.set(bucketKey, []);
       this.highestActiveIndex.set(bucketKey, -1);
-      console.log('this.meshBuckets', this.meshBuckets);
+              // meshBuckets
       return mesh;
     }
 

@@ -6,9 +6,7 @@ export class TextureManager {
     private textureLoader: THREE.TextureLoader;
     
     constructor() {
-        console.log('TextureManager: Initializing...');
         this.textureLoader = new THREE.TextureLoader();
-        console.log('TextureManager: TextureLoader created', this.textureLoader);
         this.loadTextures();
     }
     
@@ -18,14 +16,11 @@ export class TextureManager {
     private async loadTextures(): Promise<void> {
         const { textures } = MAP_CONFIG.terrain;
         if (!textures) {
-            console.log('TextureManager: No textures config found');
             return;
         }
         
-        console.log('TextureManager: Loading textures config:', textures);
-        
         for (const [textureName, textureData] of Object.entries(textures)) {
-            console.log(`TextureManager: Attempting to load: ${textureName} from ${textureData.texturePath}`);
+            // Завантаження текстури
             try {
                 const texture = await this.loadTexture(textureData.texturePath);
                 
@@ -35,11 +30,7 @@ export class TextureManager {
                 texture.repeat.set(textureData.tiling.x, textureData.tiling.y);
                 
                 this.textures.set(textureName, texture);
-                console.log(`TextureManager: Successfully loaded and configured: ${textureName}`, {
-                    texture,
-                    tiling: textureData.tiling,
-                    repeat: texture.repeat
-                });
+                // Текстура успішно завантажена
             } catch (error) {
                 console.error(`TextureManager: Failed to load texture ${textureName}:`, error);
                 console.error('TextureManager: Error details:', {
@@ -51,25 +42,19 @@ export class TextureManager {
             }
         }
         
-        console.log(`TextureManager: Finished loading. Total textures: ${this.textures.size}`);
-        console.log('TextureManager: Available textures:', Array.from(this.textures.keys()));
+        // Завантаження завершено
     }
     
     /**
      * Завантажує одну текстуру
      */
     private loadTexture(path: string): Promise<THREE.Texture> {
-        console.log(`TextureManager: Starting to load texture from ${path}`);
+        // Починаємо завантаження текстури
         
         // Перевіряємо чи файл існує та доступний
         return fetch(path, { method: 'HEAD' })
             .then(response => {
-                console.log(`TextureManager: File check for ${path}:`, {
-                    status: response.status,
-                    contentType: response.headers.get('content-type'),
-                    contentLength: response.headers.get('content-length'),
-                    headers: Object.fromEntries(response.headers.entries())
-                });
+                // Перевірка файлу
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -86,11 +71,10 @@ export class TextureManager {
                     this.textureLoader.load(
                         path,
                         (texture) => {
-                            console.log(`TextureManager: Successfully loaded texture from ${path}`, texture);
                             resolve(texture);
                         },
                         (progress) => {
-                            console.log(`TextureManager: Loading progress for ${path}:`, progress);
+                            // Прогрес завантаження
                         },
                         (error) => {
                             console.error(`TextureManager: Failed to load texture from ${path}:`, error);

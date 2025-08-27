@@ -156,6 +156,11 @@ export class TerrainRenderer {
 
       let y = this.terrainManager.getHeightAt(worldX, worldZ);
       if (!Number.isFinite(y)) y = 0;
+      
+      // Додаткова перевірка та обмеження висоти
+      const config = this.terrainManager.getConfig();
+      y = Math.max(config.minHeight, Math.min(config.maxHeight, y));
+      
       pos.setY(i, y);
     }
     pos.needsUpdate = true;

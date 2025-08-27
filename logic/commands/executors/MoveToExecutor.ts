@@ -1,5 +1,5 @@
 import { CommandExecutor } from '../CommandExecutor';
-import { CommandResult } from '../command.types';
+import { CommandResult, CommandFailureCode } from '../command.types';
 import * as THREE from 'three';
 
 export class MoveToExecutor extends CommandExecutor {
@@ -80,7 +80,11 @@ export class MoveToExecutor extends CommandExecutor {
                 this.stuckTime += this.context.deltaTime;
                 if (this.stuckTime > this.stuckThreshold) {
                     this.stopMovement();
-                    return { success: false, message: `Object stuck in ${distance.toFixed(2)} meters` };
+                    return { 
+                        success: false, 
+                        message: `Object stuck in ${distance.toFixed(2)} meters`,
+                        code: CommandFailureCode.OBJECT_STUCK
+                    };
                 }
             } else {
                 this.stuckTime = 0;

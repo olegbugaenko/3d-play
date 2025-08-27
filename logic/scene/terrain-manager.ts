@@ -1,274 +1,345 @@
 import { Vector3 } from './scene.types';
+import { SeededRandom } from '../map/seeded-random';
 
 export interface TerrainConfig {
-    width: number;
-    height: number;
-    resolution: number; // Розмір однієї клітинки terrain
-    maxHeight: number;
-    minHeight: number;
-    noise?: {
-        scale: number;
-        octaves: number;
-        persistence: number;
-        lacunarity: number;
+  width: number;
+  height: number;
+  resolution: number;      // розмір клітинки у world-одиницях
+  maxHeight: number;
+  minHeight: number;
+  seed?: number;
+
+  noise?: {
+    scale: number;         // чим більше — тим «дрібніші» деталі (фактично частота)
+    octaves: number;       // 3–6 зазвичай достатньо
+    persistence: number;   // 0.3–0.6
+    lacunarity: number;    // 1.8–3.0
+  };
+
+  textures?: {
+    [key: string]: {
+      weight: number;
+      texturePath: string;
+      tiling?: { x: number, y: number };
     };
-    textures?: {
-        [key: string]: {
-            weight: number;
-            texturePath: string;  // Шлях до текстури замість color
-            tiling?: { x: number, y: number };
-        };
-    };
+  };
 }
 
 export interface HeightMap {
-    data: number[][]; // 2D масив висот
-    width: number;
-    height: number;
-    resolution: number;
+  data: number[][];
+  width: number;
+  height: number;
+  resolution: number;
 }
 
+type SeedProfile = {
+  offX: number;
+  offZ: number;
+  rot: number;               // радіани
+  warpAmp: number;           // world-одиниці
+  warpFreq: number;          // частота варпінгу
+  octaveFreqJitter: number[]; // множники частот по октавах
+  octaveAmpJitter: number[];  // множники амплітуд по октавах
+};
+
 export class TerrainManager {
-    private heightMap: HeightMap;
-    private config: TerrainConfig;
+  private heightMap: HeightMap;
+  private config: TerrainConfig;
+  private seededRandom: SeededRandom;
 
-    constructor(config: TerrainConfig) {
-        this.config = config;
-        this.heightMap = this.generateDefaultHeightMap();
+  private hashCache = new Map<string, number>();
+  private seedProfile!: SeedProfile;
+
+  constructor(config: TerrainConfig) {
+    this.config = { ...config };
+    const seed = config.seed ?? Date.now();
+    this.seededRandom = new SeededRandom(seed);
+    this.seedProfile = this.makeSeedProfile();
+    this.heightMap = this.generateDefaultHeightMap();
+  }
+
+  // -----------------------------
+  // Детермінований 2D value noise
+  // -----------------------------
+  private hash(ix: number, iz: number): number {
+    const k = `${ix},${iz}`;
+    const v = this.hashCache.get(k);
+    if (v !== undefined) return v;
+
+    const m = 374761393 * ix + 668265263 * iz + (this.config.seed ?? 0);
+    const local = new SeededRandom(m >>> 0);
+    const r = local.nextFloat(0, 1);
+    this.hashCache.set(k, r);
+    return r;
+  }
+
+  private smoothstep(t: number): number {
+    // 6t^5 - 15t^4 + 10t^3
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+
+  private valueNoise2D(x: number, z: number): number {
+    const x0 = Math.floor(x);
+    const z0 = Math.floor(z);
+    const x1 = x0 + 1;
+    const z1 = z0 + 1;
+
+    const fx = x - x0;
+    const fz = z - z0;
+
+    const u = this.smoothstep(fx);
+    const v = this.smoothstep(fz);
+
+    const n00 = this.hash(x0, z0);
+    const n10 = this.hash(x1, z0);
+    const n01 = this.hash(x0, z1);
+    const n11 = this.hash(x1, z1);
+
+    const nx0 = n00 * (1 - u) + n10 * u;
+    const nx1 = n01 * (1 - u) + n11 * u;
+    const n = nx0 * (1 - v) + nx1 * v;
+    return n; // [0..1]
+  }
+
+  private fbm(x: number, z: number): number {
+    const nopt = this.config.noise ?? {
+      scale: 0.005,
+      octaves: 4,
+      persistence: 0.5,
+      lacunarity: 2.0,
+    };
+
+    let amp = 1.0;
+    let freq = nopt.scale;
+    let sum = 0.0;
+    let norm = 0.0;
+
+    for (let i = 0; i < nopt.octaves; i++) {
+      sum += this.valueNoise2D(x * freq, z * freq) * amp;
+      norm += amp;
+      amp *= nopt.persistence;
+      freq *= nopt.lacunarity;
+    }
+    return sum / (norm > 0 ? norm : 1);
+  }
+
+  // fBm з сид-джитером по октавах
+  private fbmTransformed(x: number, z: number): number {
+    const nopt = this.config.noise ?? { scale: 0.005, octaves: 4, persistence: 0.5, lacunarity: 2.0 };
+    const sp = this.seedProfile;
+
+    let amp = 1.0;
+    let freq = nopt.scale;
+    let sum = 0.0;
+    let norm = 0.0;
+
+    for (let i = 0; i < nopt.octaves; i++) {
+      const fMul = sp.octaveFreqJitter[i % sp.octaveFreqJitter.length];
+      const aMul = sp.octaveAmpJitter[i % sp.octaveAmpJitter.length];
+
+      sum  += this.valueNoise2D(x * freq * fMul, z * freq * fMul) * (amp * aMul);
+      norm += amp * aMul;
+
+      amp  *= nopt.persistence;
+      freq *= nopt.lacunarity;
+    }
+    return sum / (norm || 1);
+  }
+
+  // -----------------------------
+  // Seed-профіль (варіативність)
+  // -----------------------------
+  private makeSeedProfile(): SeedProfile {
+    const rnd = this.seededRandom;
+    const maxOct = Math.max(1, (this.config.noise?.octaves ?? 4) | 0);
+
+    return {
+      offX: rnd.nextFloat(-1e6, 1e6),
+      offZ: rnd.nextFloat(-1e6, 1e6),
+      rot:  rnd.nextFloat(0, Math.PI * 2),
+      warpAmp:  rnd.nextFloat(20, 60),
+      warpFreq: rnd.nextFloat(0.002, 0.01),
+      octaveFreqJitter: Array.from({ length: maxOct }, () => rnd.nextFloat(0.85, 1.15)),
+      octaveAmpJitter:  Array.from({ length: maxOct }, () => rnd.nextFloat(0.85, 1.15)),
+    };
+  }
+
+  // -----------------------------
+  // Єдина функція висоти (з трансформаціями сидa)
+  // -----------------------------
+  private heightAtWorld(x: number, z: number): number {
+    const sp = this.seedProfile;
+
+    // сид-зсув + обертання домену
+    const cosr = Math.cos(sp.rot), sinr = Math.sin(sp.rot);
+    let dx = x + sp.offX;
+    let dz = z + sp.offZ;
+    const rx =  dx * cosr - dz * sinr;
+    const rz =  dx * sinr + dz * cosr;
+
+    // легкий domain warping
+    const wx = this.valueNoise2D(rx * sp.warpFreq, rz * sp.warpFreq) * 2 - 1; // [-1..1]
+    const wz = this.valueNoise2D((rx + 37.1) * sp.warpFreq, (rz - 19.3) * sp.warpFreq) * 2 - 1;
+    const tx = rx + wx * sp.warpAmp;
+    const tz = rz + wz * sp.warpAmp;
+
+    const n = this.fbmTransformed(tx, tz); // [0..1]
+    const { minHeight, maxHeight } = this.config;
+    return minHeight + (maxHeight - minHeight) * n;
+  }
+
+  // -----------------------------------------
+  // Генерація height map (дискретизація heightAtWorld)
+  // -----------------------------------------
+  private generateDefaultHeightMap(): HeightMap {
+    const { width, height, resolution } = this.config;
+
+    const cols = Math.ceil(width / resolution);
+    const rows = Math.ceil(height / resolution);
+
+    const halfW = width * 0.5;
+    const halfH = height * 0.5;
+
+    const data: number[][] = new Array(rows);
+
+    for (let r = 0; r < rows; r++) {
+      data[r] = new Array(cols);
+      const wz = -halfH + r * resolution;
+      for (let c = 0; c < cols; c++) {
+        const wx = -halfW + c * resolution;
+        data[r][c] = this.heightAtWorld(wx, wz);
+      }
     }
 
-    /**
-     * Генерує базову карту висот з шумом
-     */
-    private generateDefaultHeightMap(): HeightMap {
-        const { width, height, resolution } = this.config;
-        const cols = Math.ceil(width / resolution);
-        const rows = Math.ceil(height / resolution);
-        
-        const data: number[][] = [];
-        
-        for (let z = 0; z < rows; z++) {
-            data[z] = [];
-            for (let x = 0; x < cols; x++) {
-                // Простий шум для початку - можна замінити на Perlin noise
-                const noise = this.simpleNoise(x * 0.2, z * 0.2);
-                const height = this.config.minHeight + 
-                    (this.config.maxHeight - this.config.minHeight) * noise;
-                data[z][x] = height;
-            }
-        }
+    return { data, width, height, resolution };
+  }
 
-        return {
-            data,
-            width: cols,
-            height: rows,
-            resolution
-        };
-    }
+  // -----------------------------
+  // Публічний API
+  // -----------------------------
+  getHeightAt(x: number, z: number): number {
+    return this.heightAtWorld(x, z);
+  }
 
-    /**
-     * Простий шум функція (заглушка для Perlin noise)
-     */
-    private simpleNoise(x: number, z: number): number {
-        // Тут можна замінити на справжній Perlin noise
-        return (Math.sin(x) * Math.cos(z) + 1) / 2;
-    }
+  getNormalAt(x: number, z: number): Vector3 {
+    const eps = Math.max(0.05, this.config.resolution * 0.25);
 
-    /**
-     * Генерує procedural noise для текстурних зон
-     */
-    private generateTextureNoise(x: number, z: number): number {
-        const { scale, octaves, persistence, lacunarity } = this.config.noise || {
-            scale: 0.05,        // Використовуємо актуальні параметри
-            octaves: 3,         // з MAP_CONFIG
-            persistence: 0.3,
-            lacunarity: 3.0
-        };
-        
-        // Додаємо "розмиття" координат для плавніших переходів
-        const blurAmount = 5; // Кількість одиниць для розмиття
-        const blurScale = 0.1; // Масштаб для blur noise
-        
-        const blurX = x + this.simpleNoise(x * blurScale, z * blurScale) * blurAmount;
-        const blurZ = z + this.simpleNoise(x * blurScale, z * blurScale) * blurAmount;
-        
-        let amplitude = 1.0;
-        let frequency = 1.0;
-        let noiseValue = 0.0;
-        let maxValue = 0.0;
-        
-        for (let i = 0; i < octaves; i++) {
-            noiseValue += this.simpleNoise(blurX * frequency * scale, blurZ * frequency * scale) * amplitude;
-            maxValue += amplitude;
-            amplitude *= persistence;
-            frequency *= lacunarity;
-        }
-        
-        const result = noiseValue / maxValue; // Нормалізуємо до 0-1
-        
-        // Логуємо тільки для перших кількох викликів
-        if (Math.random() < 0.001) { // 0.1% шанс логування
-            // generateTextureNoise completed
-        }
-        
-        return result;
-    }
+    const hL = this.getHeightAt(x - eps, z);
+    const hR = this.getHeightAt(x + eps, z);
+    const hD = this.getHeightAt(x, z - eps);
+    const hU = this.getHeightAt(x, z + eps);
 
-    /**
-     * Отримує blend factor для текстури в точці (0-1)
-     */
-    getTextureBlend(x: number, z: number, textureName: string): number {
-        const noiseValue = this.generateTextureNoise(x, z);
-        const { textures } = this.config;
-        
-        if (!textures || !textures[textureName]) return 0;
-        
-        // Отримуємо всі текстури та їх ваги
-        const textureEntries = Object.entries(textures);
-        const totalWeight = textureEntries.reduce((sum, [_, data]) => sum + data.weight, 0);
-        
-        // Знаходимо нашу текстуру та її позицію
-        let currentWeight = 0;
-        for (const [name, data] of textureEntries) {
-            if (name === textureName) {
-                // Нормалізуємо noiseValue до загальної ваги
-                const normalizedNoise = noiseValue * totalWeight;
-                
-                // Якщо noiseValue попадає в зону цієї текстури
-                if (normalizedNoise >= currentWeight && normalizedNoise < currentWeight + data.weight) {
-                    // Повертаємо blend factor пропорційно вазі текстури
-                    return data.weight / totalWeight;
-                }
-                return 0;
-            }
-            currentWeight += data.weight;
-        }
-        
-        return 0;
-    }
+    const tX = { x: 2 * eps, y: hR - hL, z: 0 };
+    const tZ = { x: 0,      y: hU - hD, z: 2 * eps };
 
-    /**
-     * Отримує всі blend factors для точки
-     */
-    getAllTextureBlends(x: number, z: number): { [key: string]: number } {
-        const { textures } = this.config;
-        if (!textures) return {};
-        
-        const blends: { [key: string]: number } = {};
-        for (const textureName of Object.keys(textures)) {
-            blends[textureName] = this.getTextureBlend(x, z, textureName);
-        }
-        
-        // Нормалізуємо blend factors щоб сума = 1
-        const totalBlend = Object.values(blends).reduce((sum, blend) => sum + blend, 0);
-        if (totalBlend > 0) {
-            for (const textureName of Object.keys(blends)) {
-                blends[textureName] /= totalBlend;
-            }
-        }
-        
-        return blends;
-    }
+    const nx = tZ.y * tX.z - tZ.z * tX.y;
+    const ny = tZ.z * tX.x - tZ.x * tX.z;
+    const nz = tZ.x * tX.y - tZ.y * tX.x;
 
-    /**
-     * Отримує висоту terrain в заданій точці з інтерполяцією
-     */
-    getHeightAt(x: number, z: number): number {
-        const { width, height, resolution } = this.heightMap;
-        
-        // Нормалізуємо координати до grid
-        const gridX = (x + this.config.width / 2) / resolution;
-        const gridZ = (z + this.config.height / 2) / resolution;
-        
-        // Отримуємо індекси сусідніх точок
-        const x1 = Math.floor(gridX);
-        const z1 = Math.floor(gridZ);
-        const x2 = Math.min(x1 + 1, width - 1);
-        const z2 = Math.min(z1 + 1, height - 1);
-        
-        // Перевіряємо межі
-        if (x1 < 0 || x1 >= width || z1 < 0 || z1 >= height) {
-            return this.config.minHeight;
-        }
-        
-        // Отримуємо висоти в чотирьох сусідніх точках
-        const h11 = this.heightMap.data[z1][x1];
-        const h12 = this.heightMap.data[z1][x2];
-        const h21 = this.heightMap.data[z2][x1];
-        const h22 = this.heightMap.data[z2][x2];
-        
-        // Обчислюємо коефіцієнти інтерполяції
-        const fx = gridX - x1;
-        const fz = gridZ - z1;
-        
-        // Білінійна інтерполяція
-        const h1 = h11 * (1 - fx) + h12 * fx;
-        const h2 = h21 * (1 - fx) + h22 * fx;
-        const interpolatedHeight = h1 * (1 - fz) + h2 * fz;
-        
-        return interpolatedHeight;
-    }
+    const len = Math.hypot(nx, ny, nz) || 1;
+    return { x: nx / len, y: ny / len, z: nz / len };
+  }
 
-    /**
-     * Отримує нормаль terrain в заданій точці
-     */
-    getNormalAt(x: number, z: number): Vector3 {
-        const delta = this.config.resolution * 0.5;
-        
-        const h1 = this.getHeightAt(x - delta, z);
-        const h2 = this.getHeightAt(x + delta, z);
-        const h3 = this.getHeightAt(x, z - delta);
-        const h4 = this.getHeightAt(x, z + delta);
-        
-        // Обчислюємо нормаль на основі градієнта
-        const dx = (h2 - h1) / (2 * delta);
-        const dz = (h4 - h3) / (2 * delta);
-        
-        return {
-            x: -dx,
-            y: 1,
-            z: -dz
-        };
-    }
+  canPlaceObjectAt(position: Vector3, objectHeight: number = 0): boolean {
+    const terrainHeight = this.getHeightAt(position.x, position.z);
+    return position.y >= terrainHeight + objectHeight;
+  }
 
-    /**
-     * Перевіряє, чи може об'єкт знаходитися в даній позиції
-     */
-    canPlaceObjectAt(position: Vector3, objectHeight: number = 0): boolean {
-        const terrainHeight = this.getHeightAt(position.x, position.z);
-        return position.y >= terrainHeight + objectHeight;
-    }
+  snapToTerrain(position: Vector3, objectHeight: number = 0): Vector3 {
+    const terrainHeight = this.getHeightAt(position.x, position.z);
+    return { ...position, y: terrainHeight + objectHeight };
+  }
 
-    /**
-     * Примусово розміщує об'єкт на terrain
-     */
-    snapToTerrain(position: Vector3, objectHeight: number = 0): Vector3 {
-        const terrainHeight = this.getHeightAt(position.x, position.z);
-        return {
-            ...position,
-            y: terrainHeight + objectHeight
-        };
-    }
+  getConfig(): TerrainConfig {
+    return { ...this.config };
+  }
 
-    /**
-     * Отримує конфігурацію terrain
-     */
-    getConfig(): TerrainConfig {
-        return { ...this.config };
-    }
+  updateHeightMap(newHeightMap: HeightMap): void {
+    this.heightMap = newHeightMap;
+  }
 
-    /**
-     * Оновлює карту висот (для динамічних змін)
-     */
-    updateHeightMap(newHeightMap: HeightMap): void {
-        this.heightMap = newHeightMap;
-    }
+  regenerateTerrain(): void {
+    this.hashCache.clear();
+    this.heightMap = this.generateDefaultHeightMap();
+  }
 
-    /**
-     * Генерує новий terrain з заданими параметрами
-     */
-    regenerateTerrain(): void {
-        // Тут можна додати різні алгоритми генерації
-        this.heightMap = this.generateDefaultHeightMap();
+  regenerateTerrainWithSeed(seed: number): void {
+    console.log('GENWS: ', seed);
+    this.config.seed = seed;
+    this.seededRandom = new SeededRandom(seed);
+    this.seedProfile = this.makeSeedProfile();
+    this.hashCache.clear();
+    this.heightMap = this.generateDefaultHeightMap();
+  }
+
+  getSeed(): number {
+    return this.config.seed ?? 0;
+  }
+
+  // -----------------------------
+  // Текстурні бленди (справжній шум)
+  // -----------------------------
+  private textureNoise(x: number, z: number): number {
+    const nopt = this.config.noise ?? { scale: 0.005, octaves: 3, persistence: 0.5, lacunarity: 2.0 };
+    const saved = this.config.noise;
+
+    // трохи інші параметри для різноманіття
+    this.config.noise = {
+      ...nopt,
+      scale: nopt.scale * 1.7,
+      octaves: Math.max(2, (nopt.octaves | 0) - 1),
+    };
+
+    // важливо: використовуємо ТІ Ж доменні трансформації, що й висота
+    const sp = this.seedProfile;
+    const cosr = Math.cos(sp.rot), sinr = Math.sin(sp.rot);
+    const dx = x + sp.offX;
+    const dz = z + sp.offZ;
+    const rx =  dx * cosr - dz * sinr;
+    const rz =  dx * sinr + dz * cosr;
+    const wx = this.valueNoise2D(rx * sp.warpFreq, rz * sp.warpFreq) * 2 - 1;
+    const wz = this.valueNoise2D((rx + 37.1) * sp.warpFreq, (rz - 19.3) * sp.warpFreq) * 2 - 1;
+    const tx = rx + wx * sp.warpAmp;
+    const tz = rz + wz * sp.warpAmp;
+
+    const n = this.fbmTransformed(tx, tz);
+    this.config.noise = saved;
+    return n; // [0..1]
+  }
+
+  getTextureBlend(x: number, z: number, textureName: string): number {
+    const { textures } = this.config;
+    if (!textures || !textures[textureName]) return 0;
+
+    const entries = Object.entries(textures);
+    const total = entries.reduce((s, [, t]) => s + t.weight, 0) || 1;
+
+    const n = this.textureNoise(x, z) * total;
+
+    let acc = 0;
+    for (const [name, t] of entries) {
+      const next = acc + t.weight;
+      if (n >= acc && n < next) {
+        return name === textureName ? (t.weight / total) : 0;
+      }
+      acc = next;
     }
+    return 0;
+  }
+
+  getAllTextureBlends(x: number, z: number): { [key: string]: number } {
+    const { textures } = this.config;
+    if (!textures) return {};
+    const out: Record<string, number> = {};
+    let sum = 0;
+    for (const key of Object.keys(textures)) {
+      const v = this.getTextureBlend(x, z, key);
+      out[key] = v;
+      sum += v;
+    }
+    if (sum > 0) {
+      for (const k of Object.keys(out)) out[k] /= sum;
+    }
+    return out;
+  }
 }

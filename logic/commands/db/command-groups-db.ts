@@ -1,5 +1,5 @@
 import { CommandGroup } from '../command-group.types';
-import { Command } from '../command.types';
+import { Command, CommandFailureCode } from '../command.types';
 
 // База даних груп команд
 export const COMMAND_GROUPS: CommandGroup[] = [
@@ -57,6 +57,7 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         priority: 2,
         createdAt: Date.now(),
         // Без resolvedParamsMapping - беремо все з контексту
+        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
       },
       {
         id: `return-to-base-${Date.now()}`,
@@ -201,137 +202,346 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     ]
   },
 
-  // Групи для збору ресурсів у радіусі
+  // Група для збору каменю у радіусі
   {
     id: 'gather-stone-radius',
     name: 'Gather Stone',
-    description: 'Gather all stone in radius',
+    description: 'Gather stone resources in radius',
     startCondition: null,
     endCondition: null,
     loopCondition: null,
-    isLoop: false,
+    isLoop: true, // Повторюємо поки є ресурси
     ui: {
       scope: 'gather',
       category: 'stone',
       name: 'Gather Stone',
-      description: 'Gather all stone in radius'
+      description: 'Gather stone resources in radius'
     },
     resolveParametersPipeline: [
       {
-        id: 'centerPosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'targets.center'}],
-        resolveWhen: 'group-start'
-      },
-      {
-        id: 'stoneResources',
+        id: 'resourcesInRadius',
         getterType: 'getResourcesInRadius',
         args: [
           {type: 'lit', value: 'stone'},
-          {type: 'var', value: 'resolved.centerPosition'},
+          {type: 'var', value: 'targets.center'},
           {type: 'lit', value: 5}
         ],
-        resolveWhen: 'group-start'
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'validateResourcesExist',
+        getterType: 'validate',
+        args: [
+          {type: 'lit', value: 'arrayNotEmpty'},
+          {type: 'var', value: 'resolved.resourcesInRadius'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourceId',
+        getterType: 'getFirstOfList',
+        args: [{type: 'var', value: 'resolved.resourcesInRadius'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourcePosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'resolved.firstResourceId'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'closestStorageId',
+        getterType: 'getClosestStorage',
+        args: [{type: 'lit', value: {maxDistance: 200}}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'storagePosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'resolved.closestStorageId'}],
+        resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (context): Command[] => {
-      const stoneResources = context.resolved?.stoneResources || [];
-      console.log(`[gather-stone-radius] Found ${stoneResources.length} stone resources in radius`);
-      
-      if (stoneResources.length === 0) {
-        return [];
-      }
-      
-      // Створюємо команди збору для кожного ресурсу
-      return stoneResources.map((resource: any, index: number) => [
-        {
-          id: `move-to-stone-${resource.id}-${Date.now()}`,
-          type: 'move-to',
-          targetId: undefined,
-          position: resource.coordinates,
-          parameters: { priority: 'high' },
-          status: 'pending',
-          priority: index * 2 + 1,
-          createdAt: Date.now()
-        },
-        {
-          id: `collect-stone-${resource.id}-${Date.now()}`,
-          type: 'collect-resource',
-          targetId: resource.id,
-          position: resource.coordinates,
-          parameters: { amount: 100 },
-          status: 'pending',
-          priority: index * 2 + 2,
-          createdAt: Date.now()
+    tasksPipeline: (context): Command[] => [
+      {
+        id: `move-to-resource-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'high' },
+        status: 'pending',
+        priority: 1,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'firstResourcePosition'
         }
-      ]).flat();
-    }
+      },
+      {
+        id: `collect-resource-${Date.now()}`,
+        type: 'collect-resource',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { amount: 100 },
+        status: 'pending',
+        priority: 2,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'firstResourceId'
+        },
+        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
+      },
+      {
+        id: `return-to-storage-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'low' },
+        status: 'pending',
+        priority: 3,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'storagePosition'
+        }
+      },
+      {
+        id: `unload-resources-${Date.now()}`,
+        type: 'unload-resources',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: {},
+        status: 'pending',
+        priority: 4,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'closestStorageId'
+        }
+      }
+    ]
   },
 
+  // Група для збору руди у радіусі
   {
     id: 'gather-ore-radius',
     name: 'Gather Ore',
-    description: 'Gather all ore in radius',
+    description: 'Gather ore resources in radius',
     startCondition: null,
     endCondition: null,
     loopCondition: null,
-    isLoop: false,
+    isLoop: true, // Повторюємо поки є ресурси
     ui: {
       scope: 'gather',
       category: 'ore',
       name: 'Gather Ore',
-      description: 'Gather all ore in radius'
+      description: 'Gather ore resources in radius'
     },
     resolveParametersPipeline: [
       {
-        id: 'centerPosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'targets.center'}],
-        resolveWhen: 'group-start'
-      },
-      {
-        id: 'oreResources',
+        id: 'resourcesInRadius',
         getterType: 'getResourcesInRadius',
         args: [
           {type: 'lit', value: 'ore'},
-          {type: 'var', value: 'resolved.centerPosition'},
+          {type: 'var', value: 'targets.center'},
           {type: 'lit', value: 5}
         ],
-        resolveWhen: 'group-start'
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'validateResourcesExist',
+        getterType: 'validate',
+        args: [
+          {type: 'lit', value: 'arrayNotEmpty'},
+          {type: 'var', value: 'resolved.resourcesInRadius'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourceId',
+        getterType: 'getFirstOfList',
+        args: [{type: 'var', value: 'resolved.resourcesInRadius'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourcePosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'resolved.firstResourceId'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'closestStorageId',
+        getterType: 'getClosestStorage',
+        args: [{type: 'lit', value: {maxDistance: 200}}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'storagePosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'resolved.closestStorageId'}],
+        resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (context): Command[] => {
-      const oreResources = context.resolved?.oreResources || [];
-      console.log(`[gather-ore-radius] Found ${oreResources.length} ore resources in radius`);
-      
-      if (oreResources.length === 0) {
-        return [];
-      }
-      
-      // Створюємо команди збору для кожного ресурсу
-      return oreResources.map((resource: any, index: number) => [
-        {
-          id: `move-to-ore-${resource.id}-${Date.now()}`,
-          type: 'move-to',
-          targetId: undefined,
-          position: resource.coordinates,
-          parameters: { priority: 'high' },
-          status: 'pending',
-          priority: index * 2 + 1,
-          createdAt: Date.now()
-        },
-        {
-          id: `collect-ore-${resource.id}-${Date.now()}`,
-          type: 'collect-resource',
-          targetId: resource.id,
-          position: resource.coordinates,
-          parameters: { amount: 100 },
-          status: 'pending',
-          priority: index * 2 + 2,
-          createdAt: Date.now()
+    tasksPipeline: (context): Command[] => [
+      {
+        id: `move-to-resource-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'high' },
+        status: 'pending',
+        priority: 1,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'firstResourcePosition'
         }
-      ]).flat();
-    }
+      },
+      {
+        id: `collect-resource-${Date.now()}`,
+        type: 'collect-resource',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { amount: 100 },
+        status: 'pending',
+        priority: 2,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'firstResourceId'
+        },
+        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
+      },
+      {
+        id: `return-to-storage-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'low' },
+        status: 'pending',
+        priority: 3,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'storagePosition'
+        }
+      },
+      {
+        id: `unload-resources-${Date.now()}`,
+        type: 'unload-resources',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: {},
+        status: 'pending',
+        priority: 4,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'closestStorageId'
+        }
+      }
+    ]
+  },
+
+  // Універсальна група для збору ресурсів у радіусі (залишаємо для загального використання)
+  {
+    id: 'gather-resource-radius',
+    name: 'Gather Resource',
+    description: 'Gather resources of specified type in radius',
+    startCondition: null,
+    endCondition: null,
+    loopCondition: null,
+    isLoop: true, // Повторюємо поки є ресурси
+    ui: {
+      scope: 'gather',
+      category: 'universal',
+      name: 'Gather Resource',
+      description: 'Gather resources in radius'
+    },
+    resolveParametersPipeline: [
+      {
+        id: 'resourcesInRadius',
+        getterType: 'getResourcesInRadius',
+        args: [
+          {type: 'var', value: 'parameters.resourceType'},
+          {type: 'var', value: 'targets.center'},
+          {type: 'lit', value: 5}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourceId',
+        getterType: 'getFirstOfList',
+        args: [{type: 'var', value: 'resolved.resourcesInRadius'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourcePosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'resolved.firstResourceId'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'closestStorageId',
+        getterType: 'getClosestStorage',
+        args: [{type: 'lit', value: {maxDistance: 200}}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'storagePosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'resolved.closestStorageId'}],
+        resolveWhen: 'before-command'
+      }
+    ],
+    tasksPipeline: (context): Command[] => [
+      {
+        id: `move-to-resource-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'high' },
+        status: 'pending',
+        priority: 1,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'firstResourcePosition'
+        }
+      },
+      {
+        id: `collect-resource-${Date.now()}`,
+        type: 'collect-resource',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { amount: 100 },
+        status: 'pending',
+        priority: 2,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'firstResourceId'
+        },
+        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
+      },
+      {
+        id: `return-to-storage-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'low' },
+        status: 'pending',
+        priority: 3,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'storagePosition'
+        }
+      },
+      {
+        id: `unload-resources-${Date.now()}`,
+        type: 'unload-resources',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: {},
+        status: 'pending',
+        priority: 4,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'closestStorageId'
+        }
+      }
+    ]
   },
 
   {
@@ -341,7 +551,7 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     startCondition: null,
     endCondition: null,
     loopCondition: null,
-    isLoop: false,
+    isLoop: true, // Повторюємо поки є ресурси
     ui: {
       scope: 'gather',
       category: 'all',
@@ -350,54 +560,104 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     },
     resolveParametersPipeline: [
       {
-        id: 'centerPosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'targets.center'}],
-        resolveWhen: 'group-start'
-      },
-      {
         id: 'allResources',
         getterType: 'getResourcesInRadius',
         args: [
           {type: 'lit', value: 'resource'},
-          {type: 'var', value: 'resolved.centerPosition'},
+          {type: 'var', value: 'targets.center'},
           {type: 'lit', value: 5}
         ],
-        resolveWhen: 'group-start'
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'validateResourcesExist',
+        getterType: 'validate',
+        args: [
+          {type: 'lit', value: 'arrayNotEmpty'},
+          {type: 'var', value: 'resolved.allResources'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourceId',
+        getterType: 'getFirstOfList',
+        args: [{type: 'var', value: 'resolved.allResources'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourcePosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'resolved.firstResourceId'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'closestStorageId',
+        getterType: 'getClosestStorage',
+        args: [{type: 'lit', value: {maxDistance: 200}}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'storagePosition',
+        getterType: 'getObjectPosition',
+        args: [{type: 'var', value: 'resolved.closestStorageId'}],
+        resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (context): Command[] => {
-      const allResources = context.resolved?.allResources || [];
-      console.log(`[gather-all-radius] Found ${allResources.length} resources in radius`);
-      
-      if (allResources.length === 0) {
-        return [];
-      }
-      
-      // Створюємо команди збору для кожного ресурсу
-      return allResources.map((resource: any, index: number) => [
-        {
-          id: `move-to-resource-${resource.id}-${Date.now()}`,
-          type: 'move-to',
-          targetId: undefined,
-          position: resource.coordinates,
-          parameters: { priority: 'high' },
-          status: 'pending',
-          priority: index * 2 + 1,
-          createdAt: Date.now()
-        },
-        {
-          id: `collect-resource-${resource.id}-${Date.now()}`,
-          type: 'collect-resource',
-          targetId: resource.id,
-          position: resource.coordinates,
-          parameters: { amount: 100 },
-          status: 'pending',
-          priority: index * 2 + 2,
-          createdAt: Date.now()
+    tasksPipeline: (context): Command[] => [
+      {
+        id: `move-to-resource-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'high' },
+        status: 'pending',
+        priority: 1,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'firstResourcePosition'
         }
-      ]).flat();
-    }
+      },
+      {
+        id: `collect-resource-${Date.now()}`,
+        type: 'collect-resource',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { amount: 100 },
+        status: 'pending',
+        priority: 2,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'firstResourceId'
+        },
+        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
+      },
+      {
+        id: `return-to-storage-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'low' },
+        status: 'pending',
+        priority: 3,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'storagePosition'
+        }
+      },
+      {
+        id: `unload-resources-${Date.now()}`,
+        type: 'unload-resources',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: {},
+        status: 'pending',
+        priority: 4,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'closestStorageId'
+        }
+      }
+    ]
   }
 ];
 

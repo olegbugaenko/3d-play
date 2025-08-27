@@ -1,5 +1,5 @@
 import { CommandExecutor } from '../CommandExecutor';
-import { CommandResult } from '../command.types';
+import { CommandResult, CommandFailureCode } from '../command.types';
 
 export class CollectResourceExecutor extends CommandExecutor {
     private collectionProgress: number = 0;
@@ -36,7 +36,7 @@ export class CollectResourceExecutor extends CommandExecutor {
 
         const targetResource = this.context.scene.getObjectById(this.command.targetId);
         if (!targetResource) {
-            return { success: false, message: 'Target resource not found: '+this.command.targetId };
+            return { success: false, message: 'Target resource not found: '+this.command.targetId, code: CommandFailureCode.RESOURCE_NOT_FOUND };
         }
 
         // Визначаємо тип ресурсу з цілі
@@ -65,7 +65,7 @@ export class CollectResourceExecutor extends CommandExecutor {
 
         // Перевіряємо чи бак не повний
         if (currentAmount >= maxCapacity) {
-            return { success: false, message: 'Storage is full' };
+            return { success: true, message: 'Storage is full' };
         }
 
         // Додаємо ресурс
@@ -74,6 +74,26 @@ export class CollectResourceExecutor extends CommandExecutor {
 
         // Зменшуємо кількість ресурсу в цілі
         targetResource.data.resourceAmount = Math.max(0, targetResource.data.resourceAmount - amountToAdd);
+
+        // Якщо ресурс закінчився - видаляємо його з карти
+        if (targetResource.data.resourceAmount <= 0) {
+            // Очищаємо target у юніта
+            if (object.data) {
+                object.data.target = undefined;
+            }
+            
+            // Додаємо каменюк до списку зібраних в MapLogic
+            if (this.context.mapLogic) {
+                this.context.mapLogic.collectRock(this.command.targetId!);
+            }
+            
+            // Видаляємо ресурс з карти
+            
+            // Ресурс вичерпано та видалено зі сцени
+            
+            // Повертаємо failure з кодом для restart групи
+            return { success: false, message: 'Resource depleted and removed', code: CommandFailureCode.RESOURCE_FINISHED };
+        }
 
         // Оновлюємо прогрес
         this.collectionProgress = (currentAmount + amountToAdd) / maxCapacity;
@@ -104,7 +124,7 @@ export class CollectResourceExecutor extends CommandExecutor {
         if (this.command.targetId) {
             const targetResource = this.context.scene.getObjectById(this.command.targetId);
             if (!targetResource || !targetResource.data?.resourceAmount || targetResource.data.resourceAmount <= 0) {
-                return true; // Ресурс закінчився
+                return true; // Ресурс закінчився або видалений
             }
         }
 

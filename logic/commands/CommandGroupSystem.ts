@@ -3,8 +3,9 @@ import { Command } from './command.types';
 import { CommandGroup, CommandGroupContext, CommandGroupState } from './command-group.types';
 import { getCommandGroup } from './db/command-groups-db';
 import { ParameterResolutionService } from './ParameterResolutionService';
+import { SaveLoadManager } from '../save-load/save-load.types';
 
-export class CommandGroupSystem {
+export class CommandGroupSystem implements SaveLoadManager {
   private commandSystem: CommandSystem;
   private activeGroups: Map<string, CommandGroupState> = new Map();
   public parameterResolutionService: ParameterResolutionService;
@@ -40,6 +41,13 @@ export class CommandGroupSystem {
         context,
         'all'
       );
+      
+      // Перевіряємо валідації
+      const validationFailed = this.checkValidations(resolvedParameters);
+      if (validationFailed) {
+        console.warn(`Validation failed for group ${groupId}, cancelling group`);
+        return false;
+      }
     }
 
     // Генеруємо команди з пайплайну
@@ -77,7 +85,7 @@ export class CommandGroupSystem {
     const groupKey = `${objectId}-${groupId}`;
     this.activeGroups.set(groupKey, groupState);
 
-    console.log(`Command group '${groupId}' started for object ${objectId}`, this.commandSystem.getCommandQueue(objectId));
+            // Група команд запущена
     return true;
   }
 
@@ -97,7 +105,7 @@ export class CommandGroupSystem {
     // Видаляємо всі команди цієї групи з черги
     this.commandSystem.clearCommandsByGroup(objectId, groupId);
 
-    console.log(`Command group '${groupId}' cancelled for object ${objectId}`);
+            // Група команд скасована
     return true;
   }
 
@@ -119,9 +127,23 @@ export class CommandGroupSystem {
   }
 
   /**
+   * Перевіряє валідації в resolved параметрах
+   */
+  private checkValidations(resolvedParameters: Record<string, any>): boolean {
+    for (const [paramId, value] of Object.entries(resolvedParameters)) {
+      // Перевіряємо чи це результат валідації
+      if (value && typeof value === 'object' && 'success' in value && !value.success) {
+        console.warn(`Validation failed for parameter ${paramId}: ${value.message} (${value.code})`);
+        return true; // Валідація фейлилась
+      }
+    }
+    return false; // Всі валідації пройшли
+  }
+
+  /**
    * Створює шаблони параметрів для команди
    */
-  private createParameterTemplates(
+  public createParameterTemplates(
     command: Command, 
     resolvePipeline: any[]
   ): Record<string, any> {
@@ -161,5 +183,66 @@ export class CommandGroupSystem {
     // Наприклад, оновлювати currentTaskIndex на основі виконаних команд
     
     this.cleanupCompletedGroups();
+  }
+
+  // ==================== SaveLoadManager Implementation ====================
+  
+  save(): any {
+    console.log('[CommandGroupSystem] Saving groups...');
+    
+    const activeGroups: any[] = [];
+    
+    // Зберігаємо стан всіх активних груп
+    this.activeGroups.forEach((groupState, groupKey) => {
+      if (groupState.status === 'active') {
+        activeGroups.push({
+          groupKey,
+          groupId: groupState.groupId,
+          objectId: groupState.objectId,
+          status: groupState.status,
+          currentTaskIndex: groupState.currentTaskIndex,
+          startTime: groupState.startTime,
+          context: groupState.context,
+          resolvedParameters: groupState.resolvedParameters
+        });
+      }
+    });
+    
+    const saveData = { activeGroups };
+    console.log('[CommandGroupSystem] Saved groups:', saveData);
+    return saveData;
+  }
+  
+  load(data: any): void {
+    console.log('[CommandGroupSystem] Loading groups:', data);
+    
+    if (data.activeGroups) {
+      data.activeGroups.forEach((groupData: any) => {
+        const { groupId, objectId, context, resolvedParameters } = groupData;
+        
+        // Відновлюємо стан групи
+        const groupState: CommandGroupState = {
+          groupId,
+          objectId,
+          status: 'active',
+          currentTaskIndex: groupData.currentTaskIndex || 0,
+          startTime: groupData.startTime || Date.now(),
+          context: context || {},
+          resolvedParameters: resolvedParameters || {}
+        };
+        
+        const groupKey = `${objectId}-${groupId}`;
+        this.activeGroups.set(groupKey, groupState);
+        
+        console.log('[CommandGroupSystem] Restored group:', groupKey);
+      });
+    }
+    
+    console.log('[CommandGroupSystem] Loaded groups. Current active groups:', this.activeGroups);
+  }
+  
+  reset(): void {
+    console.log('[CommandGroupSystem] Resetting groups...');
+    this.activeGroups.clear();
   }
 }

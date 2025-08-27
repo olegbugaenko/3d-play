@@ -27,7 +27,7 @@ export class CloudRenderer extends BaseRenderer {
     this.cloudGroup.name = 'CloudGroup';
     this.clock = new THREE.Clock();
     this.scene.add(this.cloudGroup);
-    console.log('🚀 CloudRenderer створено');
+            // CloudRenderer створено
   }
 
   // ===== Shared material =====
@@ -131,7 +131,7 @@ export class CloudRenderer extends BaseRenderer {
   // ====== Public API ======
   render(object: SceneObject): THREE.Object3D {
     const cloudData: CloudData = object.data || {};
-    console.log(`☁️ CloudRenderer.render() для ${object.id} @ [${object.coordinates.x},${object.coordinates.y},${object.coordinates.z}]`);
+            // CloudRenderer.render() викликано
 
     const dustCloud = this.createCloudPoints(cloudData, object.coordinates);
 

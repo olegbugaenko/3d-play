@@ -1,12 +1,15 @@
 import { ParameterResolvers } from './ParameterResolvers';
 import { ResolveParametersPipeline, ParameterArg, CommandGroupContext } from './command-group.types';
 import { Vector3 } from 'three';
+import { ValidationService, ValidationRule } from './ValidationService';
 
 export class ParameterResolutionService {
   private parameterResolvers: ParameterResolvers;
+  private validationService: ValidationService;
 
   constructor(mapLogic: any) {
     this.parameterResolvers = new ParameterResolvers(mapLogic);
+    this.validationService = new ValidationService();
   }
 
   /**
@@ -32,8 +35,18 @@ export class ParameterResolutionService {
 
     for (const param of relevantPipeline) {
       try {
+        // Перевіряємо чи це валідація
+        if (param.getterType === 'validate') {
+          const validationResult = this.validateParameter(param, context, resolvedParameters);
+          if (!validationResult.success) {
+            console.warn(`Validation failed for ${param.id}: ${validationResult.message}`);
+            // Повертаємо результат валідації для обробки в CommandGroupSystem
+            resolvedParameters[param.id] = validationResult;
+            continue;
+          }
+        }
+
         const value = this.resolveParameter(param, context);
-        console.log('RESOLVE_PARAM: ', param, value);
         if (value !== null && value !== undefined) {
           resolvedParameters[param.id] = value;
         }
@@ -41,7 +54,6 @@ export class ParameterResolutionService {
             context.resolved = {}
         }
         context.resolved = {...context.resolved, ...resolvedParameters};
-        console.log('RSNOW: ', context.resolved);
       } catch (error) {
         console.error(`Failed to resolve parameter ${param.id}:`, error);
       }
@@ -55,7 +67,6 @@ export class ParameterResolutionService {
    */
   private resolveParameter(param: ResolveParametersPipeline, context: CommandGroupContext): any {
     const resolvedArgs = this.resolveArgs(param.args, context);
-    console.log('PARAM_ARGS: ', resolvedArgs, param, context.resolved);
 
     switch (param.getterType) {
       case 'getObjectPosition':
@@ -96,6 +107,17 @@ export class ParameterResolutionService {
         const resourceCenter = resolvedArgs[1];
         const resourceRadius = resolvedArgs[2] || 5;
         return this.parameterResolvers.getResourcesInRadius(resourceTag, resourceCenter, resourceRadius);
+      
+      case 'getResourceType':
+        const resourceType = resolvedArgs[0];
+        return this.parameterResolvers.getResourceType(resourceType);
+      
+      case 'getFirstOfList':
+        const list = resolvedArgs[0];
+        return this.parameterResolvers.getFirstOfList(list);
+      
+      case 'validate':
+        return null;
       
       default:
         console.warn(`Unknown getter type: ${param.getterType}`);
@@ -148,6 +170,44 @@ export class ParameterResolutionService {
     
     // Дефолтна позиція
     return new Vector3(0, 0, 0);
+  }
+
+  /**
+   * Валідує параметр
+   */
+  private validateParameter(param: ResolveParametersPipeline, context: CommandGroupContext, resolvedParameters: Record<string, any>): any {
+    const validationRule: ValidationRule = {
+      type: param.args[0]?.value || 'arrayNotEmpty',
+      value: param.args[1]?.value,
+      customValidator: param.args[2]?.value
+    };
+
+    // Отримуємо значення для валідації з другого аргументу (перший - тип валідації)
+    const valueToValidate = this.resolveValidationValue(param.args[1], context, resolvedParameters);
+    
+    // Виконуємо валідацію
+    return this.validationService.validate(valueToValidate, validationRule, context);
+  }
+
+  /**
+   * Розв'язує значення для валідації
+   */
+  private resolveValidationValue(arg: ParameterArg, context: CommandGroupContext, resolvedParameters: Record<string, any>): any {
+    if (arg.type === 'var') {
+      // Якщо це змінна, шукаємо в resolved параметрах
+      if (arg.value.startsWith('resolved.')) {
+        const paramId = arg.value.replace('resolved.', '');
+        return resolvedParameters[paramId];
+      }
+      // Якщо це з контексту
+      return (context as any)[arg.value];
+    }
+    
+    if (arg.type === 'lit') {
+      return arg.value;
+    }
+    
+    return null;
   }
 
   /**

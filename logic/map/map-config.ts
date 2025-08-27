@@ -5,10 +5,31 @@ export const MAP_CONFIG = {
     height: 600,     // Висота мапи по Y (для об'єктів)
     depth: 600,       // Глибина мапи по Z
     
+    // Налаштування генерації
+    generation: {
+        // Seed для процедурної генерації (0 = випадковий)
+        defaultSeed: 117,
+        
+        // Налаштування каменюків
+        rocks: {
+            clusterCount: 100,        // Кількість кластерів
+            rocksPerCluster: 20,      // Каменюків на кластер
+            clusterRadius: { min: 5, max: 10 }, // Радіус кластера
+            resourceTypes: ['stone', 'ore'] as const
+        },
+        
+        // Налаштування болдерів
+        boulders: {
+            count: 50,                // Загальна кількість
+            minDistance: 15,          // Мінімальна відстань між болдерами
+            sizeRange: { min: 0.25, max: 0.7 } // Розмір болдерів
+        }
+    },
+    
     // Terrain налаштування
     terrain: {
         resolution: 10,    // Data resolution для пам'яті
-        maxHeight: 20,     // Максимальна висота terrain
+        maxHeight: 40,     // Максимальна висота terrain
         minHeight: 0,      // Мінімальна висота terrain
         renderResolution: 2, // Render resolution для візуальної якості
         
@@ -33,9 +54,9 @@ export const MAP_CONFIG = {
         
         // Налаштування для procedural генерації
         noise: {
-            scale: 0.02,        // Зменшуємо масштаб noise для більших кластерів
-            octaves: 2,         // Залишаємо 1 октаву для різкого noise
-            persistence: 0.9,   // Збільшуємо персистентність
+            scale: 0.01,        // Ще менший масштаб для дуже плавного terrain
+            octaves: 1,         // Тільки 1 октава для максимальної плавності
+            persistence: 0.3,   // Менша персистентність для плавності
             lacunarity: 1.1     // Залишаємо лакунарність
         }
     },
@@ -65,6 +86,20 @@ export interface MapConfig {
     width: number;
     height: number;
     depth: number;
+    generation: {
+        defaultSeed: number;
+        rocks: {
+            clusterCount: number;
+            rocksPerCluster: number;
+            clusterRadius: { min: number; max: number };
+            resourceTypes: readonly ('stone' | 'ore')[];
+        };
+        boulders: {
+            count: number;
+            minDistance: number;
+            sizeRange: { min: number; max: number };
+        };
+    };
     terrain: {
         resolution: number;
         maxHeight: number;

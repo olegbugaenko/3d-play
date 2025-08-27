@@ -43,7 +43,7 @@ export class AutoGroupMonitor {
         
         for (const group of autoGroups) {
             if (this.shouldExecuteAutoGroup(group, object)) {
-                console.log(`[Auto-command] Triggering auto-group ${group.id} for ${object.id} due to ${group.autoExecute?.condition}`);
+                // Авто-команда запущена
                 this.executeAutoGroup(object.id, group);
                 break; // Виконуємо тільки першу знайдену групу
             }
@@ -119,7 +119,7 @@ export class AutoGroupMonitor {
                 'group-start' // Розв'язуємо всі параметри на початку групи
             );
             
-            console.log(`[Auto-command] Resolved parameters for ${group.id}:`, resolvedParameters);
+            // Параметри розв'язані
             
             // Застосовуємо розв'язані параметри до команд
             for (const command of autoCommands) {
@@ -144,7 +144,7 @@ export class AutoGroupMonitor {
             this.mapLogic.commandSystem.addCommand(objectId, command);
         }
         
-        console.log(`[Auto-command] Auto-group ${group.id} inserted for ${objectId}, ${currentCommands.length} commands postponed`);
+        // Авто-група вставлена
     }
 
     /**
@@ -158,7 +158,7 @@ export class AutoGroupMonitor {
             const value = resolvedParameters[command.resolvedParamsMapping.position];
             if (value && typeof value === 'object' && value.x !== undefined) {
                 command.position = { x: value.x, y: value.y, z: value.z };
-                console.log(`[Auto-command] Applied position ${command.resolvedParamsMapping.position}:`, command.position);
+                // Позиція застосована
             }
         }
         
@@ -166,7 +166,7 @@ export class AutoGroupMonitor {
         if (command.resolvedParamsMapping?.targetId && resolvedParameters[command.resolvedParamsMapping.targetId]) {
             const value = resolvedParameters[command.resolvedParamsMapping.targetId];
             command.targetId = value?.id || value;
-            console.log(`[Auto-command] Applied targetId ${command.resolvedParamsMapping.targetId}:`, command.targetId);
+            // TargetId застосовано
         }
     }
 }

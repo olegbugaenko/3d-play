@@ -78,7 +78,7 @@ export class UnloadResourcesExecutor extends CommandExecutor {
             if (resourceManager) {
                 const success = resourceManager.addResources(resourceChanges);
                 if (success) {
-                    console.log(`Unloaded ${totalUnloaded} resources from ${object.id}`);
+                    // Ресурси вивантажено
                 } else {
                     console.warn(`Failed to add resources to player storage`);
                 }

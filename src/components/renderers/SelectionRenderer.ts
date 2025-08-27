@@ -525,7 +525,7 @@ export class SelectionRenderer {
     this.interactiveHoverMesh.renderOrder = 9999;
     this.scene.add(this.interactiveHoverMesh);
     this.interactiveHoverMesh.visible = false; // Initially hidden
-    console.log('interactiveHoverMesh', this.interactiveHoverMesh);
+            // interactiveHoverMesh
     [SelectionRenderer.MAT_TARGET, SelectionRenderer.MAT_INTERACTIVE, SelectionRenderer.MAT_INTERACTIVE_HOVER].forEach(m => m.needsUpdate = true);
   }
 
@@ -659,7 +659,7 @@ export class SelectionRenderer {
 
     this.targetIndexById.set(objectId, slot);
 
-    console.log('TI: ', position);
+            // Target indicator position
   }
 
   removeTargetIndicator(objectId: string): void {
@@ -670,7 +670,7 @@ export class SelectionRenderer {
     this.hideInstance(this.targetRingIMesh, idx);
     this.targetIndexById.delete(objectId);
     this.targetIndexFree.push(idx);
-    console.log('TR: ', objectId);
+            // Target indicator removed
   }
 
   // ============================================================

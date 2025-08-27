@@ -25,7 +25,19 @@ export class SceneLogic {
     private terrainManager: TerrainManager | null = null;
 
     constructor() {
-        // TerrainManager буде створений в initializeViewport
+        // Створюємо TerrainManager з MAP_CONFIG розмірами
+        const terrainConfig: TerrainConfig = {
+            width: MAP_CONFIG.width,      // Ширина мапи по X
+            height: MAP_CONFIG.depth,     // Глибина мапи по Z (використовуємо depth як height для terrain)
+            resolution: MAP_CONFIG.terrain.resolution,     // Data resolution для пам'яті
+            maxHeight: MAP_CONFIG.terrain.maxHeight,      // Максимальна висота
+            minHeight: MAP_CONFIG.terrain.minHeight,      // Мінімальна висота
+            seed: MAP_CONFIG.generation.defaultSeed,      // Seed для детермінованої генерації
+            noise: MAP_CONFIG.terrain.noise,              // Налаштування noise
+            textures: MAP_CONFIG.terrain.textures         // Текстурні налаштування
+        };
+        this.terrainManager = new TerrainManager(terrainConfig);
+        
         // ResourceManager буде встановлений ззовні
     }
 
@@ -38,17 +50,8 @@ export class SceneLogic {
         this.updateViewport(cameraProps);
         this.mapBounds = mapSize;
 
-        // Ініціалізуємо terrain з розмірами мапи
-        const terrainConfig: TerrainConfig = {
-            width: mapSize.x,  // Використовуємо ширину мапи
-            height: mapSize.z,  // Використовуємо глибину мапи (Z)
-            resolution: MAP_CONFIG.terrain.resolution,     // Data resolution для пам'яті
-            maxHeight: MAP_CONFIG.terrain.maxHeight,      // Максимальна висота
-            minHeight: MAP_CONFIG.terrain.minHeight,      // Мінімальна висота
-            noise: MAP_CONFIG.terrain.noise,              // Налаштування noise
-            textures: MAP_CONFIG.terrain.textures         // Текстурні налаштування
-        };
-        this.terrainManager = new TerrainManager(terrainConfig);
+        // TerrainManager вже створений в конструкторі з MAP_CONFIG розмірами
+        // Не потрібно створювати новий
     }
 
     /**
@@ -222,8 +225,9 @@ export class SceneLogic {
                 if (obj.terrainAlign && this.terrainManager) {
                     const normal = this.terrainManager.getNormalAt(obj.coordinates.x, obj.coordinates.z);
                     if (normal) {
-                        const angleX = Math.atan2(normal.z, normal.y); // Нахил вперед/назад
-                        const angleZ = Math.atan2(normal.x, normal.y); // Нахил вліво/вправо
+                        // Правильні формули для обертання по нормалі
+                        const angleX = Math.atan2(-normal.z, normal.y); // Нахил вперед/назад (X-обертання)
+                        const angleZ = Math.atan2(normal.x, normal.y);  // Нахил вліво/вправо (Z-обертання)
                         
                         obj.rotation.x = -angleX;
                         obj.rotation.z = -angleZ;
@@ -258,11 +262,12 @@ export class SceneLogic {
                 if (obj.terrainAlign && this.terrainManager) {
                     const normal = this.terrainManager.getNormalAt(newPos.x, newPos.z);
                     if (normal) {
-                        const angleX = Math.atan2(normal.z, normal.y);
-                        const angleZ = Math.atan2(normal.x, normal.y);
+                        // Правильні формули для обертання по нормалі
+                        const angleX = Math.atan2(-normal.z, normal.y); // Нахил вперед/назад (X-обертання)
+                        const angleZ = Math.atan2(normal.x, normal.y);  // Нахил вліво/вправо (Z-обертання)
                         
-                        obj.rotation.x = angleX;
-                        obj.rotation.z = angleZ;
+                        obj.rotation.x = -angleX;
+                        obj.rotation.z = -angleZ;
                     }
                 }
             }
@@ -272,7 +277,7 @@ export class SceneLogic {
     }
 
     /**
-     * Отримує TerrainManager для зовнішнього доступу
+     * Отримує TerrainManager для Dependency Injection
      */
     getTerrainManager(): TerrainManager | null {
         return this.terrainManager;
@@ -348,26 +353,15 @@ export class SceneLogic {
      * Дебаг метод для перевірки viewport та гріду
      */
     debugViewportAndGrid(): void {
-        console.log('=== Viewport Debug ===');
-        console.log('Viewport:', {
-            centerX: this.viewPort.centerX,
-            centerY: this.viewPort.centerY, // Фактично Z координата
-            width: this.viewPort.width,
-            height: this.viewPort.height
-        });
-        
-        const visibleCells = this.getVisibleGridCells();
-        console.log('Visible grid cells:', visibleCells.length);
-        console.log('Grid cell size:', this.gridSystem.cellSize);
-        console.log('Total grid cells:', this.gridSystem.grid.size);
-        
-        // Показуємо перші кілька видимих клітинок
-        if (visibleCells.length > 0) {
-            console.log('First 5 visible cells:', visibleCells.slice(0, 5));
-        }
+        // Viewport debug info
     }
 
     getVisibleObjects(options: { filterByCommands?: Set<string> } = {}) {
+        // Перевіряємо чи існує gridSystem
+        if (!this.gridSystem || !this.gridSystem.grid) {
+            return [];
+        }
+
         // Отримуємо грід-села в межах viewport
         const visibleGridCells = this.getVisibleGridCells();
 
@@ -380,8 +374,9 @@ export class SceneLogic {
             if (cell) {
                 cell.objects.forEach(objId => {
                     visibleObjectIds.add(objId);
-                    if(this.objects[objId].type === 'fire') {
-                        fires[objId] = this.objects[objId];
+                    const obj = this.objects[objId];
+                    if (obj && obj.type === 'fire') {
+                        fires[objId] = obj;
                     }
                 });
             }

@@ -5,8 +5,9 @@ import {
   ResourceChange, 
   ResourceHistoryEntry 
 } from './resource-types';
+import { SaveLoadManager, ResourceSaveData } from '../save-load/save-load.types';
 
-export class ResourceManager {
+export class ResourceManager implements SaveLoadManager {
   private resources: Map<ResourceId, number> = new Map();
   private history: ResourceHistoryEntry[] = [];
   private maxHistorySize = 1000; // максимальна кількість записів в історії
@@ -278,5 +279,28 @@ export class ResourceManager {
         this.setResourceAmount(id, amount, 'import');
       }
     });
+  }
+
+  // ==================== SaveLoadManager Implementation ====================
+  
+  save(): ResourceSaveData {
+    return {
+      collectedResources: [], // Поки що пустий масив
+      resourceCounts: this.exportState()
+    };
+  }
+  
+  load(data: ResourceSaveData): void {
+    if (data.resourceCounts) {
+      this.importState(data.resourceCounts);
+    }
+  }
+  
+  reset(): void {
+    // Скидаємо всі ресурси до 0
+    Object.keys(RESOURCES_DB).forEach(id => {
+      this.resources.set(id as ResourceId, 0);
+    });
+    this.clearHistory();
   }
 }

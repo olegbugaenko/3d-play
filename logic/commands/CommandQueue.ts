@@ -13,8 +13,7 @@ export class CommandQueue {
         if (this.currentCommandIndex === -1) {
             
             this.currentCommandIndex = 0;
-        } 
-        console.log('AfterAdd: ', this.currentCommandIndex, this.commands);
+        }
     }
 
     /**
@@ -29,6 +28,24 @@ export class CommandQueue {
         if (this.commands.length === 1) {
             this.currentCommandIndex = 0;
         }
+    }
+
+    /**
+     * Додає команду в початок черги (високий пріоритет)
+     */
+    addCommandToFront(command: Command): void {
+        // Додаємо команду в початок масиву
+        this.commands.unshift(command);
+        
+        // Якщо це перша команда, встановлюємо її як поточну
+        if (this.commands.length === 1) {
+            this.currentCommandIndex = 0;
+        } else {
+            // Збільшуємо індекс поточної команди, оскільки додали команду в початок
+            this.currentCommandIndex++;
+        }
+        
+        // Команда додана в початок черги
     }
 
     /**

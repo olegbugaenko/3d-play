@@ -1,9 +1,10 @@
-import { Command, CommandType, CommandContext } from './command.types';
+import { Command, CommandType, CommandContext, CommandStatus } from './command.types';
 import { CommandExecutor } from './CommandExecutor';
 import { MoveToExecutor, CollectResourceExecutor, UnloadResourcesExecutor, ChargeExecutor } from './executors';
 import { CommandQueue } from './CommandQueue';
+import { SaveLoadManager, CommandSystemSaveData } from '../save-load/save-load.types';
 
-export class CommandSystem {
+export class CommandSystem implements SaveLoadManager {
     private commandQueues: Map<string, CommandQueue> = new Map();
     private executors: Map<string, CommandExecutor> = new Map();
     private mapLogic: any; // MapLogic instance
@@ -21,6 +22,8 @@ export class CommandSystem {
             queue = new CommandQueue();
             this.commandQueues.set(objectId, queue);
         }
+
+        console.log('AddCommand: ', objectId, command, this.commandQueues);
 
         queue.addCommand(command);
         
@@ -64,13 +67,14 @@ export class CommandSystem {
         this.addCommand(objectId, command);
     }
 
+
+
     /**
      * Створює executor для команди
      */
     private createExecutor(objectId: string, command: Command): void {
         // Розв'язуємо динамічні параметри перед створенням executor
         if (command.groupId && command.parameterTemplates) {
-            console.log('PARAMETRIC COMMAND PASSED');
             this.resolveCommandParameters(command, objectId);
         }
 
@@ -130,17 +134,28 @@ export class CommandSystem {
             const result = executor.execute();
 
             if (!result.success) {
-                console.warn(`Command execution failed for ${objectId}: ${result.message}`);
+                console.warn(`Command execution failed for ${objectId}: ${result.message} [${result.code}]`);
+                
+                // Перевіряємо чи потрібно restart групи на основі коду фейлу
+                const command = executor.getCommand();
+                if (result.code && command.groupId && command.groupRestartCodes?.includes(result.code)) {
+                    console.warn('Restarting group', command.groupId, command);
+                    // Спробуємо restart групи
+                    const restartSuccess = this.restartCommandGroup(objectId, command.groupId);
+                    if (restartSuccess) {
+                        continue;
+                    } else {
+                        console.warn(`Failed to restart command group ${command.groupId}, marking as failed`);
+                    }
+                }
+                
                 executor.updateCommandStatus('failed');
                 this.removeExecutor(objectId);
                 continue;
             }
 
-            console.log(`Starting command: ${executor.getCommand().id}`);
-
             // Перевіряємо чи завершена команда
             if (executor.completeCheck()) {
-                console.log(`Command ${executor.getCommand().id} finished`);
                 executor.updateCommandStatus('completed');
                 
                 // Отримуємо чергу команд
@@ -156,7 +171,7 @@ export class CommandSystem {
                                 // Дублюємо завершену команду в кінець черги
                                 const duplicatedCommand = this.duplicateCommandForLoop(completedCommand);
                                 queue.addCommand(duplicatedCommand);
-                                console.log(`Command ${completedCommand.id} duplicated for loop group ${completedCommand.groupId}`);
+                                // Команда дубльована для циклічної групи
                             }
                         }
                     }
@@ -224,12 +239,49 @@ export class CommandSystem {
      */
     private resolveCommandParameters(command: Command, objectId: string): void {
         if (!command.groupId || !command.parameterTemplates) {
+            console.log('[CommandSystem] Skipping parameter resolution - no groupId or parameterTemplates:', { groupId: command.groupId, hasTemplates: !!command.parameterTemplates });
             return;
         }
+
+        console.log('[CommandSystem] Resolving parameters for command:', command.id, 'with templates:', command.parameterTemplates);
 
         // Отримуємо стан групи
         const groupState = this.mapLogic.commandGroupSystem?.getGroupState(objectId, command.groupId);
         if (!groupState) {
+            console.warn('[CommandSystem] Group state not found for:', objectId, command.groupId);
+            return;
+        }
+
+        // Отримуємо визначення групи
+        const groupDefinition = this.mapLogic.commandGroupSystem?.getCommandGroupDefinition(command.groupId);
+        if (!groupDefinition?.resolveParametersPipeline) {
+            console.warn('[CommandSystem] Group definition or resolveParametersPipeline not found for:', command.groupId);
+            return;
+        }
+
+        console.log('[CommandSystem] Resolving parameters with pipeline:', groupDefinition.resolveParametersPipeline);
+
+        // Розв'язуємо параметри перед командою
+        const resolvedParameters = this.mapLogic.commandGroupSystem?.parameterResolutionService?.resolveParameters(
+            groupDefinition.resolveParametersPipeline,
+            groupState.context,
+            'before-command'
+        );
+
+        console.log('[CommandSystem] Resolved parameters:', resolvedParameters);
+
+        if (resolvedParameters) {
+            // Застосовуємо розв'язані параметри до команди
+            this.applyResolvedParameters(command, resolvedParameters);
+            console.log('[CommandSystem] Applied resolved parameters to command:', command.id, 'position:', command.position, 'targetId:', command.targetId);
+        }
+    }
+
+    /**
+     * Генерує parameterTemplates для команди на основі визначення групи
+     */
+    private generateParameterTemplatesForCommand(command: Command, objectId: string): void {
+        if (!command.groupId) {
             return;
         }
 
@@ -239,19 +291,13 @@ export class CommandSystem {
             return;
         }
 
-        // Розв'язуємо параметри перед командою
-        const resolvedParameters = this.mapLogic.commandGroupSystem?.parameterResolutionService?.resolveParameters(
-            groupDefinition.resolveParametersPipeline,
-            groupState.context,
-            'before-command'
+        // Використовуємо існуючий метод з CommandGroupSystem замість дублювання
+        command.parameterTemplates = this.mapLogic.commandGroupSystem.createParameterTemplates(
+            command, 
+            groupDefinition.resolveParametersPipeline
         );
-
-        console.log(`PARAMS_RESOLVED: `, resolvedParameters, command);
-
-        if (resolvedParameters) {
-            // Застосовуємо розв'язані параметри до команди
-            this.applyResolvedParameters(command, resolvedParameters);
-        }
+        
+        console.log('[CommandSystem] Generated parameterTemplates for command:', command.id, ':', command.parameterTemplates);
     }
 
     /**
@@ -259,18 +305,23 @@ export class CommandSystem {
      */
     private applyResolvedParameters(command: Command, resolvedParameters: Record<string, any> | undefined): void {
         if (!command.parameterTemplates) {
+            console.log('[CommandSystem] No parameterTemplates to apply');
             return;
         }
 
         if(!resolvedParameters) {
+            console.log('[CommandSystem] No resolvedParameters to apply');
             return;
         }
+
+        console.log('[CommandSystem] Applying resolved parameters:', resolvedParameters, 'to command:', command.id);
 
         // Застосовуємо position
         if (command.parameterTemplates.position && resolvedParameters[command.parameterTemplates.position.parameterId]) {
             const value = resolvedParameters[command.parameterTemplates.position.parameterId];
             if (value && typeof value === 'object' && value.x !== undefined) {
                 command.position = { x: value.x, y: value.y, z: value.z };
+                console.log('[CommandSystem] Applied position:', command.position);
             }
         }
 
@@ -278,6 +329,7 @@ export class CommandSystem {
         if (command.parameterTemplates.targetId && resolvedParameters[command.parameterTemplates.targetId.parameterId]) {
             const value = resolvedParameters[command.parameterTemplates.targetId.parameterId];
             command.targetId = value?.id || value;
+            console.log('[CommandSystem] Applied targetId:', command.targetId);
         }
     }
 
@@ -369,5 +421,195 @@ export class CommandSystem {
      */
     getActiveCommandsCount(): number {
         return this.executors.size;
+    }
+
+    /**
+     * Перезапускає групу команд з новими параметрами
+     */
+    private restartCommandGroup(objectId: string, groupId: string): boolean {
+        try {
+            // Отримуємо стан групи
+            const groupState = this.mapLogic?.commandGroupSystem?.getGroupState(objectId, groupId);
+            if (!groupState) {
+                console.warn(`Group state not found for ${groupId} on ${objectId}`);
+                return false;
+            }
+
+            // Отримуємо визначення групи
+            const groupDefinition = this.mapLogic?.commandGroupSystem?.getCommandGroupDefinition(groupId);
+            if (!groupDefinition) {
+                console.warn(`Group definition not found for ${groupId}`);
+                return false;
+            }
+
+            // Очищаємо поточні команди цієї групи
+            this.clearCommandsByGroup(objectId, groupId);
+
+            // Перезапускаємо групу з новим контекстом
+            const restartSuccess = this.mapLogic?.commandGroupSystem?.addCommandGroup(
+                objectId,
+                groupId,
+                groupState.context
+            );
+
+            if (restartSuccess) {
+                return true;
+            } else {
+                console.warn(`Failed to restart command group ${groupId} for ${objectId}`);
+                return false;
+            }
+        } catch (error) {
+            console.error(`Error restarting command group ${groupId} for ${objectId}:`, error);
+            return false;
+        }
+    }
+
+    // ==================== SaveLoadManager Implementation ====================
+    
+    save(): CommandSystemSaveData {
+        console.log('[CommandSystem] Saving commands...');
+        
+        const commandQueues: CommandSystemSaveData['commandQueues'] = [];
+        const activeCommands: CommandSystemSaveData['activeCommands'] = [];
+        
+        // Збираємо дані про ВСІ черги команд
+        this.commandQueues.forEach((queue, objectId) => {
+            const commands = queue.getAllCommands();
+            if (commands.length > 0) {
+                console.log('[CommandSystem] Saving queue for', objectId, 'with', commands.length, 'commands');
+                
+                // Зберігаємо всі команди в черзі з їх порядком
+                commandQueues.push({
+                    objectId,
+                    commands: commands.map(cmd => ({
+                        id: cmd.id,
+                        type: cmd.type,
+                        status: this.mapCommandStatus(cmd.status),
+                        parameters: cmd.parameters || {},
+                        progress: 0,
+                        groupId: cmd.groupId,
+                        resolvedParamsMapping: cmd.resolvedParamsMapping, // Зберігаємо мапінг параметрів
+                        groupRestartCodes: cmd.groupRestartCodes // Зберігаємо статус коди для restart
+                    }))
+                });
+            }
+        });
+        
+        // Збираємо дані про активні команди
+        this.executors.forEach((executor, objectId) => {
+            const currentCommand = this.getCurrentCommand(objectId);
+            if (currentCommand) {
+                activeCommands.push({
+                    id: currentCommand.id,
+                    groupId: currentCommand.groupId || '',
+                    executorId: objectId,
+                    status: this.mapCommandStatus(currentCommand.status) === 'pending' ? 'active' : 'paused',
+                    progress: 0
+                });
+            }
+        });
+        
+        const saveData = {
+            commandQueues,
+            activeCommands
+        };
+        
+        return saveData;
+    }
+    
+    load(data: CommandSystemSaveData): void {
+        console.log('[CommandSystem] Loading commands:', data);
+        
+        // Очищаємо поточні команди
+        this.commandQueues.forEach((queue, objectId) => {
+            this.clearCommands(objectId);
+        });
+        
+        // Завантажуємо черги команд
+        if (data.commandQueues) {
+            data.commandQueues.forEach(queueData => {
+                const { objectId, commands } = queueData;
+                
+                if (!objectId || objectId === 'unknown') {
+                    console.warn('[CommandSystem] Skipping queue with invalid objectId:', objectId);
+                    return;
+                }
+                
+                console.log('[CommandSystem] Loading queue for object:', objectId, 'with', commands.length, 'commands');
+                
+                // Додаємо всі команди в чергу для цього об'єкта
+                commands.forEach((command: any) => {
+                    // Перевіряємо чи є тип команди валідним
+                    if (this.isValidCommandType(command.type)) {
+                        // Створюємо нову команду з правильними параметрами
+                        const restoredCommand: Command = {
+                            id: command.id,
+                            type: command.type as CommandType,
+                            targetId: undefined,
+                            position: { x: 0, y: 0, z: 0 }, // Буде оновлено під час виконання
+                            parameters: command.parameters || {},
+                            status: 'pending' as CommandStatus,
+                            priority: 1,
+                            createdAt: Date.now(),
+                            groupId: command.groupId,
+                            resolvedParamsMapping: command.resolvedParamsMapping, // Відновлюємо мапінг параметрів
+                            groupRestartCodes: command.groupRestartCodes // Відновлюємо статус коди для restart
+                        };
+                        
+                        // Якщо команда має groupId - генеруємо parameterTemplates та резолвимо параметри
+                        if (restoredCommand.groupId) {
+                            console.log('[CommandSystem] Command has groupId, generating templates and resolving parameters:', restoredCommand.groupId, {
+                                resolvedParamsMapping: restoredCommand.resolvedParamsMapping,
+                                groupRestartCodes: restoredCommand.groupRestartCodes
+                            });
+                            
+                            // Генеруємо parameterTemplates на основі збереженого resolvedParamsMapping
+                            this.generateParameterTemplatesForCommand(restoredCommand, objectId);
+                            
+                            // Резолвимо параметри
+                            this.resolveCommandParameters(restoredCommand, objectId);
+                        }
+                        
+                        this.addCommand(objectId, restoredCommand);
+                    } else {
+                        console.warn('[CommandSystem] Invalid command type:', command.type);
+                    }
+                });
+            });
+        }
+        
+        console.log('[CommandSystem] Loaded commands. Current queues:', this.commandQueues);
+    }
+    
+    reset(): void {
+        // Очищаємо всі команди
+        this.commandQueues.forEach((queue, objectId) => {
+            this.clearCommands(objectId);
+        });
+    }
+
+    /**
+     * Мапить статус команди з CommandStatus на статус для збереження
+     */
+    private mapCommandStatus(status: CommandStatus): 'pending' | 'active' | 'completed' | 'failed' {
+        switch (status) {
+            case 'pending':
+            case 'executing':
+                return 'active';
+            case 'completed':
+                return 'completed';
+            case 'failed':
+            case 'cancelled':
+                return 'failed';
+            default:
+                return 'pending';
+        }
+    }
+
+    /**
+     * Перевіряє чи є тип команди валідним
+     */
+    private isValidCommandType(type: string): type is CommandType {
+        return ['move-to', 'collect-resource', 'unload-resources', 'wait', 'attack', 'build', 'charge'].includes(type);
     }
 }

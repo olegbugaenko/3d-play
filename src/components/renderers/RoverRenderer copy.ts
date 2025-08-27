@@ -60,7 +60,7 @@ export class RoverRenderer extends BaseRenderer {
       },
       (progress) => {
         const pct = progress.total ? (progress.loaded / progress.total) * 100 : 0;
-        console.log(`Loading rover model: ${pct.toFixed(1)}%`);
+        // Завантаження моделі ровера
       },
       (error) => {
         console.error(`Error loading rover model for ${object.id}:`, error);
