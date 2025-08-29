@@ -7,7 +7,6 @@ import { SaveManager } from './save-load/save-manager';
 import { BonusSystem } from './modifiers-system/BonusSystem';
 import { UpgradesManager } from './upgrades/UpgradesManager';
 import { BuildingsManager } from './buildings/BuildingsManager';
-import { testBonusSystem } from './modifiers-system/test-bonus-system';
 import { SceneLogic } from './scene/scene-logic';
 import { DynamicsLogic } from './scene/dynamics-logic';
 import { initEffects } from './general/effects';
