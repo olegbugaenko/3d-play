@@ -445,12 +445,6 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     endCondition: null,
     loopCondition: null,
     isLoop: true, // Повторюємо поки є ресурси
-    ui: {
-      scope: 'gather',
-      category: 'universal',
-      name: 'Gather Resource',
-      description: 'Gather resources in radius'
-    },
     resolveParametersPipeline: [
       {
         id: 'resourcesInRadius',

@@ -1,7 +1,9 @@
 import { TSceneObject } from '../scene/scene.types';
-import { Vector3 } from '../scene/scene.types';
+import { Vector3 } from '../utils/vector-math';
 import { SaveLoadManager, DroneSaveData } from '../save-load/save-load.types';
 import { SceneLogic } from '../scene/scene-logic';
+import { DRONE_TYPES_DB, DroneTypeData } from './drone-db';
+import { BonusSystem } from '../modifiers-system/BonusSystem';
 
 export interface Drone {
     id: string;
@@ -19,9 +21,26 @@ export interface Drone {
 
 export class DroneManager implements SaveLoadManager {
     private scene: SceneLogic;
+    private bonusSystem: BonusSystem;
+    private droneTypesDB: Map<string, DroneTypeData> = new Map();
     
-    constructor(scene: SceneLogic) {
+    constructor(bonusSystem: BonusSystem, scene: SceneLogic) {
         this.scene = scene;
+        this.bonusSystem = bonusSystem;
+    }
+    
+    /**
+     * Ініціалізація перед початком гри
+     * Завантажує БД типів дронів
+     */
+    public beforeInit(): void {
+        console.log('[DroneManager] Starting beforeInit...');
+        
+        // Копіюємо БД типів дронів
+        this.droneTypesDB = new Map(DRONE_TYPES_DB);
+        console.log(`[DroneManager] Loaded ${this.droneTypesDB.size} drone types from DB:`, Array.from(this.droneTypesDB.keys()));
+        
+        console.log('[DroneManager] beforeInit completed');
     }
     
     // ==================== Drone Management ====================
@@ -29,43 +48,80 @@ export class DroneManager implements SaveLoadManager {
     /**
      * Створює нового дрона (TSceneObject) з необхідними даними
      */
-    createDrone(id: string, position: Vector3, config: Partial<Drone> = {}): TSceneObject {
+    createDrone(id: string, position: Vector3, type: string): TSceneObject {
         // Розраховуємо обертання дрона (направляємо в сторону від центру)
         const angle = Math.atan2(position.z, position.x) + Math.PI;
         const randomOffset = (Math.random() - 0.5) * 0.5;
-        
+        const droneDBData = this.droneTypesDB.get(type);
+        if(!droneDBData) {
+            throw new Error(`Invalid drone passed: ${type}`);
+        }
         const drone: TSceneObject = {
             id,
             type: 'rover',
             coordinates: { ...position },
-            scale: { x: 0.4, y: 0.4, z: 0.4 },
+            scale: droneDBData.ui.defaultScale,
+            rotation2D: angle + randomOffset,
             rotation: { x: 0, y: angle + randomOffset, z: 0 },
             data: { 
-                modelPath: '/models/playtest-rover.glb',
+                droneType: type,
+                isReady: false,
+                modelPath: droneDBData.ui.modelPath || '/models/playtest-rover.glb',
                 scale: 0.4,
-                maxSpeed: config.maxSpeed ?? 2.0,
                 rotatable: true,
-                rotationOffset: 0,
-                collectionSpeed: 0.5,
-                maxCapacity: config.maxInventory ?? 5,
-                unloadSpeed: 2,
-                storage: config.inventory ?? {} as Record<string, number>,
-                power: config.battery ?? 15,
-                maxPower: config.maxBattery ?? 15,
-                efficiencyMultiplier: config.efficiency ?? 1.5,
-                status: config.status ?? 'idle',
-                currentCommandId: config.currentCommandId,
-                maxInventory: config.maxInventory ?? 5
+                rotationOffset: droneDBData.ui.rotationOffset,                
+                status: 'idle',
             } as any,
             tags: ['on-ground', 'dynamic', 'rover', 'controlled'],
             bottomAnchor: -0.1,
             terrainAlign: true,
             commandType: ['move-to', 'collect-resource', 'build', 'charge']
         };
-        console.log('Adding drone: ', drone, position);
+        console.log('Adding drone: ', drone, position, drone.tags);
         // Додаємо дрона в сцену
         this.scene.pushObjectWithTerrainConstraint(drone);
         return drone;
+    }
+
+    updateDroneData(id: string, setInitials: boolean = false) {
+        const drone = this.getDrone(id);
+        if(!drone) {
+            throw new Error(`Drone with id ${id} not found`);
+        }
+        const droneDBData = this.droneTypesDB.get(drone?.data.droneType);
+        if(!droneDBData) {
+            throw new Error(`Invalid drone passed: ${drone?.data.droneType}`);
+        }
+        
+        // Оновлюємо всі характеристики з урахуванням бонусів
+        drone.data.collectionSpeed = droneDBData.baseCollectionSpeed * this.bonusSystem.getEffectValue('drone_collection_speed');
+        drone.data.maxSpeed = droneDBData.baseMovementSpeed * this.bonusSystem.getEffectValue('drone_movement_speed');
+        drone.data.maxCapacity = droneDBData.baseInventoryCapacity * this.bonusSystem.getEffectValue('drone_inventory_capacity');
+        drone.data.maxPower = droneDBData.baseBatteryCapacity * this.bonusSystem.getEffectValue('drone_max_battery');
+        drone.data.unloadSpeed = droneDBData.baseUnloadSpeed;
+        drone.data.efficiencyMultiplier = droneDBData.baseEfficiencyMultiplier;
+
+        if(!drone.data.isReady && setInitials) {
+            // Перша ініціалізація
+            drone.data.power = drone.data.maxPower;
+            drone.data.storage = {};
+        }
+
+        // Сетимо дрон реді лише тоді коли setInitials фолс (кличемо метод з тіку, коли у нас вже є всі дані)
+        drone.data.isReady = drone.data.isReady || !setInitials;
+    }
+
+    /**
+     * Створює початкових дронів для нової гри
+     */
+    newGameDrones(): void {
+        console.log('[DroneManager] Створюємо початкових дронів для нової гри');
+        
+        // Створюємо 1 дрон
+        this.createDrone('rover_1', { x: 0, y: 0, z: 0 }, 'basic_rover');
+        this.updateDroneData('rover_1', true);
+        
+        console.log('[DroneManager] Початкові дрони створені');
     }
     
     /**
@@ -75,13 +131,50 @@ export class DroneManager implements SaveLoadManager {
         const obj = this.scene.getObjectById(id);
         return obj && obj.type === 'rover' ? obj : undefined;
     }
+
+    public tick(dT: number) {
+        const drones = this.getAllDrones();
+
+        drones.forEach(drone => {
+            this.updateDroneData(drone.id);
+        })
+    }
     
     /**
      * Отримує всіх дронів
      */
+    
+    // ==================== Drone Types DB Access ====================
+    
+    /**
+     * Отримує тип дрону за ID
+     */
+    public getDroneType(typeId: string): DroneTypeData | undefined {
+        return this.droneTypesDB.get(typeId);
+    }
+    
+    /**
+     * Отримує всі типи дронів
+     */
+    public getAllDroneTypes(): Map<string, DroneTypeData> {
+        return new Map(this.droneTypesDB);
+    }
+    
+    /**
+     * Перевіряє чи існує тип дрону
+     */
+    public isDroneTypeExists(typeId: string): boolean {
+        return this.droneTypesDB.has(typeId);
+    }
+    
+    /**
+     * Отримує кількість типів дронів
+     */
+    public getDroneTypesCount(): number {
+        return this.droneTypesDB.size;
+    }
     getAllDrones(): TSceneObject[] {
-        return Object.values(this.scene.getObjects())
-            .filter(obj => obj.type === 'rover') as TSceneObject[];
+        return this.scene.getObjectsByTag('rover');
     }
     
     /**
@@ -231,6 +324,7 @@ export class DroneManager implements SaveLoadManager {
     save(): DroneSaveData {
         const drones = this.getAllDrones().map(drone => ({
             id: drone.id,
+            type: drone.data.droneType,
             position: drone.coordinates,
             status: drone.data.status || 'idle',
             currentCommandId: drone.data.currentCommandId,
@@ -249,21 +343,15 @@ export class DroneManager implements SaveLoadManager {
             // Створюємо нових дронів відповідно до збережених даних
             data.drones.forEach(droneData => {
                 // Створюємо дрона з збереженими параметрами
-                this.createDrone(droneData.id, droneData.position, {
-                    battery: droneData.battery,
-                    maxBattery: 100, // За замовчуванням
-                    inventory: droneData.inventory || {},
-                    maxInventory: 5, // За замовчуванням
-                    efficiency: 1.5, // За замовчуванням
-                    speed: 2.0, // За замовчуванням
-                    maxSpeed: 2.0 // За замовчуванням
-                });
+                this.createDrone(droneData.id, droneData.position, droneData.type);
                 
                 // Отримуємо створеного дрона і оновлюємо додаткові дані
                 const drone = this.getDrone(droneData.id);
                 if (drone) {
                     drone.data.status = droneData.status || 'idle';
                     drone.data.currentCommandId = droneData.currentCommandId;
+                    drone.data.power = droneData.battery;
+                    drone.data.storage = droneData.inventory;
                 }
             });
         }
@@ -274,5 +362,7 @@ export class DroneManager implements SaveLoadManager {
         this.getAllDrones().forEach(drone => {
             this.scene.removeObject(drone.id);
         });
+        
+        console.log('[DroneManager] Reset completed');
     }
 }

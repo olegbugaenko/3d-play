@@ -26,13 +26,16 @@ export abstract class CommandExecutor {
      */
     abstract completeCheck(): boolean;
 
+    abstract getEnergyUpkeep(): number;
+
     /**
      * Отримує затратність команди (power per second)
      */
     getPowerCostPerSecond(): number {
         const commandType = this.command.type;
         const cost = getCommandCost(commandType);
-        return cost.powerPerSecond;
+        const executorIntensityPower = this.getEnergyUpkeep()
+        return cost.powerPerSecond*executorIntensityPower;
     }
 
     /**

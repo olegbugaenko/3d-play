@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Game } from '../../logic/game';
+import { UpgradesModal } from './UpgradesModal';
 import './MainMenu.css';
 
 interface MainMenuProps {
@@ -10,6 +11,7 @@ interface MainMenuProps {
 export const MainMenu: React.FC<MainMenuProps> = ({ onStartGame, game }) => {
     const [saveSlots, setSaveSlots] = useState<Array<{ slot: number; timestamp: number; hasData: boolean }>>([]);
     const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+    const [isUpgradesModalOpen, setIsUpgradesModalOpen] = useState(false);
     
     useEffect(() => {
         updateSaveSlots();
@@ -48,6 +50,19 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStartGame, game }) => {
     const formatTimestamp = (timestamp: number): string => {
         if (timestamp === 0) return 'Порожній';
         return new Date(timestamp).toLocaleString();
+    };
+
+    const handleUpgradesClick = () => {
+        setIsUpgradesModalOpen(true);
+    };
+
+    const handlePurchaseUpgrade = (instanceId: string) => {
+        const success = game.upgradesManager.purchaseUpgrade(instanceId, game.resourceManager);
+        if (success) {
+            // Оновлюємо UI після успішної покупки
+            setIsUpgradesModalOpen(false);
+            // Можна додати повідомлення про успіх
+        }
     };
     
     return (

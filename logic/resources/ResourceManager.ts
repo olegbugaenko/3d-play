@@ -6,26 +6,106 @@ import {
   ResourceHistoryEntry 
 } from './resource-types';
 import { SaveLoadManager, ResourceSaveData } from '../save-load/save-load.types';
+import { BonusSystem } from '../modifiers-system/BonusSystem';
+
+// Нова структура ресурсу
+export interface ResourceData {
+  max: number;        // Максимальна ємність
+  balance: number;    // Поточний баланс
+  income: number;     // Дохід за тік
+  consumption: number; // Витрати за тік
+  multiplier: number; // Мультиплікатор
+}
+
+// Статус ресурсу для перевірки
+export interface ResourceStatus {
+  required: number;
+  own: number;
+  isAffordable: boolean;
+  progress: number;
+}
 
 export class ResourceManager implements SaveLoadManager {
-  private resources: Map<ResourceId, number> = new Map();
+  private resources: Map<ResourceId, ResourceData> = new Map();
   private history: ResourceHistoryEntry[] = [];
   private maxHistorySize = 1000; // максимальна кількість записів в історії
+  private bonusSystem: BonusSystem;
 
-  constructor(initialResources?: Partial<Record<ResourceId, number>>) {
+  constructor(bonusSystem: BonusSystem, initialResources?: Partial<Record<ResourceId, number>>) {
+    this.bonusSystem = bonusSystem;
+    
     // Ініціалізуємо всі ресурси з нуля
     Object.keys(RESOURCES_DB).forEach(id => {
-      this.resources.set(id as ResourceId, 0);
+      this.resources.set(id as ResourceId, {
+        max: 0,
+        balance: 0,
+        income: 0,
+        consumption: 0,
+        multiplier: 1
+      });
     });
 
     // Якщо передали початкові ресурси - встановлюємо їх
     if (initialResources) {
       Object.entries(initialResources).forEach(([id, amount]) => {
         if (this.isValidResourceId(id)) {
-          this.resources.set(id as ResourceId, Math.max(0, amount));
+          const resourceData = this.resources.get(id as ResourceId)!;
+          resourceData.balance = Math.max(0, amount);
         }
       });
     }
+  }
+
+  /**
+   * Метод тік - оновлює ресурси на основі бонус-системи
+   */
+  public tick(dT: number): void {
+    // 1. Синхронізація з BonusSystem
+    this.syncWithBonusSystem();
+    
+    // 2. Інкремент ресурсів
+    this.updateResources(dT);
+  }
+
+  /**
+   * Синхронізує дані ресурсів з BonusSystem
+   */
+  private syncWithBonusSystem(): void {
+    this.resources.forEach((resourceData, resourceId) => {
+      try {
+        const bonusData = this.bonusSystem.getResourceValue(resourceId);
+        
+        resourceData.max = bonusData.cap * bonusData.capMultiplier;
+        resourceData.income = bonusData.income * bonusData.multiplier;
+        resourceData.consumption = bonusData.consumption;
+        resourceData.multiplier = bonusData.multiplier;
+        
+        // Обмежуємо баланс максимальною ємністю
+        if (resourceData.balance > resourceData.max) {
+          resourceData.balance = resourceData.max;
+        }
+        
+      } catch (error) {
+        console.warn(`ResourceManager: Помилка отримання бонусів для ${resourceId}:`, error);
+      }
+    });
+  }
+
+  /**
+   * Оновлює ресурси на основі доходів та витрат
+   */
+  private updateResources(dT: number): void {
+    this.resources.forEach((resourceData, resourceId) => {
+      // Додаємо дохід
+      if (resourceData.income > 0) {
+        resourceData.balance = Math.min(resourceData.max, resourceData.balance + resourceData.income);
+      }
+      
+      // Віднімаємо витрати
+      if (resourceData.consumption > 0) {
+        resourceData.balance = Math.max(0, resourceData.balance - resourceData.consumption);
+      }
+    });
   }
 
   // === ПУБЛІЧНІ МЕТОДИ ===
@@ -43,15 +123,21 @@ export class ResourceManager implements SaveLoadManager {
         return;
       }
 
-      const current = this.resources.get(change.resourceId) || 0;
-      const maxCapacity = RESOURCES_DB[change.resourceId].maxCapacity;
+      const resourceData = this.resources.get(change.resourceId);
+      if (!resourceData) {
+        console.warn(`ResourceManager: Невідомий ресурс ${change.resourceId} при додаванні`);
+        results.push(false);
+        return;
+      }
+
+      const maxCapacity = resourceData.max;
       
       // Обмежуємо максимальною ємністю
-      const newAmount = Math.min(maxCapacity, current + change.amount);
-      const actualChange = newAmount - current;
+      const newAmount = Math.min(maxCapacity, resourceData.balance + change.amount);
+      const actualChange = newAmount - resourceData.balance;
 
       if (actualChange !== 0) {
-        this.resources.set(change.resourceId, newAmount);
+        resourceData.balance = newAmount;
         this.addToHistory(change.resourceId, actualChange, change.reason, newAmount);
         results.push(true);
       } else {
@@ -79,9 +165,13 @@ export class ResourceManager implements SaveLoadManager {
 
     // Забираємо ресурси
     changes.forEach(change => {
-      const current = this.resources.get(change.resourceId) || 0;
-      const newAmount = Math.max(0, current - Math.abs(change.amount));
-      this.resources.set(change.resourceId, newAmount);
+      const resourceData = this.resources.get(change.resourceId);
+      if (!resourceData) {
+        console.warn(`ResourceManager: Невідомий ресурс ${change.resourceId} при витратах`);
+        return;
+      }
+      const newAmount = Math.max(0, resourceData.balance - Math.abs(change.amount));
+      resourceData.balance = newAmount;
       this.addToHistory(change.resourceId, -Math.abs(change.amount), change.reason, newAmount);
     });
 
@@ -106,7 +196,12 @@ export class ResourceManager implements SaveLoadManager {
       }
 
       const id = resourceId as ResourceId;
-      const own = this.resources.get(id) || 0;
+      const resourceData = this.resources.get(id);
+      if (!resourceData) {
+        console.warn(`ResourceManager: Невідомий ресурс ${id} при перевірці`);
+        return;
+      }
+      const own = resourceData.balance;
       const isAffordable = own >= required;
       const progress = Math.min(1.0, own / Math.max(1, required));
 
@@ -152,14 +247,16 @@ export class ResourceManager implements SaveLoadManager {
    * Отримати поточну кількість ресурсу
    */
   getResourceAmount(resourceId: ResourceId): number {
-    return this.resources.get(resourceId) || 0;
+    const resourceData = this.resources.get(resourceId);
+    return resourceData ? resourceData.balance : 0;
   }
 
   /**
    * Отримати максимальну ємність ресурсу
    */
   getResourceCapacity(resourceId: ResourceId): number {
-    return RESOURCES_DB[resourceId]?.maxCapacity || 0;
+    const resourceData = this.resources.get(resourceId);
+    return resourceData ? resourceData.max : 0;
   }
 
   /**
@@ -176,10 +273,48 @@ export class ResourceManager implements SaveLoadManager {
    */
   getAllResources(): Record<ResourceId, number> {
     const result: Record<ResourceId, number> = {} as any;
-    this.resources.forEach((amount, id) => {
-      result[id] = amount;
+    this.resources.forEach((resourceData, id) => {
+      result[id] = resourceData.balance;
     });
     return result;
+  }
+
+  /**
+   * Отримати детальну інформацію про ресурс
+   */
+  getResourceData(resourceId: ResourceId): ResourceData | undefined {
+    return this.resources.get(resourceId);
+  }
+
+  /**
+   * Отримати всі детальні дані ресурсів
+   */
+  getAllResourceData(): Map<ResourceId, ResourceData> {
+    return new Map(this.resources);
+  }
+
+  /**
+   * Отримати дохід ресурсу
+   */
+  getResourceIncome(resourceId: ResourceId): number {
+    const resourceData = this.resources.get(resourceId);
+    return resourceData ? resourceData.income : 0;
+  }
+
+  /**
+   * Отримати витрати ресурсу
+   */
+  getResourceConsumption(resourceId: ResourceId): number {
+    const resourceData = this.resources.get(resourceId);
+    return resourceData ? resourceData.consumption : 0;
+  }
+
+  /**
+   * Отримати мультиплікатор ресурсу
+   */
+  getResourceMultiplier(resourceId: ResourceId): number {
+    const resourceData = this.resources.get(resourceId);
+    return resourceData ? resourceData.multiplier : 1;
   }
 
   /**
@@ -200,15 +335,21 @@ export class ResourceManager implements SaveLoadManager {
   /**
    * Встановити кількість ресурсу (без обмежень)
    */
-  setResourceAmount(resourceId: ResourceId, amount: number, reason?: string): void {
+  setResourceAmount(resourceId: ResourceId, amount: number, reason: string = 'manual'): void {
     if (!this.isValidResourceId(resourceId)) {
       console.warn(`ResourceManager: Невідомий ресурс ${resourceId}`);
       return;
     }
 
+    const resourceData = this.resources.get(resourceId);
+    if (!resourceData) {
+      console.warn(`ResourceManager: Невідомий ресурс ${resourceId} при встановленні`);
+      return;
+    }
+
     const clampedAmount = Math.max(0, amount);
-    this.resources.set(resourceId, clampedAmount);
-    this.addToHistory(resourceId, clampedAmount - (this.resources.get(resourceId) || 0), reason, clampedAmount);
+    resourceData.balance = clampedAmount;
+    this.addToHistory(resourceId, clampedAmount - resourceData.balance, reason, clampedAmount);
   }
 
   // === ПРИВАТНІ МЕТОДИ ===
@@ -249,9 +390,9 @@ export class ResourceManager implements SaveLoadManager {
     let totalCapacity = 0;
     let resourceCount = 0;
 
-    this.resources.forEach((amount, id) => {
-      totalResources += amount;
-      totalCapacity += RESOURCES_DB[id].maxCapacity;
+    this.resources.forEach((resourceData, id) => {
+      totalResources += resourceData.balance;
+      totalCapacity += resourceData.max;
       resourceCount++;
     });
 
@@ -276,7 +417,7 @@ export class ResourceManager implements SaveLoadManager {
   importState(state: Record<ResourceId, number>): void {
     Object.entries(state).forEach(([id, amount]) => {
       if (this.isValidResourceId(id)) {
-        this.setResourceAmount(id, amount, 'import');
+        this.setResourceAmount(id as ResourceId, amount, 'import');
       }
     });
   }
@@ -299,8 +440,21 @@ export class ResourceManager implements SaveLoadManager {
   reset(): void {
     // Скидаємо всі ресурси до 0
     Object.keys(RESOURCES_DB).forEach(id => {
-      this.resources.set(id as ResourceId, 0);
+      this.resources.set(id as ResourceId, {
+        max: 0,
+        balance: 0,
+        income: 0,
+        consumption: 0,
+        multiplier: 1
+      });
     });
     this.clearHistory();
+    
+    // Додаємо початкові ресурси для нової гри
+    this.addResources([
+      { resourceId: 'stone', amount: 30, reason: 'Starting resources' },
+      { resourceId: 'ore', amount: 50, reason: 'Starting resources' },
+      { resourceId: 'energy', amount: 200, reason: 'Starting resources' }
+    ]);
   }
 }

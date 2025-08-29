@@ -5,6 +5,15 @@ export class CollectResourceExecutor extends CommandExecutor {
     private collectionProgress: number = 0;
     private resourceType: string | null = null;
 
+    getEnergyUpkeep() {
+        const object = this.context.scene.getObjectById(this.context.objectId);
+        if (!object || !object.data?.maxCapacity) {
+            return false;
+        }
+        
+        return object.data.collectionSpeed;
+    }
+
     canExecute(): boolean {
         if (!this.command.targetId) {
             return false;

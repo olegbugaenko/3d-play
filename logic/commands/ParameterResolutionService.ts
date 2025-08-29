@@ -21,7 +21,7 @@ export class ParameterResolutionService {
     resolveWhen: 'group-start' | 'before-command' | 'all'
   ): Record<string, any> {
     const resolvedParameters: Record<string, any> = {};
-
+    console.log('PIPELINE: ', pipeline, resolveWhen);
     // Фільтруємо параметри за resolveWhen
     let relevantPipeline: ResolveParametersPipeline[];
     
@@ -47,6 +47,7 @@ export class ParameterResolutionService {
         }
 
         const value = this.resolveParameter(param, context);
+        console.warn(`Resolving param: ${param.id}: `, param, value);
         if (value !== null && value !== undefined) {
           resolvedParameters[param.id] = value;
         }
@@ -100,6 +101,7 @@ export class ParameterResolutionService {
       case 'getClosestChargingStation':
         const maxDistCharging = resolvedArgs[0]?.maxDistance || 1000;
         const fromPosCharging = this.getFromPosition(context);
+        console.warn("CL: ", fromPosCharging, maxDistCharging, context);
         return this.parameterResolvers.getClosestChargingStation(fromPosCharging, maxDistCharging);
       
       case 'getResourcesInRadius':

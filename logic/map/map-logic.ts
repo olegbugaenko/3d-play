@@ -12,15 +12,16 @@ import { CommandGroupContext } from '../commands/command-group.types';
 import { SeededRandom } from './seeded-random';
 import { MapGenerationTracker } from './map-generation-state';
 import { SaveLoadManager, MapLogicSaveData } from '../save-load/save-load.types';
-import { Vector3 } from '../scene/scene.types';
+import { Vector3 } from '../utils/vector-math';
 import { DroneManager } from '../drones';
+import { BuildingsManager } from '../buildings/BuildingsManager';
+import { UpgradesManager } from '../upgrades/UpgradesManager';
 
 export class MapLogic implements SaveLoadManager {
-    public commandSystem: CommandSystem;
+    public commandSystem!: CommandSystem;
     public selection: SelectionLogic;
-    public commandGroupSystem: CommandGroupSystem;
+    public commandGroupSystem!: CommandGroupSystem;
     public autoGroupMonitor: AutoGroupMonitor;
-    public droneManager: DroneManager;
     private generatedSeed: number;
 
     private collectedRocks: Set<string>;
@@ -33,21 +34,23 @@ export class MapLogic implements SaveLoadManager {
         public scene: SceneLogic, 
         public dynamics: DynamicsLogic,
         public resources: ResourceManager,
-        seed?: number
+        public buildingsManager: BuildingsManager,
+        public upgradesManager: UpgradesManager,
+        public droneManager: DroneManager,
+
     ) {
-        this.commandSystem = new CommandSystem(this);
         this.selection = new SelectionLogic(this.scene);
-        this.commandGroupSystem = new CommandGroupSystem(this.commandSystem, this);
         this.autoGroupMonitor = new AutoGroupMonitor(this);
-        this.droneManager = new DroneManager(this.scene);
+        this.droneManager = droneManager;
+        this.buildingsManager = buildingsManager;
         
         // Ініціалізуємо систему генерації
-        const generationSeed = seed || MAP_CONFIG.generation.defaultSeed || Date.now();
-        this.generationTracker = new MapGenerationTracker(generationSeed);
-        this.seededRandom = new SeededRandom(generationSeed);
-
-        this.generatedSeed = generationSeed;
         this.collectedRocks = new Set();
+    }
+
+    setCommandSystems(commandSystem: CommandSystem, commandGroupSystem: CommandGroupSystem) {
+        this.commandSystem = commandSystem;
+        this.commandGroupSystem = commandGroupSystem;
     }
 
     /**
@@ -83,12 +86,6 @@ export class MapLogic implements SaveLoadManager {
         // Генеруємо каменюки з seed
         this.generateRocks();
         
-        // Генеруємо будівлі
-        this.generateBuildings();
-
-        
-
-        
     }
 
     /**
@@ -113,15 +110,15 @@ export class MapLogic implements SaveLoadManager {
      * Створює початкових дронів для нової гри
      */
     newGame(): void {
-        console.log('GENERATE ROVERS');
+        const seed = Date.now();
+        console.log('seed generated: ', seed);
+        this.updateGenerationSeed(seed);
         this.initializeSeeded();
-        // Генеруємо rover об'єкти
-        this.generateRovers();
+        // Генеруємо rover об'єкти через DroneManager
+        this.droneManager.newGameDrones();
 
-        setInterval(
-            this.tick.bind(this),
-            100 // This will be increased for sure
-        )
+        // Генеруємо будівлі через BuildingsManager
+        this.buildingsManager.newGameBuildings();
     }
 
 
@@ -272,6 +269,7 @@ export class MapLogic implements SaveLoadManager {
      * Отримує поточний seed генерації
      */
     public getGenerationSeed(): number {
+        console.log('SD: ', this.generationTracker.getSeed());
         return this.generationTracker.getSeed();
     }
 
@@ -279,91 +277,173 @@ export class MapLogic implements SaveLoadManager {
      * Генерує процедурні каменюки типу rock на карті
      */
     private generateRocks() {
-        const rockCount = MAP_CONFIG.generation.rocks.clusterCount * MAP_CONFIG.generation.rocks.rocksPerCluster;
         const mapBounds = {
-            minX: -MAP_CONFIG.width / 2,
-            maxX: MAP_CONFIG.width / 2,
-            minZ: -MAP_CONFIG.depth / 2,
-            maxZ: MAP_CONFIG.depth / 2
+          minX: -MAP_CONFIG.width / 2,
+          maxX:  MAP_CONFIG.width / 2,
+          minZ: -MAP_CONFIG.depth / 2,
+          maxZ:  MAP_CONFIG.depth / 2,
         };
-
-        // Створюємо кластери каменюків для більш щільного розподілу
-        const clusterCount = MAP_CONFIG.generation.rocks.clusterCount;
-        const rocksPerCluster = MAP_CONFIG.generation.rocks.rocksPerCluster;
-        
-        // Створюємо окремий RNG для каменюків
-        const rockRng = new SeededRandom(this.generationTracker.getSeed() + 2000); // Різний seed для каменюків
-
-        for (let cluster = 0; cluster < clusterCount; cluster++) {
-            // Центр кластера з використанням seed
-            const clusterCenterX = mapBounds.minX + rockRng.nextFloat(0, mapBounds.maxX - mapBounds.minX);
-            const clusterCenterZ = mapBounds.minZ + rockRng.nextFloat(0, mapBounds.maxZ - mapBounds.minZ);
-            const clusterRadius = MAP_CONFIG.generation.rocks.clusterRadius.min + 
-                                rockRng.nextFloat(0, MAP_CONFIG.generation.rocks.clusterRadius.max - MAP_CONFIG.generation.rocks.clusterRadius.min);
-
-            // Кожен кластер відповідає за певний тип ресурсу
-            const resourceType: 'stone' | 'ore' = MAP_CONFIG.generation.rocks.resourceTypes[cluster % MAP_CONFIG.generation.rocks.resourceTypes.length];
-            
-            // Колір залежить від типу ресурсу
-            const resourceColors = resourceType === 'stone' 
-                ? [0x8B7355, 0x696969, 0x808080, 0xA0522D, 0x8B4513] // Сірі/коричневі відтінки для каменю
-                : [0x8B4513, 0x654321, 0x8B6914, 0x6B4423, 0x654321]; // Темно-ржаві відтінки для руди
-
-            for (let j = 0; j < rocksPerCluster; j++) {
-                // Перевіряємо чи не зібраний цей ресурс
-                if (this.generationTracker.isResourceCollected(cluster, j)) {
-                    continue; // Пропускаємо зібрані ресурси
-                }
-                
-                // Позиція в межах кластера з використанням seed
-                const angle = rockRng.nextFloat(0, Math.PI * 2);
-                const distance = rockRng.nextFloat(0, clusterRadius);
-                const x = clusterCenterX + Math.cos(angle) * distance;
-                const z = clusterCenterZ + Math.sin(angle) * distance;
-            
-                // Випадковий розмір каменюка з більшою варіацією
-                const baseSize = 0.45 + rockRng.nextFloat(0, 0.25); // Від 0.45 до 0.7
-                
-                // Випадковий колір з палітри для даного типу ресурсу
-                const color = rockRng.nextColor(resourceColors);
-                
-                // Випадкова гладкість для різноманітності
-                const smoothness = 0.6 + rockRng.nextFloat(0, 0.3); // Від 0.6 до 0.9 (більш гладкі)
-                
-                const rock: TSceneObject = {
-                    id: `rock_${cluster}_${j}`,
-                    type: 'rock',
-                    coordinates: { x, y: 0, z }, // Y буде автоматично встановлено terrain системою
-                    scale: { x: baseSize, y: baseSize, z: baseSize }, // Використовуємо однаковий розмір для GLB моделі
-                    rotation: { 
-                        x: rockRng.nextFloat(0, Math.PI), 
-                        y: rockRng.nextFloat(0, Math.PI), 
-                        z: rockRng.nextFloat(0, Math.PI) 
-                    },
-                    data: { 
-                        color,
-                        size: baseSize, // Базовий розмір для рендерера
-                        smoothness, // Використовуємо smoothness замість roughness
-                        resourceId: resourceType, // Додаємо тип ресурсу
-                        resourceAmount: 1 + rockRng.nextInt(0, 2), // 1-3 одиниці ресурсу
-                        modelPath: this.getRandomModelPath(rockRng)
-                    },
-                    tags: ['on-ground', 'static', 'rock', 'resource'], // Автоматично розміститься на terrain
-                    bottomAnchor: -baseSize * 0.3, // Каменюк стоїть на своєму низу
-                    terrainAlign: true, // Нахиляється по нормалі terrain
-                    targetType: ['collect-resource'],
-                };
-                
-                // Додаємо з terrain constraint
-                const success = this.scene.pushObjectWithTerrainConstraint(rock);
-                if (success) {
-                    // console.log(`Додано каменюк rock ${cluster}_${j} на позиції (${x.toFixed(1)}, ${z.toFixed(1)})`);
-                }
+      
+        // --- налаштування обмежень ---
+        const clusterCount       = MAP_CONFIG.generation.rocks.clusterCount;
+        const rocksPerCluster    = MAP_CONFIG.generation.rocks.rocksPerCluster;
+        const minOriginR         = 15;     // усі кластери й камені НЕ ближче 10 до (0,0)
+        const requiredInBand     = Math.min(2, clusterCount); // мін. 2 кластери в [10..20]
+        const bandMax            = 25;
+        const minInterClusterDist = 12;    // анти-клампінг між центрами кластерів
+        const maxTriesPerPoint    = 200;   // спроби вибору точки
+      
+        // --- RNG для каменів ---
+        const rockRng = new SeededRandom(this.generationTracker.getSeed() + 2000);
+      
+        // --- хелпери всередині методу (без залежностей назовні) ---
+        const dist2 = (x:number, z:number) => x*x + z*z;
+        const withinBounds = (x:number, z:number) =>
+          x >= mapBounds.minX && x <= mapBounds.maxX && z >= mapBounds.minZ && z <= mapBounds.maxZ;
+      
+        // універсальний семплер з анти-клампінгом і обмеженням по радіусу
+        const sampleWithConstraints = (
+          existing: Array<{x:number; z:number}>,
+          minR: number,
+          maxR?: number,
+          localMinInterClusterDist = minInterClusterDist
+        ): {x:number; z:number} | null => {
+          // кілька фаз: якщо впритик — поступово послаблюємо анти-клампінг
+          let inter = localMinInterClusterDist;
+          for (let phase = 0; phase < 3; phase++) {
+            for (let t = 0; t < maxTriesPerPoint; t++) {
+              const x = mapBounds.minX + rockRng.nextFloat(0, mapBounds.maxX - mapBounds.minX);
+              const z = mapBounds.minZ + rockRng.nextFloat(0, mapBounds.maxZ - mapBounds.minZ);
+              const d2 = dist2(x, z);
+              if (d2 < minR*minR) continue;
+              if (maxR !== undefined && d2 > maxR*maxR) continue;
+              // анти-клампінг щодо вже вибраних центрів
+              let ok = true;
+              for (let i = 0; i < existing.length; i++) {
+                const dx = x - existing[i].x, dz = z - existing[i].z;
+                if (dx*dx + dz*dz < inter*inter) { ok = false; break; }
+              }
+              if (!ok) continue;
+              if (!withinBounds(x, z)) continue;
+              return { x, z };
             }
+            inter *= 0.85; // послаблюємо вимогу на 15% і пробуємо ще
+          }
+      
+          // Фолбек: візьмемо випадковий кут і поставимо на колі r = clamp
+          const a = rockRng.nextFloat(0, Math.PI * 2);
+          const r = maxR !== undefined ? Math.min(maxR, Math.max(minR, inter)) : Math.max(minR, inter);
+          let x = Math.cos(a) * r;
+          let z = Math.sin(a) * r;
+          if (!withinBounds(x, z)) {
+            x = Math.min(Math.max(x, mapBounds.minX), mapBounds.maxX);
+            z = Math.min(Math.max(z, mapBounds.minZ), mapBounds.maxZ);
+          }
+          // перевіримо анти-клампінг хоч якось
+          for (let i = 0; i < existing.length; i++) {
+            const dx = x - existing[i].x, dz = z - existing[i].z;
+            if (dx*dx + dz*dz < (inter*inter)*0.8) {
+              // трохи зсунемо по нормалі від центру карти
+              const len = Math.hypot(x, z) || 1;
+              const s = (r + inter*0.2) / len;
+              x = x * s; z = z * s;
+              break;
+            }
+          }
+          return { x, z };
+        };
+      
+        // --- вибір центрів кластерів із гарантіями ---
+        const centers: Array<{ x:number; z:number; resourceType:'stone'|'ore' }> = [];
+      
+        // 1) Спершу requiredInBand у кільці [10..20]
+        for (let i = 0; i < requiredInBand; i++) {
+          const p = sampleWithConstraints(centers, minOriginR, bandMax) || { x: 0, z: bandMax };
+          const resourceType: 'stone'|'ore' =
+            MAP_CONFIG.generation.rocks.resourceTypes[i % MAP_CONFIG.generation.rocks.resourceTypes.length];
+          centers.push({ ...p, resourceType });
         }
-        
-        // Ресурси згенеровано
-    }
+      
+        // 2) Решта — будь-де, але r >= 10 з анти-клампінгом
+        for (let i = requiredInBand; i < clusterCount; i++) {
+          const p = sampleWithConstraints(centers, minOriginR) || { x: minOriginR, z: 0 };
+          const resourceType: 'stone'|'ore' =
+            MAP_CONFIG.generation.rocks.resourceTypes[i % MAP_CONFIG.generation.rocks.resourceTypes.length];
+          centers.push({ ...p, resourceType });
+        }
+      
+        // --- генеруємо камені в кожному кластері ---
+        for (let cluster = 0; cluster < clusterCount; cluster++) {
+          const { x: clusterCenterX, z: clusterCenterZ, resourceType } = centers[cluster];
+      
+          const clusterRadius =
+            MAP_CONFIG.generation.rocks.clusterRadius.min +
+            rockRng.nextFloat(0, MAP_CONFIG.generation.rocks.clusterRadius.max - MAP_CONFIG.generation.rocks.clusterRadius.min);
+      
+          // палітри
+          const resourceColors = resourceType === 'stone'
+            ? [0x8B8355, 0x696969, 0x808080, 0xA0522D, 0x8B7593] // камінь
+            : [0x8B4513, 0x654321, 0x8B6914, 0x6B4423, 0x654321]; // руда
+      
+          for (let j = 0; j < rocksPerCluster; j++) {
+            if (this.generationTracker.isResourceCollected(cluster, j)) continue;
+      
+            // позиція в межах кластера; не ближче r=10 до (0,0)
+            let x = 0, z = 0, placed = false;
+            for (let t = 0; t < 20; t++) {
+              const a = rockRng.nextFloat(0, Math.PI * 2);
+              const d = rockRng.nextFloat(0, clusterRadius);
+              x = clusterCenterX + Math.cos(a) * d;
+              z = clusterCenterZ + Math.sin(a) * d;
+              if (dist2(x, z) >= minOriginR * minOriginR) { placed = true; break; }
+            }
+            if (!placed) {
+              // фолбек: проєкція точки на коло r=10 вздовж напрямку від центру карти
+              const len = Math.hypot(clusterCenterX, clusterCenterZ) || 1;
+              const s = minOriginR / len;
+              x = clusterCenterX * s;
+              z = clusterCenterZ * s;
+            }
+      
+            // випадкові параметри каменю
+            const baseSize = 0.3 + rockRng.nextFloat(0, 0.2);
+            const color = rockRng.nextColor(resourceColors);
+            const smoothness = 0.6 + rockRng.nextFloat(0, 0.3);
+      
+            const rock: TSceneObject = {
+              id: `rock_${cluster}_${j}`,
+              type: 'rock',
+              coordinates: { x, y: 0, z },
+              scale: { x: baseSize, y: baseSize, z: baseSize },
+              rotation: {
+                x: rockRng.nextFloat(0, Math.PI),
+                y: rockRng.nextFloat(0, Math.PI),
+                z: rockRng.nextFloat(0, Math.PI),
+              },
+              data: {
+                color,
+                size: baseSize,
+                smoothness,
+                resourceId: resourceType,
+                resourceAmount: 14 + rockRng.nextInt(0, 16),
+                modelPath: this.getRandomModelPath(rockRng),
+              },
+              tags: ['on-ground', 'static', 'rock', 'resource'],
+              bottomAnchor: -baseSize * 0.3,
+              terrainAlign: true,
+              targetType: ['collect-resource'],
+            };
+      
+            const success = this.scene.pushObjectWithTerrainConstraint(rock);
+            if (success) {
+              // лог/телеметрія — за бажанням
+            }
+          }
+        }
+      
+        // ресурси згенеровано
+      }
+      
 
     /**
      * Перевіряє, чи зайнята позиція каменюком (rock або boulder)
@@ -519,114 +599,15 @@ export class MapLogic implements SaveLoadManager {
         }
     }
 
-    /**
-     * Генерує rover об'єкти біля центру карти
-     */
-    private generateRovers() {
-        const roverCount = 3; // Кількість rover об'єктів
-        
-        // Розташовуємо rover об'єкти біля центру карти
-        const centerRadius = 20; // Радіус від центру
-        
-        for (let i = 0; i < roverCount; i++) {
-            let attempts = 0;
-            const maxAttempts = 50; // Максимальна кількість спроб знайти вільну позицію
-            let x, z;
-            
-            // Шукаємо вільну позицію без колізій з каменюками (rock та boulder)
-            do {
-                // Розподіляємо по колу навколо центру
-                const angle = (i / roverCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.5; // Додаємо випадковість
-                const distance = centerRadius * (0.5 + Math.random() * 0.5); // Від 10 до 30 одиниць від центру
-                
-                x = Math.cos(angle) * distance;
-                z = Math.sin(angle) * distance;
-                
-                attempts++;
-            } while (this.isPositionOccupiedByRock(x, z) && attempts < maxAttempts);
-            
-            // Якщо не знайшли вільну позицію, використовуємо останню спробу
-            if (attempts >= maxAttempts) {
-                console.warn(`Не вдалося знайти вільну позицію для rover ${i}, використовуємо останню спробу`);
-            }
-            
-            // Тепер DroneManager сам створює TSceneObject дрона
-            this.droneManager.createDrone(`rover_${i}`, { x, y: 0, z }, {
-                battery: 15,
-                maxBattery: 15,
-                inventory: {},
-                maxInventory: 5,
-                efficiency: 1.5,
-                speed: 2.0,
-                maxSpeed: 2.0
-            });
-        }
-    }
 
-    /**
-     * Генерує будівлі на карті
-     */
-    private generateBuildings() {
-        // Створюємо головну будівлю (базу) у точці 0, terrainHeight, 0
-        const baseBuilding: TSceneObject = {
-            id: 'base_building',
-            type: 'building',
-            coordinates: { x: 5, y: 0, z: -5 }, // Y буде автоматично встановлено terrain системою
-            scale: { x: 2, y: 2, z: 2 },
-            rotation: { x: 0, y: 0, z: 0 },
-            data: { 
-                buildingType: 'base',
-                maxStorage: {
-                    stone: 1000,
-                    ore: 1000,
-                    power: 1000
-                }
-            },
-            tags: ['on-ground', 'static', 'building', 'base', 'storage'],
-            bottomAnchor: -1, // Будівля стоїть на своєму низу
-            terrainAlign: true, // Нахиляється по нормалі terrain
-            targetType: ['unload-resource', 'repair', 'upgrade'],
-        };
-        
-        // Додаємо з terrain constraint
-        const success = this.scene.pushObjectWithTerrainConstraint(baseBuilding);
-        if (success) {
-            // Базова будівля додана
-        }
 
-        // Створюємо будівлю для зарядки поруч з базою
-        const chargingStation: TSceneObject = {
-            id: 'charging_station',
-            type: 'building',
-            coordinates: { x: -5, y: 0, z: -5 }, // Поруч з базою, але в іншій стороні
-            scale: { x: 1.5, y: 1.5, z: 1.5 },
-            rotation: { x: 0, y: 0, z: 0 },
-            data: { 
-                buildingType: 'charging',
-                chargeRate: 0.5, // Швидкість зарядки
-                maxPower: 1000
-            },
-            tags: ['on-ground', 'static', 'building', 'charging', 'charge'],
-            bottomAnchor: -0.75,
-            terrainAlign: true,
-            targetType: ['charge'],
-        };
-        
-        // Додаємо зарядну станцію
-        const chargingSuccess = this.scene.pushObjectWithTerrainConstraint(chargingStation);
-        if (chargingSuccess) {
-            // Зарядна станція додана
-        }
 
-        console.log('buildingsAdded');
-    }
 
     private lastExplosionTime = 0;
     private explosionInterval = 3000; // 5 секунд в мілісекундах
 
-    tick() {
-        const dT = 0.1;
-        this.processSceneTick(dT);
+    tick(dT: number) {
+        this.droneManager.tick(dT);
         
         // Оновлюємо систему команд
         this.commandSystem.update(dT);
@@ -645,18 +626,6 @@ export class MapLogic implements SaveLoadManager {
         if (currentTime - this.lastExplosionTime >= this.explosionInterval) {
             //this.generateRandomExplosion();
             this.lastExplosionTime = currentTime;
-        }
-    }
-
-    processSceneTick(_dT: number) {
-        // contains custom logic, managing objects, custom structures and so on...
-        const testMovingObj = this.scene.getObjectById('dynamic_test_cube');
-        if(testMovingObj && !this.commandSystem.hasActiveCommands(testMovingObj.id)) {
-            // Тільки якщо немає активних команд - додаємо тестову анімацію
-            if(!testMovingObj.speed) {
-                testMovingObj.speed = {x: 0, y: 0, z: 0}
-            }
-            testMovingObj.speed.x += Math.cos(testMovingObj.coordinates.x*Math.PI);
         }
     }
     
@@ -699,6 +668,20 @@ export class MapLogic implements SaveLoadManager {
         centerPoint: { x: number; y: number; z: number },
         commandGroup?: any
     ) {
+        // Очищаємо поточні команди та групи для всіх вибраних об'єктів
+        objectIds.forEach((unitId: string) => {
+            // Очищаємо всі команди
+            this.commandSystem.clearCommands(unitId);
+            
+            // Очищаємо всі активні групи команд
+            const activeGroups = this.commandGroupSystem.getActiveGroupsForObject(unitId);
+            if (activeGroups && activeGroups.length > 0) {
+                activeGroups.forEach((groupState: any) => {
+                    this.commandGroupSystem.cancelCommandGroup(unitId, groupState.groupId);
+                });
+            }
+        });
+
         // Якщо команда не передана - використовуємо звичайну логіку руху
         if (!commandGroup) {
             this.distributeTargetsForObjects(objectIds, centerPoint);
@@ -991,7 +974,7 @@ export class MapLogic implements SaveLoadManager {
         return {
             seed: this.generatedSeed, // Зберігаємо seed
             collectedRocks,
-            buildingPositions: this.getBuildingPositions(),
+            // buildingPositions тепер зберігаються в BuildingsManager
         };
     }
     
@@ -1028,13 +1011,10 @@ export class MapLogic implements SaveLoadManager {
             rockIds.forEach(rockId => {
                 this.collectRock(rockId); // Використовуємо новий метод
             });
-            
-          
         }
-        setInterval(
-            this.tick.bind(this),
-            100 // This will be increased for sure
-        )
+
+        // Будівлі тепер завантажуються автоматично через BuildingsManager.load()
+        // Нічого не робимо тут
         
     }
     

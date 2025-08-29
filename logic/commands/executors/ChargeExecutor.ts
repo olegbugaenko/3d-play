@@ -5,6 +5,10 @@ import { ResourceChange } from '../../resources/resource-types';
 export class ChargeExecutor extends CommandExecutor {
     private readonly chargeDistance = 2.0; // Відстань для зарядки
 
+    getEnergyUpkeep() {
+        return 0;
+    }
+
     execute(): CommandResult {
         const { objectId, scene, deltaTime, mapLogic } = this.context;
         
@@ -38,6 +42,8 @@ export class ChargeExecutor extends CommandExecutor {
         const chargeRate = chargingStation.data.chargeRate || 0.02; // Використовуємо chargeRate зі станції
         const chargeAmount = chargeRate * deltaTime;
         
+        console.log('Charging...', chargeAmount, chargeRate, object.data, chargingStation.data);
+
         if (object.data.power < object.data.maxPower) {
             // Споживаємо глобальний ресурс power
             if (mapLogic && mapLogic.resources) {

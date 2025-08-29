@@ -1,17 +1,18 @@
 import { ResourceId } from './resources-db';
+import { ResourceStatus } from './ResourceManager';
 
 // Запит на ресурси
 export interface ResourceRequest {
   [resourceId: string]: number;
 }
 
-// Статус конкретного ресурсу
-export interface ResourceStatus {
-  required: number;
-  own: number;
-  isAffordable: boolean;
-  progress: number; // 0..1
-}
+// Статус конкретного ресурсу (тепер експортується з ResourceManager)
+// export interface ResourceStatus {
+//   required: number;
+//   own: number;
+//   isAffordable: boolean;
+//   progress: number; // 0..1
+// }
 
 // Загальний результат перевірки ресурсів
 export interface ResourceCheckResult {

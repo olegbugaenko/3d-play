@@ -36,7 +36,7 @@
     justify-content: center;
 }
 
-.new-game-btn, .load-game-btn {
+.new-game-btn, .load-game-btn, .upgrades-btn {
     padding: 15px 30px;
     font-size: 1.2rem;
     border: none;
@@ -74,6 +74,17 @@
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
+}
+
+.upgrades-btn {
+    background: linear-gradient(45deg, #FF9800, #F57C00);
+    color: white;
+}
+
+.upgrades-btn:hover {
+    background: linear-gradient(45deg, #F57C00, #FF9800);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(255, 152, 0, 0.4);
 }
 
 .save-slots h3 {

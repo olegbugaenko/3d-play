@@ -1,5 +1,6 @@
 import { TCameraProps } from '../../shared/camera.types'
-import { Vector3, TSceneObject, TSceneViewport, GridCell, GridSystem } from './scene.types'
+import { TSceneObject, TSceneViewport, GridCell, GridSystem } from './scene.types'
+import { Vector3, orientOnSurfaceEulerXYZ } from '../utils/vector-math'
 import { TerrainManager, TerrainConfig } from './terrain-manager'
 import { MAP_CONFIG } from '../map/map-config'
 import * as THREE from 'three'
@@ -159,7 +160,7 @@ export class SceneLogic {
         if (obj.tags && obj.tags.length > 0) {
             this.addObjectTags(obj.id, obj.tags);
         }
-        
+
         return true; // Об'єкт успішно додано
     }
 
@@ -225,19 +226,22 @@ export class SceneLogic {
                 if (obj.terrainAlign && this.terrainManager) {
                     const normal = this.terrainManager.getNormalAt(obj.coordinates.x, obj.coordinates.z);
                     if (normal) {
-                        // Правильні формули для обертання по нормалі
                         const angleX = Math.atan2(-normal.z, normal.y); // Нахил вперед/назад (X-обертання)
                         const angleZ = Math.atan2(normal.x, normal.y);  // Нахил вліво/вправо (Z-обертання)
                         
                         obj.rotation.x = -angleX;
                         obj.rotation.z = -angleZ;
+                        // 🔥 НОВА ЛОГІКА: Додаємо 2D ротацію відносно нормалі
+                        if (obj.rotation2D !== undefined) {
+                            const calculatedRotation = this.calculateRotationRelativeToNormal(obj.rotation2D, normal);
+                            obj.rotation = calculatedRotation;
+                        }
                         
                         // console.log(`Object ${obj.id} aligned to terrain: normal(${normal.x.toFixed(2)}, ${normal.y.toFixed(2)}, ${normal.z.toFixed(2)}), rotation(${(angleX * 180 / Math.PI).toFixed(1)}°, ${(angleZ * 180 / Math.PI).toFixed(1)}°)`);
                     }
                 }
             }
         }
-        
         return this.pushObject(obj);
     }
 
@@ -268,6 +272,11 @@ export class SceneLogic {
                         
                         obj.rotation.x = -angleX;
                         obj.rotation.z = -angleZ;
+                        
+                        // 🔥 НОВА ЛОГІКА: Додаємо 2D ротацію відносно нормалі
+                        if (obj.rotation2D !== undefined) {
+                            obj.rotation = this.calculateRotationRelativeToNormal(obj.rotation2D, normal);
+                        }
                     }
                 }
             }
@@ -386,6 +395,7 @@ export class SceneLogic {
         let objects = Array.from(visibleObjectIds)
             .map(id => this.objects[id])
             .filter(Boolean);
+
         
         // Додатковий фільтр по командах якщо потрібно
         if (options.filterByCommands?.size) {
@@ -508,4 +518,19 @@ export class SceneLogic {
             return distance <= radius;
         });
     }
+
+    /**
+     * Розраховує rotation.y відносно нормалі поверхні
+     * @param rotation2D - 2D кут ротації (в радіанах)
+     * @param normal - нормаль поверхні
+     * @returns rotation.y відносно нормалі
+     */
+    private calculateRotationRelativeToNormal(
+        rotation2D: number,
+        normal: Vector3,
+        up: Vector3 = { x:0, y:1, z:0 } // up тут не потрібен, залишив для сумісності сигнатури
+      ): Vector3 {
+        //console.log('NR: ', normal, rotation2D, orientOnSurfaceEulerXYZ({x: 1, y: 0, z: 0}, rotation2D, { x:0, y:1, z:0 }));
+        return orientOnSurfaceEulerXYZ(normal, rotation2D);
+      }
 }

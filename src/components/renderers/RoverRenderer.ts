@@ -65,6 +65,8 @@ export class RoverRenderer extends BaseRenderer {
       this.attachOrUpdateProgressBar(mesh, roverData);
       this.attachOrUpdatePowerBar(mesh, roverData);
 
+      console.warn(`ROVER RENDERED: `, object)
+
       return mesh;
     }
 
@@ -74,7 +76,7 @@ export class RoverRenderer extends BaseRenderer {
         this.modelCache.set(modelPath, gltf.scene);
         const mesh = this.createRoverMesh(gltf.scene, roverData);
         this.setupMesh(mesh, object);
-
+        console.warn('Drone now added', object);
         // замінюємо fallback (+ прибираємо його індикатори)
         const prev = this.meshes.get(object.id) as THREE.Mesh | undefined;
         if (prev) {

@@ -1,4 +1,4 @@
-import { Command, CommandType, CommandContext, CommandStatus } from './command.types';
+import { Command, CommandType, CommandContext, CommandStatus, CommandFailureCode } from './command.types';
 import { CommandExecutor } from './CommandExecutor';
 import { MoveToExecutor, CollectResourceExecutor, UnloadResourcesExecutor, ChargeExecutor } from './executors';
 import { CommandQueue } from './CommandQueue';
@@ -138,6 +138,9 @@ export class CommandSystem implements SaveLoadManager {
                 
                 // Перевіряємо чи потрібно restart групи на основі коду фейлу
                 const command = executor.getCommand();
+                if(result.code === CommandFailureCode.OBJECT_STUCK) {
+                    console.warn(`Stuck with following pipeline: `, this.commandQueues.get(objectId), executor.getContext());
+                }
                 if (result.code && command.groupId && command.groupRestartCodes?.includes(result.code)) {
                     console.warn('Restarting group', command.groupId, command);
                     // Спробуємо restart групи
@@ -237,7 +240,7 @@ export class CommandSystem implements SaveLoadManager {
     /**
      * Розв'язує динамічні параметри команди
      */
-    private resolveCommandParameters(command: Command, objectId: string): void {
+    private resolveCommandParameters(command: Command, objectId: string, persistContextResolved: boolean = false): void {
         if (!command.groupId || !command.parameterTemplates) {
             console.log('[CommandSystem] Skipping parameter resolution - no groupId or parameterTemplates:', { groupId: command.groupId, hasTemplates: !!command.parameterTemplates });
             return;
@@ -248,7 +251,7 @@ export class CommandSystem implements SaveLoadManager {
         // Отримуємо стан групи
         const groupState = this.mapLogic.commandGroupSystem?.getGroupState(objectId, command.groupId);
         if (!groupState) {
-            console.warn('[CommandSystem] Group state not found for:', objectId, command.groupId);
+            console.warn('[CommandSystem] Group state not found for:', objectId, command.groupId, this.mapLogic.commandGroupSystem?.activeGroups);
             return;
         }
 
@@ -259,7 +262,7 @@ export class CommandSystem implements SaveLoadManager {
             return;
         }
 
-        console.log('[CommandSystem] Resolving parameters with pipeline:', groupDefinition.resolveParametersPipeline);
+        console.log('[CommandSystem] Resolving parameters with pipeline:', groupDefinition.resolveParametersPipeline, groupState.context);
 
         // Розв'язуємо параметри перед командою
         const resolvedParameters = this.mapLogic.commandGroupSystem?.parameterResolutionService?.resolveParameters(
@@ -268,11 +271,18 @@ export class CommandSystem implements SaveLoadManager {
             'before-command'
         );
 
-        console.log('[CommandSystem] Resolved parameters:', resolvedParameters);
+        console.log('[CommandSystem] Resolved parameters:', resolvedParameters, groupDefinition.resolveParametersPipeline);
 
         if (resolvedParameters) {
+            let resolvedParamsToApply = resolvedParameters;
+            if(persistContextResolved && groupState.context.resolved) {
+                resolvedParamsToApply = {
+                    ...groupState.context.resolved,
+                    ...resolvedParamsToApply
+                }
+            }
             // Застосовуємо розв'язані параметри до команди
-            this.applyResolvedParameters(command, resolvedParameters);
+            this.applyResolvedParameters(command, resolvedParamsToApply);
             console.log('[CommandSystem] Applied resolved parameters to command:', command.id, 'position:', command.position, 'targetId:', command.targetId);
         }
     }
@@ -467,7 +477,7 @@ export class CommandSystem implements SaveLoadManager {
     // ==================== SaveLoadManager Implementation ====================
     
     save(): CommandSystemSaveData {
-        console.log('[CommandSystem] Saving commands...');
+        console.log('[CommandSystem] Saving commands...', this.commandQueues);
         
         const commandQueues: CommandSystemSaveData['commandQueues'] = [];
         const activeCommands: CommandSystemSaveData['activeCommands'] = [];
@@ -567,7 +577,7 @@ export class CommandSystem implements SaveLoadManager {
                             this.generateParameterTemplatesForCommand(restoredCommand, objectId);
                             
                             // Резолвимо параметри
-                            this.resolveCommandParameters(restoredCommand, objectId);
+                            this.resolveCommandParameters(restoredCommand, objectId, true);
                         }
                         
                         this.addCommand(objectId, restoredCommand);

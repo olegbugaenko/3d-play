@@ -22,7 +22,6 @@ export class SaveManager {
             const saveData: GameSave = {
                 slot,
                 timestamp: Date.now(),
-                seed: this.getCurrentSeed(),
                 version: this.VERSION,
                 
                 // Збираємо дані з усіх менеджерів
@@ -31,6 +30,8 @@ export class SaveManager {
                 commandSystem: this.managers.get('commandSystem')?.save() as any,
                 commandGroupSystem: this.managers.get('commandGroupSystem')?.save() as any,
                 droneManager: this.managers.get('droneManager')?.save() as any,
+                upgradesManager: this.managers.get('upgradesManager')?.save() as any,
+                buildingsManager: this.managers.get('buildingsManager')?.save() as any,
             };
             
             // Зберігаємо в localStorage
@@ -88,10 +89,6 @@ export class SaveManager {
         // Скидаємо всі менеджери
         this.managers.forEach(manager => manager.reset());
         
-        // Генеруємо новий seed
-        const newSeed = Date.now();
-        this.setCurrentSeed(newSeed);
-        
         this.currentSlot = 0;
     }
 
@@ -135,25 +132,8 @@ export class SaveManager {
             return false;
         }
     }
-    
-    private getCurrentSeed(): number {
-        // Отримуємо поточний seed з MapLogic
-        const mapLogic = this.managers.get('mapLogic');
-        if (mapLogic && 'getGenerationSeed' in mapLogic) {
-            return (mapLogic as any).getGenerationSeed();
-        }
-        return Date.now();
-    }
-    
-    private setCurrentSeed(seed: number): void {
-        // Встановлюємо новий seed в MapLogic
-        const mapLogic = this.managers.get('mapLogic');
-        if (mapLogic && 'updateGenerationSeed' in mapLogic) {
-            (mapLogic as any).updateGenerationSeed(seed);
-        }
-    }
 
     private getLoadOrder(): string[] {
-        return ['mapLogic', 'resourceManager', 'droneManager', 'commandGroupSystem', 'commandSystem'];
+        return ['mapLogic', 'resourceManager', 'droneManager', 'upgradesManager', 'buildingsManager', 'commandGroupSystem', 'commandSystem'];
     }
 }

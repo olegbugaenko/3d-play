@@ -1,4 +1,4 @@
-import { Vector3 } from './scene.types';
+import { Vector3 } from '../utils/vector-math';
 import { SeededRandom } from '../map/seeded-random';
 
 export interface TerrainConfig {

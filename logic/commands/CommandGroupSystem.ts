@@ -50,6 +50,22 @@ export class CommandGroupSystem implements SaveLoadManager {
       }
     }
 
+    // Створюємо стан групи
+    const groupState: CommandGroupState = {
+      groupId,
+      objectId,
+      status: 'active',
+      currentTaskIndex: 0,
+      startTime: Date.now(),
+      context,
+      resolvedParameters
+    };
+
+    const groupKey = `${objectId}-${groupId}`;
+    this.activeGroups.set(groupKey, groupState);
+    
+    console.warn(`GROUP ADDED! NOW there are ${this.activeGroups.size} groups: `, this.activeGroups, resolvedParameters);
+
     // Генеруємо команди з пайплайну
     const commands = group.tasksPipeline({
       ...context,
@@ -71,23 +87,13 @@ export class CommandGroupSystem implements SaveLoadManager {
       this.commandSystem.addAutoresolveCommand(objectId, cmd, context.resolved);
     });
 
-    // Створюємо стан групи
-    const groupState: CommandGroupState = {
-      groupId,
-      objectId,
-      status: 'active',
-      currentTaskIndex: 0,
-      startTime: Date.now(),
-      context,
-      resolvedParameters
-    };
 
-    const groupKey = `${objectId}-${groupId}`;
-    this.activeGroups.set(groupKey, groupState);
 
             // Група команд запущена
     return true;
   }
+
+
 
   // Зупинка групи команд
   cancelCommandGroup(objectId: string, groupId: string): boolean {
@@ -124,6 +130,32 @@ export class CommandGroupSystem implements SaveLoadManager {
   // Отримання визначення групи команд
   getCommandGroupDefinition(groupId: string): CommandGroup | undefined {
     return getCommandGroup(groupId);
+  }
+
+  /**
+   * Розв'язує параметри для завантаженої групи команд
+   */
+  private resolveParametersForLoadedGroup(groupState: CommandGroupState): void {
+    const { groupId, objectId, context } = groupState;
+    
+    // Отримуємо визначення групи
+    const groupDefinition = this.getCommandGroupDefinition(groupId);
+    if (!groupDefinition?.resolveParametersPipeline) {
+      return;
+    }
+
+    // Розв'язуємо параметри згідно з пайплайном
+    const resolvedParameters = this.parameterResolutionService.resolveParameters(
+      groupDefinition.resolveParametersPipeline,
+      context,
+      'all'
+    );
+
+    console.warn('RsAL: ', resolvedParameters);
+
+    // Оновлюємо стан групи з розв'язаними параметрами
+    groupState.resolvedParameters = resolvedParameters;
+    groupState.context.resolved = resolvedParameters;
   }
 
   /**
@@ -188,8 +220,6 @@ export class CommandGroupSystem implements SaveLoadManager {
   // ==================== SaveLoadManager Implementation ====================
   
   save(): any {
-    console.log('[CommandGroupSystem] Saving groups...');
-    
     const activeGroups: any[] = [];
     
     // Зберігаємо стан всіх активних груп
@@ -208,14 +238,10 @@ export class CommandGroupSystem implements SaveLoadManager {
       }
     });
     
-    const saveData = { activeGroups };
-    console.log('[CommandGroupSystem] Saved groups:', saveData);
-    return saveData;
+    return { activeGroups };
   }
   
   load(data: any): void {
-    console.log('[CommandGroupSystem] Loading groups:', data);
-    
     if (data.activeGroups) {
       data.activeGroups.forEach((groupData: any) => {
         const { groupId, objectId, context, resolvedParameters } = groupData;
@@ -234,11 +260,10 @@ export class CommandGroupSystem implements SaveLoadManager {
         const groupKey = `${objectId}-${groupId}`;
         this.activeGroups.set(groupKey, groupState);
         
-        console.log('[CommandGroupSystem] Restored group:', groupKey);
+        // Запускаємо resolvePipeline для відновлення параметрів
+        this.resolveParametersForLoadedGroup(groupState);
       });
     }
-    
-    console.log('[CommandGroupSystem] Loaded groups. Current active groups:', this.activeGroups);
   }
   
   reset(): void {

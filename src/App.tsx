@@ -16,6 +16,7 @@ function App() {
   }, [game]);
 
   const handleStartGame = () => {
+
     setShowMainMenu(false);
   };
 
@@ -40,6 +41,7 @@ function App() {
           saveManager={game.saveManager}
           onShowMainMenu={handleShowMainMenu}
           mapLogic={game.mapLogic}
+          game={game}
         />
       )}
     </div>

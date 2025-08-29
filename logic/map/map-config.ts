@@ -14,7 +14,7 @@ export const MAP_CONFIG = {
         rocks: {
             clusterCount: 100,        // Кількість кластерів
             rocksPerCluster: 20,      // Каменюків на кластер
-            clusterRadius: { min: 5, max: 10 }, // Радіус кластера
+            clusterRadius: { min: 3, max: 4 }, // Радіус кластера
             resourceTypes: ['stone', 'ore'] as const
         },
         

@@ -1,4 +1,4 @@
-import { Vector3 } from '../scene/scene.types';
+import { Vector3 } from '../utils/vector-math';
 
 // Базовий інтерфейс для всіх менеджерів
 export interface SaveLoadManager {
@@ -11,7 +11,6 @@ export interface SaveLoadManager {
 export interface GameSave {
     slot: number;
     timestamp: number;
-    seed: number;
     version: string;
     
     // Дані менеджерів
@@ -20,6 +19,8 @@ export interface GameSave {
     commandSystem: CommandSystemSaveData;
     commandGroupSystem: CommandGroupSystemSaveData;
     droneManager: DroneSaveData;
+    upgradesManager: UpgradesManagerSaveData;
+    buildingsManager: BuildingsManagerSaveData;
 }
 
 // Дані ресурсів
@@ -37,7 +38,7 @@ export interface ResourceSaveData {
 export interface MapLogicSaveData {
     seed: number; // Seed для генерації карти
     collectedRocks: string[] | Set<string> | Record<string, string>; // ID зібраних каменюків (різні типи для сумісності)
-    buildingPositions: Array<Vector3>;
+    // buildingPositions тепер зберігаються в BuildingsManager
 }
 
 // Дані командної системи
@@ -82,6 +83,7 @@ export interface CommandGroupSystemSaveData {
 export interface DroneSaveData {
     drones: Array<{
         id: string;
+        type: string;
         position: Vector3;
         status: 'idle' | 'busy' | 'charging';
         currentCommandId?: string;
@@ -90,5 +92,28 @@ export interface DroneSaveData {
     }>;
 }
 
+// Дані менеджера апгрейдів
+export interface UpgradesManagerSaveData {
+    upgradeStates: Record<string, {
+        level: number;
+        unlocked: boolean;
+    }>;
+}
+
+// Дані менеджера будівель
+export interface BuildingsManagerSaveData {
+  buildingInstances: Array<{
+    id: string;
+    typeId: string;
+    level: number;
+    built: boolean;
+    position?: {
+      x: number;
+      y: number;
+      z: number;
+    };
+  }>;
+}
+
 // Тип для даних менеджера
-export type SaveData = ResourceSaveData | MapLogicSaveData | CommandSystemSaveData | CommandGroupSystemSaveData | DroneSaveData;
+export type SaveData = ResourceSaveData | MapLogicSaveData | CommandSystemSaveData | CommandGroupSystemSaveData | DroneSaveData | UpgradesManagerSaveData | BuildingsManagerSaveData;

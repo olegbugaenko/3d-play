@@ -96,7 +96,23 @@ export class AutoGroupMonitor {
         }
 
         // Зберігаємо ВСІ поточні команди (включаючи executing)
-        const currentCommands = commandQueue.getAllCommands();
+        let currentCommands = commandQueue.getAllCommands();
+        let firstCommand: any = null
+
+        let interruptedGroupContext: any = null;
+        if (currentCommands.length > 0) {
+            firstCommand = currentCommands[0];
+            if (firstCommand.groupId) {
+                // Зберігаємо контекст перерваної групи
+                const groupState = this.mapLogic.commandGroupSystem.getGroupState(objectId, firstCommand.groupId);
+                if (groupState) {
+                    interruptedGroupContext = groupState.context;
+                }
+                
+                // Видаляємо всі команди цієї групи з currentCommands
+                currentCommands = currentCommands.filter(cmd => cmd.groupId !== firstCommand.groupId);
+            }
+        }
         
         // Очищаємо чергу
         commandQueue.clearAll();
@@ -107,7 +123,7 @@ export class AutoGroupMonitor {
             targets: {},
             parameters: {}
         };
-        
+        /*
         // Створюємо команди з групи
         const autoCommands = group.tasksPipeline(autoGroupContext);
         
@@ -136,6 +152,13 @@ export class AutoGroupMonitor {
             
             // Додаємо команду
             this.mapLogic.commandSystem.addCommand(objectId, command);
+        } */
+
+        // 🔥 КРИТИЧНО: Створюємо стан групи щоб вона зберігалася/завантажувалася
+        this.mapLogic.commandGroupSystem.addCommandGroup(objectId, group.id, autoGroupContext);
+        
+        if (interruptedGroupContext && firstCommand) {
+            this.mapLogic.commandGroupSystem.addCommandGroup(objectId, firstCommand.groupId, interruptedGroupContext);
         }
         
         // Додаємо назад поточні команди
@@ -143,6 +166,7 @@ export class AutoGroupMonitor {
             command.status = 'pending'; // Скидаємо статус
             this.mapLogic.commandSystem.addCommand(objectId, command);
         }
+        
         
         // Авто-група вставлена
     }

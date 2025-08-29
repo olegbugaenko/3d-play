@@ -30,12 +30,11 @@ export class ParameterResolvers {
    * Знаходить найближчий об'єкт з вказаним тегом
    */
   getClosestObjectByTag(tag: string, fromPosition: Vector3, maxDistance: number = 1000): any {
-    const objects = this.mapLogic.scene.getObjects();
+    const objects = this.mapLogic.scene.getObjectsByTag(tag);
     let closestObject = null;
     let closestDistance = maxDistance;
 
     for (const obj of Object.values(objects)) {
-      if (obj.tags && obj.tags.includes(tag)) {
         const objPos = new Vector3(obj.coordinates.x, obj.coordinates.y, obj.coordinates.z);
         const distance = fromPosition.distanceTo(objPos);
         
@@ -43,7 +42,6 @@ export class ParameterResolvers {
           closestDistance = distance;
           closestObject = obj;
         }
-      }
     }
 
     return closestObject?.id;
@@ -105,7 +103,8 @@ export class ParameterResolvers {
    */
   getResourcesInRadius(tag: string, center: { x: number; y: number; z: number }, radius: number): any[] {
             // Пошук об'єктів у радіусі
-    return this.mapLogic.scene.getObjectsByTagInRadius('resource', center, radius).filter((one: SceneObject) => one.data.resourceId === tag).map((one: SceneObject) => one.id);
+    console.log(`Getting ${tag} resources within radius: `, center, radius);
+    return this.mapLogic.scene.getObjectsByTagInRadius('resource', center, radius).filter((one: SceneObject) => tag === 'resource' || one.data.resourceId === tag).map((one: SceneObject) => one.id);
   }
 
   /**

@@ -1,5 +1,6 @@
 import { CommandExecutor } from '../CommandExecutor';
 import { CommandResult, CommandFailureCode } from '../command.types';
+import { Vector3 } from '../../utils/vector-math';
 import * as THREE from 'three';
 
 export class MoveToExecutor extends CommandExecutor {
@@ -17,6 +18,10 @@ export class MoveToExecutor extends CommandExecutor {
             command.position.y,
             command.position.z
         );
+    }
+
+    getEnergyUpkeep() {
+        return 0;
     }
 
     canExecute(): boolean {
@@ -80,6 +85,7 @@ export class MoveToExecutor extends CommandExecutor {
                 this.stuckTime += this.context.deltaTime;
                 if (this.stuckTime > this.stuckThreshold) {
                     this.stopMovement();
+                    console.log('COMM: ', this.command);
                     return { 
                         success: false, 
                         message: `Object stuck in ${distance.toFixed(2)} meters`,
@@ -119,7 +125,14 @@ export class MoveToExecutor extends CommandExecutor {
         if (object.data?.rotatable) {
             const targetRotation = Math.atan2(direction.x, direction.z);
             const rotationOffset = object.data.rotationOffset || 0;
-            object.rotation.y = targetRotation + rotationOffset;
+            
+            // Якщо об'єкт terrainAlign - зберігаємо 2D ротацію відносно нормалі
+            if (object.terrainAlign) {
+                object.rotation2D = targetRotation + rotationOffset;
+            } else {
+                // Для звичайних об'єктів - як зараз
+                object.rotation.y = targetRotation + rotationOffset;
+            }
         }
 
         return { success: true, message: 'Moving to target' };

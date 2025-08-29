@@ -1,4 +1,5 @@
 import { SceneLogic } from "./scene-logic";
+import { vLen } from "../utils/vector-math";
 
 export class DynamicsLogic {
 
@@ -21,7 +22,7 @@ export class DynamicsLogic {
             return;
         }
 
-        const dynamicList = this.scene.getObjectsByTag('dynamic').filter(one => !!one.speed);
+        const dynamicList = this.scene.getObjectsByTag('dynamic').filter(one => !!one.speed && vLen(one.speed) > 1.e-8);
 
         dynamicList.forEach(item => {
             // Розраховуємо нову позицію на основі швидкості та часу

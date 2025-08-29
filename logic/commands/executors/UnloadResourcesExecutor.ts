@@ -6,6 +6,15 @@ export class UnloadResourcesExecutor extends CommandExecutor {
     private unloadProgress: number = 0;
     private lastUnloadTime: number = 0;
 
+    getEnergyUpkeep() {
+        const object = this.context.scene.getObjectById(this.context.objectId);
+        if (!object || !object.data?.maxCapacity) {
+            return false;
+        }
+        
+        return object.data.unloadSpeed;
+    }
+
     canExecute(): boolean {
         const object = this.context.scene.getObjectById(this.context.objectId);
         if (!object || !object.data?.storage) {

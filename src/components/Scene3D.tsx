@@ -11,6 +11,7 @@ import { MapLogic } from '../../logic/map/map-logic'
 import { ResourcesBar } from './ResourcesBar'
 import { CommandPanel } from './CommandPanel';
 import { SaveManager } from '../../logic/save-load/save-manager';
+import { UpgradesPanel } from './UpgradesPanel';
 
 /** ===================== core three setup ===================== */
 function useThreeCore() {
@@ -573,13 +574,16 @@ interface Scene3DProps {
   saveManager: SaveManager;
   onShowMainMenu: () => void;
   mapLogic: MapLogic;
+  game: any; // Game instance для доступу до UpgradesManager
 }
 
-const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic: appMapLogic }) => {
+const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic: appMapLogic, game }) => {
   const mountRef = useRef<HTMLDivElement>(null)
 
   // Додаємо стейт для вибраної команди
   const [selectedCommand, setSelectedCommand] = useState<any>(null)
+  
+
 
   const { scene, camera, renderer } = useThreeCore()
   const { rendererManagerRef, selectionRendererRef, selectionHandlerRef, terrainRendererRef, areaSelectionRendererRef, mapLogicRef } =
@@ -622,6 +626,8 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
   const handleCommandSelect = useCallback((commandGroup: any, centerPosition: { x: number; y: number; z: number }) => {
     // Тут буде логіка запуску команди
   }, [])
+  
+
 
   // Показуємо/приховуємо кільце зони збору при зміні команди
   useEffect(() => {
@@ -915,6 +921,8 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
         Зберегти гру
       </button>
 
+      
+
       {/* debug HUD */}
       <div style={{
         position: 'absolute', top: 10, left: 10, color: 'white', fontFamily: 'monospace',
@@ -957,6 +965,9 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
         onCommandSelect={handleCommandSelect}
         onCommandChange={handleCommandChange}
       />
+
+      {/* Upgrades Panel */}
+      <UpgradesPanel game={game} />
     </div>
   )
 }

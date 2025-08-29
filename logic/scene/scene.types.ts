@@ -1,8 +1,5 @@
-export interface Vector3 {
-    x: number;
-    y: number;
-    z: number;
-}
+
+import { Vector3 } from '../utils/vector-math';
 
 export interface TSceneObject<T = any> {
     id: string;
@@ -10,6 +7,7 @@ export interface TSceneObject<T = any> {
     coordinates: Vector3;
     scale: Vector3;
     rotation: Vector3;
+    rotation2D?: number; // 2D ротація відносно нормалі поверхні (для terrainAlign об'єктів)
     speed?: Vector3;
     data: T;
     tags: string[]; // Теги для швидкого доступу та фільтрації
