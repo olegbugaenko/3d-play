@@ -29,7 +29,6 @@ export class BoulderRenderer extends BaseRenderer {
         const {
             color = 0x8B7355, // Кольор каменю
             size = 1.0,
-            roughness = 0.3,
             modelPath = '/models/stone.glb'
         } = data;
 

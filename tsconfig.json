@@ -14,7 +14,27 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "baseUrl": ".",
+    "paths": {
+      "@logic/*": ["src/logic/*"],
+      "@core/*": ["src/logic/core/*"],
+      "@game/*": ["src/logic/core/game/*"],
+      "@interfaces/*": ["src/logic/interfaces/*"],
+      "@modules/*": ["src/logic/modules/*"],
+      "@buildings/*": ["src/logic/modules/buildings/*"],
+      "@upgrades/*": ["src/logic/modules/upgrades/*"],
+      "@drones/*": ["src/logic/modules/drones/*"],
+      "@resources/*": ["src/logic/modules/resources/*"],
+      "@systems/*": ["src/logic/systems/*"],
+      "@scene/*": ["src/logic/systems/scene/*"],
+      "@map/*": ["src/logic/systems/map/*"],
+      "@commands/*": ["src/logic/systems/commands/*"],
+      "@modifiers/*": ["src/logic/systems/modifiers-system/*"],
+      "@save-load/*": ["src/logic/systems/save-load/*"],
+      "@utils/*": ["src/logic/utils/*"],
+      "@shared/*": ["src/logic/shared/*"]
+    }
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]

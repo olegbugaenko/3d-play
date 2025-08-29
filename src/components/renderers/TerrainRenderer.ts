@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { TerrainManager } from '../../../logic/scene/terrain-manager';
-import { MAP_CONFIG } from '../../../logic/map/map-config';
+import { TerrainManager } from '@scene/terrain-manager';
+import { MAP_CONFIG } from '@systems/map';
 import { TextureManager } from './TextureManager';
 
 export class TerrainRenderer {

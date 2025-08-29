@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BaseRenderer, SceneObject } from './BaseRenderer'
 
 export class SphereRenderer extends BaseRenderer {
-    render(object: SceneObject): THREE.Mesh {
+    render(object: SceneObject): THREE.Object3D {
         // Перевіряємо чи вже існує меш для цього об'єкта
         const existingMesh = this.meshes.get(object.id);
         if (existingMesh) {

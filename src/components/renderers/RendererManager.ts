@@ -5,12 +5,12 @@ import { RockRenderer } from './RockRenderer'
 import { RoverRenderer } from './RoverRenderer'
 import { BuildingRenderer } from './BuildingRenderer'
 
-import { CloudRenderer } from './CloudRenderer'
+// import { CloudRenderer } from './CloudRenderer'
 
 import { FireRenderer } from './FireRenderer'
-import { ElectricArcRenderer } from './ArcRenderer'
+// import { ElectricArcRenderer } from './ArcRenderer'
 import { SmokeRenderer } from './SmokeRenderer'
-import { ExplosionRenderer } from './ExplosionRenderer'
+// import { ExplosionRenderer } from './ExplosionRenderer'
 
 export class RendererManager {
     public renderers: Map<string, BaseRenderer> = new Map();

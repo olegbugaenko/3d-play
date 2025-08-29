@@ -64,217 +64,6 @@ function makeGlowBallMaterial(
   return base;
 }
 
-function makeCenterGlowByView_SAFE(
-    base: THREE.MeshBasicMaterial,
-    opts?: {
-      centerPower?: number;
-      colorBoost?: number;
-      alphaMin?: number;
-      alphaMax?: number;
-      alphaFloor?: number;
-      debugSolidRed?: boolean;
-    }
-  ) {
-    const centerPower = opts?.centerPower ?? 2.6;
-    const colorBoost  = opts?.colorBoost  ?? 2.0;
-    const alphaMin    = opts?.alphaMin    ?? 0.05;
-    const alphaMax    = opts?.alphaMax    ?? 1.00;
-    const alphaFloor  = opts?.alphaFloor  ?? 0.02;
-    const debugSolid  = !!opts?.debugSolidRed;
-  
-    base.transparent = true;
-    base.depthWrite  = false;
-    base.depthTest   = false;
-    base.blending    = THREE.AdditiveBlending;
-    base.toneMapped  = false;
-    base.side        = THREE.FrontSide;
-  
-    base.onBeforeCompile = (shader) => {
-      // ---- VERTEX: створюємо varyings та присвоюємо значення ----
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', `
-          #include <common>
-          varying vec3 vViewNormal;
-          varying vec3 vViewPos;
-        `)
-        // Після розрахунку transformedNormal:
-        .replace('#include <defaultnormal_vertex>', `
-          #include <defaultnormal_vertex>
-          vViewNormal = normalize( normalMatrix * transformedNormal );
-        `)
-        // Після розрахунку mvPosition:
-        .replace('#include <project_vertex>', `
-          #include <project_vertex>
-          vViewPos = mvPosition.xyz;
-        `);
-  
-      // ---- FRAGMENT: оголошуємо ті ж varyings у шейдері фрагмента ----
-      shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', `
-          #include <common>
-          varying vec3 vViewNormal;
-          varying vec3 vViewPos;
-        `);
-  
-      // ---- FRAGMENT: підміна фінального присвоєння gl_FragColor ----
-      const FRAG = shader.fragmentShader;
-  
-      const injectCode = `
-        // ---- injected center glow begin ----
-        vec3 V = normalize(-vViewPos); // напрямок до камери у view-space
-  
-        float center = clamp(dot(normalize(vViewNormal), V), 0.0, 1.0);
-        center = pow(center, ${centerPower.toFixed(2)});
-  
-        // База кольору/альфи, які вже порахував MeshBasic:
-        vec3  outRGB = diffuseColor.rgb;
-        float outA   = diffuseColor.a;
-  
-        // Підсилення
-        outRGB *= (1.0 + center * ${colorBoost.toFixed(2)});
-        float a = mix(${alphaMin.toFixed(2)}, ${alphaMax.toFixed(2)}, center);
-        a = max(a, ${alphaFloor.toFixed(2)});
-        outA *= a;
-  
-        ${debugSolid ? 'outRGB = vec3(1.0, 0.0, 0.0); outA = 1.0;' : ''}
-  
-        // ---- injected center glow end ----
-      `;
-  
-      const patterns = [
-        /gl_FragColor\s*=\s*vec4\s*\(\s*diffuseColor\.rgb\s*,\s*diffuseColor\.a\s*\)\s*;/, // MeshBasic
-        /gl_FragColor\s*=\s*vec4\s*\(\s*outgoingLight\s*,\s*diffuseColor\.a\s*\)\s*;/,     // інші матеріали
-        /gl_FragColor\s*=\s*vec4\s*\(\s*totalEmissiveRadiance\s*,\s*diffuseColor\.a\s*\)\s*;/,
-      ];
-  
-      let replaced = false;
-      for (const pat of patterns) {
-        if (pat.test(FRAG)) {
-          shader.fragmentShader = FRAG.replace(pat, `
-            ${injectCode}
-            gl_FragColor = vec4(outRGB, outA);
-          `);
-          replaced = true;
-          break;
-        }
-      }
-      if (!replaced) {
-        shader.fragmentShader = FRAG.replace(/}\s*$/, `
-          ${injectCode}
-          gl_FragColor = vec4(outRGB, outA);
-        }
-        `);
-      }
-  
-      // На відладку можна подивитись результат:
-      // console.log('FRAGMENT:\\n', shader.fragmentShader);
-    };
-  
-    base.needsUpdate = true;
-    return base;
-  }
-  
-  function makeInteractiveGlowShaderMaterialPortable(opts?: {
-    color?: THREE.ColorRepresentation;
-    centerPower?: number;   // різкість ядра (2..6)
-    colorBoost?: number;    // підсилення кольору до центру
-    alphaMin?: number;      // альфа на краях
-    alphaMax?: number;      // альфа в центрі
-    alphaFloor?: number;    // мін. альфа
-    debugCenter?: boolean;  // показати центр як ч/б
-  }) {
-    const color       = new THREE.Color(opts?.color ?? 0x66ccff);
-    const centerPower = opts?.centerPower ?? 2.6;
-    const colorBoost  = opts?.colorBoost  ?? 2.0;
-    const alphaMin    = opts?.alphaMin    ?? 0.12;
-    const alphaMax    = opts?.alphaMax    ?? 1.00;
-    const alphaFloor  = opts?.alphaFloor  ?? 0.01;
-    const debugCenter = !!opts?.debugCenter;
-  
-    const mat = new THREE.ShaderMaterial({
-      uniforms: {
-        uColor:       { value: color },
-        uCenterPower: { value: centerPower },
-        uColorBoost:  { value: colorBoost },
-        uAlphaMin:    { value: alphaMin },
-        uAlphaMax:    { value: alphaMax },
-        uAlphaFloor:  { value: alphaFloor },
-        uDebugCenter: { value: debugCenter ? 1 : 0 },
-      },
-      //defines: {
-      //  USE_INSTANCING: 1, // щоб ми знали, що є instanceMatrix
-      //},
-      vertexShader: `
-        precision highp float;
-  
-        // attribute vec3 position;
-        // #ifdef USE_INSTANCING
-        // attribute mat4 instanceMatrix;
-        // #endif
-  
-        // uniform mat4 modelMatrix;
-        // uniform mat4 viewMatrix;
-        // uniform mat4 projectionMatrix;
-  
-        varying vec3 vViewPos;
-  
-        void main() {
-          mat4 modelMat = modelMatrix;
-          #ifdef USE_INSTANCING
-            modelMat = modelMat * instanceMatrix;
-          #endif
-  
-          vec4 mvPos = viewMatrix * modelMat * vec4(position, 1.0);
-          vViewPos   = mvPos.xyz;
-          gl_Position = projectionMatrix * mvPos;
-        }
-      `,
-      fragmentShader: `
-        precision highp float;
-        // derivatives для WebGL1; у WebGL2 вони вбудовані
-        #ifdef GL_OES_standard_derivatives
-        #extension GL_OES_standard_derivatives : enable
-        #endif
-  
-        uniform vec3  uColor;
-        uniform float uCenterPower;
-        uniform float uColorBoost;
-        uniform float uAlphaMin, uAlphaMax, uAlphaFloor;
-        uniform int   uDebugCenter;
-  
-        varying vec3 vViewPos;
-  
-        void main() {
-          // нормаль у view-space з геометричних похідних
-          vec3 dx = dFdx(vViewPos);
-          vec3 dy = dFdy(vViewPos);
-          vec3 N  = normalize(cross(dx, dy));       // view-space normal
-          vec3 V  = normalize(-vViewPos);           // напрямок до камери
-  
-          float center = clamp(dot(N, V), 0.0, 1.0);
-          center = pow(center, uCenterPower);
-  
-          if (uDebugCenter == 1) {
-            gl_FragColor = vec4(vec3(center), 1.0);
-            return;
-          }
-  
-          vec3  rgb = uColor * (1.0 + center * uColorBoost);
-          float a   = max(mix(uAlphaMin, uAlphaMax, center), uAlphaFloor);
-          gl_FragColor = vec4(rgb, a);
-        }
-      `,
-      blending: THREE.AdditiveBlending,
-      transparent: true,
-      depthWrite: false,
-      depthTest: false,
-      toneMapped: false,
-      side: THREE.FrontSide,
-    });
-  
-    return mat;
-  }
-  
   
 
   
@@ -287,7 +76,6 @@ export class SelectionRenderer {
 
   // ---------- інстансингові меші ----------
   private selectionIMesh: THREE.InstancedMesh | null = null;       // зелений box (основний)
-  private selectionOutlineIMesh: THREE.InstancedMesh | null = null; // контур BackSide
   private targetIMesh: THREE.InstancedMesh | null = null;           // glow‑сфера (таргет)
   private targetRingIMesh: THREE.InstancedMesh | null = null;       // кільце на землі
   private interactiveIMesh: THREE.InstancedMesh | null = null;      // soft‑glow‑диск (інтерактив)
@@ -307,13 +95,11 @@ export class SelectionRenderer {
   private interactiveIndexById: Map<string, number> = new Map();
 
   // ---------- геометрії ----------
-  private static BOX_GEO = new THREE.BoxGeometry(1, 1, 1);
   private static SPHERE_GEO = new THREE.SphereGeometry(1, 32, 32);
   private static RING_GEO = new THREE.RingGeometry(0.8, 1.0, 64);
 
   // ---------- hover ефект ----------
   private hoveredObjectId: string | null = null;
-  private hoverIntensity = 2.5; // множник яскравості при hover
 
   // ---------- матеріали ----------
   private static MAT_SELECTION = new THREE.MeshBasicMaterial({
@@ -323,17 +109,6 @@ export class SelectionRenderer {
     depthTest: false,
     depthWrite: false,
     toneMapped: false,
-  });
-
-  private static MAT_SELECTION_OUTLINE = new THREE.MeshBasicMaterial({
-    color: 0x00ffae,
-    side: THREE.BackSide,
-    transparent: true,
-    opacity: 0.65,
-    depthTest: true,
-    depthWrite: false,
-    toneMapped: false,
-    blending: THREE.AdditiveBlending,
   });
 
   private static MAT_TARGET = makeGlowBallMaterial(
@@ -395,14 +170,11 @@ export class SelectionRenderer {
 
   // ---------- ручки масштабу (радіуса) ----------
   private selectionBoxMul = 1.5;
-  private selectionOutlineMul = 1.04;
   private targetGlowMul = 1.0;
   private interactiveGlowMul = 1.2;
   private ringScaleMul = 1.0;
 
   // ---------- тимчасові контейнери ----------
-  private _tmpPos = new THREE.Vector3();
-  private _tmpQuat = new THREE.Quaternion();
   private _tmpScale = new THREE.Vector3();
   private _identityQuat = new THREE.Quaternion();
   private _tmpMat = new THREE.Matrix4();
@@ -476,7 +248,7 @@ export class SelectionRenderer {
     this.hideAllInstances(this.selectionIMesh);
 
     // Selection outline (прибираємо, бо для диску не потрібен)
-    this.selectionOutlineIMesh = null; // Вимикаємо outline для диску
+    // this.selectionOutlineIMesh = null; // Вимикаємо outline для диску
 
     // Target (glow sphere)
     this.targetIMesh = new THREE.InstancedMesh(
@@ -539,16 +311,6 @@ export class SelectionRenderer {
   // ===============     КОРИСНІ УТИЛІТИ       ==================
   // ============================================================
 
-  private getWorldTRS(obj: THREE.Object3D) {
-    obj.updateWorldMatrix(true, false);
-    obj.matrixWorld.decompose(this._tmpPos, this._tmpQuat, this._tmpScale);
-    return {
-      pos: this._tmpPos.clone(),
-      quat: this._tmpQuat.clone(),
-      scale: this._tmpScale.clone(),
-    };
-  }
-
   getCorrectPositionAndScale(objectId: string, objectMesh: THREE.Object3D): { pos: THREE.Vector3; scale: THREE.Vector3 } {
     const sceneObject = this.getSceneObject(objectId);
     if (sceneObject && sceneObject.coordinates) {
@@ -601,7 +363,6 @@ export class SelectionRenderer {
     if (slot === undefined) return;
 
     const { pos, scale } = this.getCorrectPositionAndScale(objectId, objectMesh);
-    const { quat } = this.getWorldTRS(objectMesh);
     
     // Для диску встановлюємо плоску орієнтацію (лежить на землі)
     const diskQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
@@ -621,7 +382,7 @@ export class SelectionRenderer {
     this.selectionIndexFree.push(idx);
   }
 
-  updateHighlightPosition(objectId: string, newPosition: THREE.Vector3, newScale: THREE.Vector3, newRotation: THREE.Euler): void {
+  updateHighlightPosition(objectId: string, newPosition: THREE.Vector3, newScale: THREE.Vector3, _newRotation: THREE.Euler): void {
     if (!this.selectionIMesh) return;
     const idx = this.selectionIndexById.get(objectId);
     if (idx === undefined) return;

@@ -142,7 +142,7 @@ export class CloudRenderer extends BaseRenderer {
     return dustCloud;
   }
 
-  update(object: SceneObject): void {
+  update(_object: SceneObject): void {
     // більше не рухаємо хмару в JS — вітер у шейдері (дешевше).
     // лишаємо метод для сумісності з BaseRenderer.
   }

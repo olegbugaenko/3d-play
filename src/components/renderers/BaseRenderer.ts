@@ -77,7 +77,7 @@ export abstract class BaseRenderer {
     // -------------------------
     public dispose(): void {
         // Очищаємо всі меші з сцени
-        for (const [id, mesh] of this.meshes) {
+        for (const [_id, mesh] of this.meshes) {
             this.scene.remove(mesh);
         }
         

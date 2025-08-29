@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Scene3D from './components/Scene3D';
 import { MainMenu } from './components/MainMenu';
-import { Game } from '../logic/game';
+import { Game } from '@core/game/game';
 import './App.css';
 
 function App() {

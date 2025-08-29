@@ -486,7 +486,7 @@ void main(){
 
       this.group.add(newMesh);
       this.group.remove(mesh);
-      this.replaceMesh(object.id, newMesh);
+      // this.replaceMesh(object.id, newMesh);
       return;
     }
 

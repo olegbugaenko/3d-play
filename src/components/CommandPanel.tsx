@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getGroupsByScope, getGroupsByScopeAndCategory, CommandGroup } from '../../logic/commands';
+import { getGroupsByScope, getGroupsByScopeAndCategory, CommandGroup } from '@systems/commands';
 
 interface CommandPanelProps {
   selectedUnits: string[];
-  onCommandSelect: (commandGroup: CommandGroup, centerPosition: { x: number; y: number; z: number }) => void;
+  // onCommandSelect: (commandGroup: CommandGroup, centerPosition: { x: number; y: number; z: number }) => void;
   onCommandChange: (commandGroup: CommandGroup | null) => void;
 }
 
-export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCommandSelect, onCommandChange }) => {
+export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCommandChange }) => {
   
   const [selectedScope, setSelectedScope] = useState<'gather' | 'build' | null>(null);
   const [availableScopes, setAvailableScopes] = useState<string[]>([]);

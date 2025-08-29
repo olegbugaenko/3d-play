@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { RESOURCES_DB, ResourceId } from '../../logic/resources';
+import { RESOURCES_DB, ResourceId } from '@resources/index';
 
 interface ResourceData {
   current: number;
@@ -13,7 +13,7 @@ interface ResourcesBarProps {
 
 export const ResourcesBar: React.FC<ResourcesBarProps> = ({ getAvailableResources }) => {
   const [resources, setResources] = useState<Record<string, ResourceData>>({});
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Оновлюємо ресурси кожні 200мс
@@ -82,7 +82,7 @@ export const ResourcesBar: React.FC<ResourcesBarProps> = ({ getAvailableResource
         })}
       </div>
       
-      <style jsx>{`
+      <style>{`
         .resources-bar {
           position: fixed;
           top: 20px;

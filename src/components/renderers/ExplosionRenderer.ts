@@ -130,7 +130,7 @@ export class ExplosionRenderer extends BaseRenderer {
 
     this.spawnMapData = new Float32Array(this.MAX_PARTICLES * 4);
     this.spawnMapTex = new THREE.DataTexture(
-      this.spawnMapData, this.PARTICLES_W, this.PARTICLES_H, THREE.RGBAFormat, THREE.FloatType
+      this.spawnMapData as BufferSource, this.PARTICLES_W, this.PARTICLES_H, THREE.RGBAFormat, THREE.FloatType
     );
     this.spawnMapTex.needsUpdate = true;
     this.spawnMapTex.magFilter = THREE.NearestFilter;
@@ -140,7 +140,7 @@ export class ExplosionRenderer extends BaseRenderer {
     this.aliveData = new Float32Array(this.MAX_EXPLOSIONS * 4);
     for (let i=0;i<this.MAX_EXPLOSIONS;i++) this.aliveData[i*4]=1.0;
     this.aliveTex = new THREE.DataTexture(
-      this.aliveData, this.MAX_EXPLOSIONS, 1, THREE.RGBAFormat, THREE.FloatType
+      this.aliveData as BufferSource, this.MAX_EXPLOSIONS, 1, THREE.RGBAFormat, THREE.FloatType
     );
     this.aliveTex.needsUpdate = true;
     this.aliveTex.magFilter = THREE.NearestFilter;
@@ -154,16 +154,16 @@ export class ExplosionRenderer extends BaseRenderer {
   }
 
   private initGPU() {
-    this.gpu = new GPUComputationRenderer(this.PARTICLES_W, this.PARTICLES_H, this.renderer);
+    this.gpu = new GPUComputationRenderer(this.PARTICLES_W, this.PARTICLES_H, this.renderer as THREE.WebGLRenderer);
 
     const pos0 = this.gpu.createTexture();
     const vel0 = this.gpu.createTexture();
     const aux0 = this.gpu.createTexture();
 
     {
-      const p = pos0.image.data as Float32Array;
-      const v = vel0.image.data as Float32Array;
-      const a = aux0.image.data as Float32Array;
+      const p = pos0.image.data as unknown as Float32Array;
+      const v = vel0.image.data as unknown as Float32Array;
+      const a = aux0.image.data as unknown as Float32Array;
       for (let i=0; i<p.length; i+=4) { p[i+0]=0; p[i+1]=0; p[i+2]=0; p[i+3]=0; }
       for (let i=0; i<v.length; i+=4) { v[i+0]=0; v[i+1]=0; v[i+2]=0; v[i+3]=0; }
       for (let i=0; i<a.length; i+=4) { a[i+0]=1; a[i+1]=0; a[i+2]=Math.random()*1000.0; a[i+3]=-1; } // age=1 (dead), eIdx=-1
@@ -205,7 +205,7 @@ export class ExplosionRenderer extends BaseRenderer {
 
   private makeEmitterTex(data: Float32Array) {
     const tex = new THREE.DataTexture(
-      data, this.MAX_EXPLOSIONS, 1, THREE.RGBAFormat, THREE.FloatType
+      data as BufferSource, this.MAX_EXPLOSIONS, 1, THREE.RGBAFormat, THREE.FloatType
     );
     tex.needsUpdate = true;
     tex.magFilter = THREE.NearestFilter;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MAP_CONFIG } from '../../../logic/map/map-config';
+import { MAP_CONFIG } from '@systems/map/map-config';
 
 export class TextureManager {
     private textures: Map<string, THREE.Texture> = new Map();
@@ -73,7 +73,7 @@ export class TextureManager {
                         (texture) => {
                             resolve(texture);
                         },
-                        (progress) => {
+                        (_progress) => {
                             // Прогрес завантаження
                         },
                         (error) => {

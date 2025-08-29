@@ -94,9 +94,8 @@ export class RoverRenderer extends BaseRenderer {
         this.attachOrUpdateProgressBar(mesh, roverData);
         this.attachOrUpdatePowerBar(mesh, roverData);
       },
-      (progress) => {
-        const pct = progress.total ? (progress.loaded / progress.total) * 100 : 0;
-        // Завантаження моделі ровера
+      (_progress) => {
+        
       },
       (error) => {
         console.error(`Error loading rover model for ${object.id}:`, error);
@@ -444,7 +443,7 @@ export class RoverRenderer extends BaseRenderer {
   // -------------------------
   public dispose(): void {
     // Очищаємо всі індикатори
-    for (const [id, mesh] of this.meshes) {
+    for (const [_id, mesh] of this.meshes) {
       const progressBar = mesh.userData.progressBar as THREE.Group | undefined;
       const powerBar = mesh.userData.powerBar as THREE.Group | undefined;
       

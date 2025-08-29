@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { TSceneObject } from '../../../logic/scene/scene.types';
-import { SelectionLogic } from '../../../logic/selection/SelectionLogic';
+import { TSceneObject } from '@scene/scene.types';
+import { SelectionLogic } from '@scene/selection/SelectionLogic';
 import { SelectionRenderer } from '../renderers/SelectionRenderer';
 import { RendererManager } from '../renderers/RendererManager';
 

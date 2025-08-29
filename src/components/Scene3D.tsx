@@ -7,11 +7,11 @@ import { SelectionHandler } from './ui-handlers/SelectionHandler'
 import { SceneObject } from './renderers/BaseRenderer'
 import { TerrainRenderer } from './renderers/TerrainRenderer'
 import { AreaSelectionRenderer } from './AreaSelectionRenderer'
-import { MapLogic } from '../../logic/map/map-logic'
 import { ResourcesBar } from './ResourcesBar'
 import { CommandPanel } from './CommandPanel';
-import { SaveManager } from '../../logic/save-load/save-manager';
+import { ISaveManager, IMapLogic } from '@interfaces/index';
 import { UpgradesPanel } from './UpgradesPanel';
+import { TSceneObject } from '@logic/systems/scene/scene.types'
 
 /** ===================== core three setup ===================== */
 function useThreeCore() {
@@ -56,13 +56,13 @@ function useThreeCore() {
 }
 
 /** ===================== managers & map ===================== */
-function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, saveManager: SaveManager, appMapLogic: MapLogic) {
+function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, appMapLogic: IMapLogic) {
   const rendererManagerRef = useRef<RendererManager|null>(null)
   const selectionRendererRef = useRef<SelectionRenderer|null>(null)
   const selectionHandlerRef = useRef<SelectionHandler|null>(null)
   const terrainRendererRef   = useRef<TerrainRenderer|null>(null)
   const areaSelectionRendererRef = useRef<AreaSelectionRenderer|null>(null)
-  const mapLogicRef          = useRef<MapLogic|null>(null)
+  const mapLogicRef          = useRef<IMapLogic|null>(null)
 
   useEffect(() => {
     rendererManagerRef.current = new RendererManager(scene, renderer)
@@ -125,7 +125,7 @@ function useRayFromScreen(camera: THREE.Camera) {
 function useCameraController(
   camera: THREE.PerspectiveCamera,
   renderer: THREE.WebGLRenderer,
-  mapLogicRef: React.MutableRefObject<MapLogic|null>
+  mapLogicRef: React.MutableRefObject<IMapLogic|null>
 ) {
   const controller = useMemo(() => {
     const c = new CameraController(camera, renderer.domElement, {
@@ -153,7 +153,7 @@ function useCameraController(
 function useCameraViewportSync(
   camera: THREE.PerspectiveCamera,
   controller: CameraController,
-  mapLogicRef: React.MutableRefObject<MapLogic|null>
+  mapLogicRef: React.MutableRefObject<IMapLogic|null>
 ) {
   const lastCamPosRef = useRef<{x:number;y:number;z:number}|null>(null)
 
@@ -203,7 +203,7 @@ function useCameraViewportSync(
 function useTerrainStreaming(
   camera: THREE.PerspectiveCamera,
   terrainRendererRef: React.MutableRefObject<TerrainRenderer|null>,
-  mapLogicRef: React.MutableRefObject<MapLogic|null>
+  mapLogicRef: React.MutableRefObject<IMapLogic|null>
 ) {
   const lastPosRef = useRef<{x:number;y:number;z:number}|null>(null)
 
@@ -240,7 +240,7 @@ function useTerrainStreaming(
 function useSelectionAndCommands(
   camera: THREE.PerspectiveCamera,
   controller: CameraController,
-  mapLogicRef: React.MutableRefObject<MapLogic|null>,
+  mapLogicRef: React.MutableRefObject<IMapLogic|null>,
   rendererManagerRef: React.MutableRefObject<RendererManager|null>,
   selectionRendererRef: React.MutableRefObject<SelectionRenderer|null>,
   selectionHandlerRef: React.MutableRefObject<SelectionHandler|null>,
@@ -288,7 +288,7 @@ function useSelectionAndCommands(
     const sh = selectionHandlerRef.current
     const map = mapLogicRef.current
     if (!sh || !map) return
-    const all = Object.values(map.scene.getObjects())
+    const all = Object.values<TSceneObject>(map.scene.getObjects())
     const controlled = all.filter(o => o.tags?.includes('controlled'))
     sh.handleObjectClick(evt, controlled)
 
@@ -301,7 +301,7 @@ function useSelectionAndCommands(
     const sh = selectionHandlerRef.current
     const map = mapLogicRef.current
     if (!sh || !map) return
-    const all = Object.values(map.scene.getObjects())
+    const all = Object.values<TSceneObject>(map.scene.getObjects())
     const controlled = all.filter(o => o.tags?.includes('controlled'))
 
     const bounds = {
@@ -326,7 +326,7 @@ function useSelectionAndCommands(
     if (!selected.length) return
 
     const ray = getRay(evt.clientX, evt.clientY)
-    const all = Object.values(map.scene.getObjects())
+    const all = Object.values<TSceneObject>(map.scene.getObjects())
 
     // ресурси
     const clickedResource = all.find(o => {
@@ -453,7 +453,7 @@ function useSelectionAndCommands(
 function useAutoPan(
   camera: THREE.PerspectiveCamera,
   controller: CameraController,
-  mapLogicRef: React.MutableRefObject<MapLogic|null>,
+  mapLogicRef: React.MutableRefObject<IMapLogic|null>,
   updateTerrainForCamera: () => void
 ) {
   const mouseRef = useRef({ x:0, y:0 })
@@ -571,9 +571,9 @@ function useRenderLoop(
 
 /** ===================== main component ===================== */
 interface Scene3DProps {
-  saveManager: SaveManager;
+  saveManager: ISaveManager;
   onShowMainMenu: () => void;
-  mapLogic: MapLogic;
+  mapLogic: IMapLogic;
   game: any; // Game instance для доступу до UpgradesManager
 }
 
@@ -587,7 +587,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
   const { scene, camera, renderer } = useThreeCore()
   const { rendererManagerRef, selectionRendererRef, selectionHandlerRef, terrainRendererRef, areaSelectionRendererRef, mapLogicRef } =
-    useMapAndManagers(scene, camera, renderer, saveManager, appMapLogic)
+    useMapAndManagers(scene, camera, renderer, appMapLogic)
 
   const controller = useCameraController(camera, renderer, mapLogicRef)
   const { ensureTargetOnTerrain, updateViewport, maybeUpdateViewportOnMove } =
@@ -620,11 +620,6 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
   // Callback для зміни вибраної команди
   const handleCommandChange = useCallback((commandGroup: any) => {
     setSelectedCommand(commandGroup)
-  }, [])
-
-  // Callback для вибору команди (поки просто логуємо)
-  const handleCommandSelect = useCallback((commandGroup: any, centerPosition: { x: number; y: number; z: number }) => {
-    // Тут буде логіка запуску команди
   }, [])
   
 
@@ -696,7 +691,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
     const map = mapLogicRef.current
     if (!rm || !map) return
 
-    const current = map.scene.getVisibleObjects().map(obj => ({
+    const current = map.scene.getVisibleObjects().map<TSceneObject>(obj => ({
       tags: obj.tags,
       id: obj.id,
       type: obj.type,
@@ -949,7 +944,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
           getAvailableResources={() => {
             const all = mapLogicRef.current!.resources.getAllResources()
             const result: Record<string, { current:number; max:number; progress:number }> = {}
-            Object.entries(all).forEach(([id, current]) => {
+            Object.entries<number>(all).forEach(([id, current]) => {
               const max = mapLogicRef.current!.resources.getResourceCapacity(id as any)
               const progress = mapLogicRef.current!.resources.getResourceProgress(id as any)
               result[id] = { current, max, progress }
@@ -962,7 +957,6 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
       {/* Command Panel */}
       <CommandPanel
         selectedUnits={selectedUnits}
-        onCommandSelect={handleCommandSelect}
         onCommandChange={handleCommandChange}
       />
 

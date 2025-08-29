@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GameContainer Test</title>
+</head>
+<body>
+    <h1>🧪 GameContainer Test</h1>
+    <div id="output"></div>
+    
+    <script type="module">
+        import { testGameContainer } from './logic/core/test-container.js';
+        
+        // Запускаємо тест
+        testGameContainer();
+        
+        // Виводимо результат в HTML
+        const output = document.getElementById('output');
+        const originalLog = console.log;
+        const logs = [];
+        
+        console.log = function(...args) {
+            logs.push(args.join(' '));
+            output.innerHTML = logs.map(log => `<div>${log}</div>`).join('');
+            originalLog.apply(console, args);
+        };
+    </script>
+</body>
+</html>

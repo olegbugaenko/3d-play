@@ -28,11 +28,6 @@ export const UpgradesModal: React.FC<UpgradesModalProps> = ({
   upgrades,
   onPurchaseUpgrade
 }) => {
-  const formatResourceCost = (cost: Record<string, number>) => {
-    return Object.entries(cost)
-      .map(([resource, amount]) => `${resource}: ${amount}`)
-      .join(', ');
-  };
 
   const getResourceColor = (resourceId: string) => {
     const colors: Record<string, string> = {
@@ -106,7 +101,7 @@ export const UpgradesModal: React.FC<UpgradesModalProps> = ({
                           className="missing-item"
                           style={{ color: getResourceColor(resourceId) }}
                         >
-                          {resourceId}: {amount}
+                          {resourceId}: {amount as number}
                         </span>
                       ))}
                     </div>

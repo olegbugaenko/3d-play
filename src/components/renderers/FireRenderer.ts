@@ -77,7 +77,7 @@ export class FireRenderer extends BaseRenderer {
     // --- Емітерні текстури ---
     this.emitPosData = new Float32Array(this.MAX_EMITTERS * 4);
     this.emitPosTex = new THREE.DataTexture(
-      this.emitPosData, this.MAX_EMITTERS, 1, THREE.RGBAFormat, THREE.FloatType
+      this.emitPosData as BufferSource, this.MAX_EMITTERS, 1, THREE.RGBAFormat, THREE.FloatType
     );
     this.emitPosTex.needsUpdate = true;
     this.emitPosTex.magFilter = THREE.NearestFilter;
@@ -86,7 +86,7 @@ export class FireRenderer extends BaseRenderer {
 
     this.emitColData = new Float32Array(this.MAX_EMITTERS * 4);
     this.emitColTex = new THREE.DataTexture(
-      this.emitColData, this.MAX_EMITTERS, 1, THREE.RGBAFormat, THREE.FloatType
+      this.emitColData as BufferSource, this.MAX_EMITTERS, 1, THREE.RGBAFormat, THREE.FloatType
     );
     this.emitColTex.needsUpdate = true;
     this.emitColTex.magFilter = THREE.NearestFilter;
@@ -95,7 +95,7 @@ export class FireRenderer extends BaseRenderer {
 
     this.emitPropData = new Float32Array(this.MAX_EMITTERS * 4);
     this.emitPropTex = new THREE.DataTexture(
-      this.emitPropData, this.MAX_EMITTERS, 1, THREE.RGBAFormat, THREE.FloatType
+      this.emitPropData as BufferSource, this.MAX_EMITTERS, 1, THREE.RGBAFormat, THREE.FloatType
     );
     this.emitPropTex.needsUpdate = true;
     this.emitPropTex.magFilter = THREE.NearestFilter;
@@ -104,7 +104,7 @@ export class FireRenderer extends BaseRenderer {
 
     this.emitExtraData = new Float32Array(this.MAX_EMITTERS * 4);
     this.emitExtraTex = new THREE.DataTexture(
-      this.emitExtraData, this.MAX_EMITTERS, 1, THREE.RGBAFormat, THREE.FloatType
+      this.emitExtraData as BufferSource, this.MAX_EMITTERS, 1, THREE.RGBAFormat, THREE.FloatType
     );
     this.emitExtraTex.needsUpdate = true;
     this.emitExtraTex.magFilter = THREE.NearestFilter;
@@ -116,7 +116,7 @@ export class FireRenderer extends BaseRenderer {
     // --- Spawn map RGBA8 ---
     this.spawnMapData8 = new Uint8Array(this.MAX_PARTICLES * 4);
     this.spawnMapTex = new THREE.DataTexture(
-      this.spawnMapData8, this.PARTICLES_W, this.PARTICLES_H, THREE.RGBAFormat, THREE.UnsignedByteType
+      this.spawnMapData8 as BufferSource, this.PARTICLES_W, this.PARTICLES_H, THREE.RGBAFormat, THREE.UnsignedByteType
     );
     this.spawnMapTex.needsUpdate = true;
     this.spawnMapTex.magFilter = THREE.NearestFilter;
@@ -140,7 +140,7 @@ export class FireRenderer extends BaseRenderer {
     }
 
     const pos0 = this.gpu.createTexture();
-    this.fillInitialPositions(pos0.image.data as Float32Array);
+    this.fillInitialPositions(pos0.image.data as unknown as Float32Array);
 
     this.posVar = this.gpu.addVariable('texturePosition', this.shaderPosFlame(), pos0);
     this.gpu.setVariableDependencies(this.posVar, [this.posVar]);

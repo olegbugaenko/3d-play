@@ -1,8 +1,30 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@logic': path.resolve(__dirname, './src/logic'),
+      '@core': path.resolve(__dirname, './src/logic/core'),
+      '@game': path.resolve(__dirname, './src/logic/core/game'),
+      '@interfaces': path.resolve(__dirname, './src/logic/interfaces'),
+      '@modules': path.resolve(__dirname, './src/logic/modules'),
+      '@buildings': path.resolve(__dirname, './src/logic/modules/buildings'),
+      '@upgrades': path.resolve(__dirname, './src/logic/modules/upgrades'),
+      '@drones': path.resolve(__dirname, './src/logic/modules/drones'),
+      '@resources': path.resolve(__dirname, './src/logic/modules/resources'),
+      '@systems': path.resolve(__dirname, './src/logic/systems'),
+      '@scene': path.resolve(__dirname, './src/logic/systems/scene'),
+      '@map': path.resolve(__dirname, './src/logic/systems/map'),
+      '@commands': path.resolve(__dirname, './src/logic/systems/commands'),
+      '@modifiers': path.resolve(__dirname, './src/logic/systems/modifiers-system'),
+      '@save-load': path.resolve(__dirname, './src/logic/systems/save-load'),
+      '@utils': path.resolve(__dirname, './src/logic/utils'),
+      '@shared': path.resolve(__dirname, './src/logic/shared')
+    }
+  },
   server: {
     // Налаштування для статичних файлів
     fs: {
