@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import Scene3D from './components/Scene3D';
-import { MainMenu } from './components/MainMenu';
+// import { Scene3D } from '@ui/screens/colony/scene/Scene3D';
+import { MainMenu, Scene3D } from './ui';
 import { Game } from '@core/game/game';
 import './App.css';
 

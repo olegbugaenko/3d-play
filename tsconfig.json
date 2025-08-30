@@ -33,7 +33,8 @@
       "@modifiers/*": ["src/logic/systems/modifiers-system/*"],
       "@save-load/*": ["src/logic/systems/save-load/*"],
       "@utils/*": ["src/logic/utils/*"],
-      "@shared/*": ["src/logic/shared/*"]
+      "@shared/*": ["src/logic/shared/*"],
+      "@ui/*": ["src/ui/*"]
     }
   },
   "include": ["src"],

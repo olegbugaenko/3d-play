@@ -22,7 +22,8 @@ export default defineConfig({
       '@modifiers': path.resolve(__dirname, './src/logic/systems/modifiers-system'),
       '@save-load': path.resolve(__dirname, './src/logic/systems/save-load'),
       '@utils': path.resolve(__dirname, './src/logic/utils'),
-      '@shared': path.resolve(__dirname, './src/logic/shared')
+      '@shared': path.resolve(__dirname, './src/logic/shared'),
+      '@ui': path.resolve(__dirname, './src/ui')
     }
   },
   server: {
