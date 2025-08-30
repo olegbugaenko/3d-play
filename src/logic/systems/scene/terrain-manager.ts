@@ -206,7 +206,6 @@ export class TerrainManager {
   }
 
   regenerateTerrainWithSeed(seed: number): void {
-    console.log('GENWS: ', seed);
     this.config.seed = seed;
     this.seededRandom = new SeededRandom(seed);
     this.seedProfile = this.makeSeedProfile();

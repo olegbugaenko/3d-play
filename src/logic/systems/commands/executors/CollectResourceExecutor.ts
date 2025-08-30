@@ -36,7 +36,7 @@ export class CollectResourceExecutor extends CommandExecutor {
         if (!object) {
             return { success: false, message: 'Object not found' };
         }
-
+        object.data.animationId = 'collect';
         // Отримуємо цільовий ресурс
         if (!this.command.targetId) {
             return { success: false, message: 'No target resource specified' };

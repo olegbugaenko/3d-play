@@ -1,4 +1,4 @@
-import { ResourceId, RESOURCES_DB } from './resources-db';
+import { ResourceId, RESOURCES_DB, RESOURCE_IDS } from './resources-db';
 import { 
   ResourceRequest, 
   ResourceCheckResult, 
@@ -7,6 +7,7 @@ import {
 } from './resource-types';
 import { SaveLoadManager, ResourceSaveData } from '@save-load/save-load.types';
 import { IResourceManager, IBonusSystem } from '@interfaces/index';
+import { GameContainer } from '@core/game/GameContainer';
 
 // Нова структура ресурсу
 export interface ResourceData {
@@ -19,10 +20,14 @@ export interface ResourceData {
 
 // Статус ресурсу для перевірки
 export interface ResourceStatus {
+  name?: string;
   required: number;
   own: number;
   isAffordable: boolean;
   progress: number;
+  // UI дані для відображення
+  icon?: string;
+  color?: string;
 }
 
 export class ResourceManager implements SaveLoadManager, IResourceManager {
@@ -30,9 +35,11 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
   private history: ResourceHistoryEntry[] = [];
   private maxHistorySize = 1000; // максимальна кількість записів в історії
   private bonusSystem: IBonusSystem;
+  private container: GameContainer;
 
-  constructor(bonusSystem: IBonusSystem, initialResources?: Partial<Record<ResourceId, number>>) {
+  constructor(bonusSystem: IBonusSystem, container: GameContainer, initialResources?: Partial<Record<ResourceId, number>>) {
     this.bonusSystem = bonusSystem;
+    this.container = container;
     
     // Ініціалізуємо всі ресурси з нуля
     Object.keys(RESOURCES_DB).forEach(id => {
@@ -206,10 +213,13 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
       const progress = Math.min(1.0, own / Math.max(1, required));
 
       resources[id] = {
+        name: RESOURCES_DB[id].name,
         required,
         own,
         isAffordable,
-        progress
+        progress,
+        icon: RESOURCES_DB[id].icon,
+        color: RESOURCES_DB[id].color
       };
 
       totalRequired += required;
@@ -244,6 +254,107 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
   }
 
   /**
+   * Перевіряє чи ресурс розблокований
+   */
+  public isUnlocked(resourceId: ResourceId): boolean {
+    const resourceData = RESOURCES_DB[resourceId];
+    if (!resourceData.requirements || resourceData.requirements.length === 0) {
+      return true; // Якщо нема реквайрментів - ресурс автоматично доступний
+    }
+    
+    // Перевіряємо реквайрменти через RequirementsSystem
+    const requirementsSystem = this.container.get('requirementsSystem') as any;
+    const result = requirementsSystem.checkRequirements(resourceData.requirements);
+    return result.satisfied;
+  }
+
+  /**
+   * Отримує список доступних ресурсів для UI
+   */
+  public getAvailableResources(): ResourceId[] {
+    return RESOURCE_IDS.filter(resourceId => this.isUnlocked(resourceId));
+  }
+
+  /**
+   * Отримує доступні ресурси з їх кількістю для UI
+   */
+  public getAvailableResourcesWithAmounts(): Record<ResourceId, number> {
+    const result: Record<ResourceId, number> = {} as any;
+    this.getAvailableResources().forEach(resourceId => {
+      result[resourceId] = this.getResourceAmount(resourceId);
+    });
+    return result;
+  }
+
+  /**
+   * Отримує доступні ресурси з їх детальними даними для UI
+   */
+  public getAvailableResourceData(): Map<ResourceId, ResourceData> {
+    const result = new Map<ResourceId, ResourceData>();
+    this.getAvailableResources().forEach(resourceId => {
+      const data = this.resources.get(resourceId);
+      if (data) {
+        result.set(resourceId, data);
+      }
+    });
+    return result;
+  }
+
+  /**
+   * Отримати готові дані для відображення в UI
+   * Повертає масив ресурсів з назвами, балансами та метаданими
+   */
+  public getAvailableResourcesForUI(): Array<{
+    id: ResourceId;
+    name: string;
+    icon?: string;
+    color?: string;
+    description?: string;
+    current: number;
+    max: number;
+    progress: number;
+    income: number;
+    consumption: number;
+  }> {
+    const result: Array<{
+      id: ResourceId;
+      name: string;
+      icon?: string;
+      color?: string;
+      description?: string;
+      current: number;
+      max: number;
+      progress: number;
+      income: number;
+      consumption: number;
+    }> = [];
+
+    this.getAvailableResources().forEach(resourceId => {
+      const resourceData = this.resources.get(resourceId);
+      const resourceInfo = RESOURCES_DB[resourceId];
+      
+      if (resourceData && resourceInfo) {
+        const progress = resourceData.max > 0 ? (resourceData.balance / resourceData.max) * 100 : 0;
+        
+        result.push({
+          id: resourceId,
+          name: resourceInfo.name,
+          icon: resourceInfo.icon,
+          color: resourceInfo.color,
+          description: resourceInfo.description,
+          current: resourceData.balance,
+          max: resourceData.max,
+          progress: Math.round(progress * 100) / 100, // Округляємо до 2 знаків
+          income: resourceData.income,
+          consumption: resourceData.consumption
+        });
+      }
+    });
+
+    return result;
+  }
+
+  /**
    * Отримати поточну кількість ресурсу
    */
   getResourceAmount(resourceId: ResourceId): number {
@@ -269,7 +380,8 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
   }
 
   /**
-   * Отримати всі ресурси
+   * Отримати всі ресурси (без фільтрації по реквайрментах)
+   * Для UI використовуйте getAvailableResources() та getAvailableResourceData()
    */
   getAllResources(): Record<ResourceId, number> {
     const result: Record<ResourceId, number> = {} as any;

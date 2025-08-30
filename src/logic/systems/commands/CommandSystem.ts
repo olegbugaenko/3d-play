@@ -25,8 +25,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             this.commandQueues.set(objectId, queue);
         }
 
-        console.log('AddCommand: ', objectId, command, this.commandQueues);
-
         queue.addCommand(command);
         
         // Якщо це перша команда, створюємо executor
@@ -244,11 +242,8 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
      */
     private resolveCommandParameters(command: Command, objectId: string, persistContextResolved: boolean = false): void {
         if (!command.groupId || !command.parameterTemplates) {
-            console.log('[CommandSystem] Skipping parameter resolution - no groupId or parameterTemplates:', { groupId: command.groupId, hasTemplates: !!command.parameterTemplates });
             return;
         }
-
-        console.log('[CommandSystem] Resolving parameters for command:', command.id, 'with templates:', command.parameterTemplates);
 
         // Отримуємо стан групи
         const groupState = this.mapLogic.commandGroupSystem?.getGroupState(objectId, command.groupId);
@@ -264,7 +259,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             return;
         }
 
-        console.log('[CommandSystem] Resolving parameters with pipeline:', groupDefinition.resolveParametersPipeline, groupState.context);
+
 
         // Розв'язуємо параметри перед командою
         const resolvedParameters = this.mapLogic.commandGroupSystem?.parameterResolutionService?.resolveParameters(
@@ -273,7 +268,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             'before-command'
         );
 
-        console.log('[CommandSystem] Resolved parameters:', resolvedParameters, groupDefinition.resolveParametersPipeline);
+
 
         if (resolvedParameters) {
             let resolvedParamsToApply = resolvedParameters;
@@ -285,7 +280,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             }
             // Застосовуємо розв'язані параметри до команди
             this.applyResolvedParameters(command, resolvedParamsToApply);
-            console.log('[CommandSystem] Applied resolved parameters to command:', command.id, 'position:', command.position, 'targetId:', command.targetId);
         }
     }
 
@@ -309,7 +303,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             groupDefinition.resolveParametersPipeline
         );
         
-        console.log('[CommandSystem] Generated parameterTemplates for command:', command.id, ':', command.parameterTemplates);
+
     }
 
     /**
@@ -317,23 +311,18 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
      */
     private applyResolvedParameters(command: Command, resolvedParameters: Record<string, any> | undefined): void {
         if (!command.parameterTemplates) {
-            console.log('[CommandSystem] No parameterTemplates to apply');
             return;
         }
 
         if(!resolvedParameters) {
-            console.log('[CommandSystem] No resolvedParameters to apply');
             return;
         }
-
-        console.log('[CommandSystem] Applying resolved parameters:', resolvedParameters, 'to command:', command.id);
 
         // Застосовуємо position
         if (command.parameterTemplates.position && resolvedParameters[command.parameterTemplates.position.parameterId]) {
             const value = resolvedParameters[command.parameterTemplates.position.parameterId];
             if (value && typeof value === 'object' && value.x !== undefined) {
                 command.position = { x: value.x, y: value.y, z: value.z };
-                console.log('[CommandSystem] Applied position:', command.position);
             }
         }
 
@@ -341,7 +330,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
         if (command.parameterTemplates.targetId && resolvedParameters[command.parameterTemplates.targetId.parameterId]) {
             const value = resolvedParameters[command.parameterTemplates.targetId.parameterId];
             command.targetId = value?.id || value;
-            console.log('[CommandSystem] Applied targetId:', command.targetId);
         }
     }
 
@@ -349,21 +337,23 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
      * Видаляє executor для об'єкта
      */
     private removeExecutor(objectId: string): void {
-        // Очищаємо target коли executor видаляється
+        // Очищаємо target та animationId коли executor видаляється
         const object = this.mapLogic.scene.getObjectById(objectId);
         if (object && object.data) {
             object.data.target = undefined;
+            object.data.animationId = null;
         }
         
         this.executors.delete(objectId);
     }
 
-    // Очищення target для конкретної команди
+    // Очищення target та animationId для конкретної команди
     private clearTargetForCommand(objectId: string, command: Command): void {
         if (command.type === 'move-to') {
             const object = this.mapLogic.scene.getObjectById(objectId);
             if (object && object.data) {
                 object.data.target = undefined;
+                object.data.animationId = null;
             }
         }
     }
@@ -485,7 +475,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
     // ==================== SaveLoadManager Implementation ====================
     
     save(): CommandSystemSaveData {
-        console.log('[CommandSystem] Saving commands...', this.commandQueues);
         
         const commandQueues: CommandSystemSaveData['commandQueues'] = [];
         const activeCommands: CommandSystemSaveData['activeCommands'] = [];
@@ -494,7 +483,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
         this.commandQueues.forEach((queue, objectId) => {
             const commands = queue.getAllCommands();
             if (commands.length > 0) {
-                console.log('[CommandSystem] Saving queue for', objectId, 'with', commands.length, 'commands');
                 
                 // Зберігаємо всі команди в черзі з їх порядком
                 commandQueues.push({
@@ -536,7 +524,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
     }
     
     load(data: CommandSystemSaveData): void {
-        console.log('[CommandSystem] Loading commands:', data);
         
         // Очищаємо поточні команди
         this.commandQueues.forEach((_queue, objectId) => {
@@ -553,7 +540,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
                     return;
                 }
                 
-                console.log('[CommandSystem] Loading queue for object:', objectId, 'with', commands.length, 'commands');
+
                 
                 // Додаємо всі команди в чергу для цього об'єкта
                 commands.forEach((command: any) => {
@@ -576,10 +563,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
                         
                         // Якщо команда має groupId - генеруємо parameterTemplates та резолвимо параметри
                         if (restoredCommand.groupId) {
-                            console.log('[CommandSystem] Command has groupId, generating templates and resolving parameters:', restoredCommand.groupId, {
-                                resolvedParamsMapping: restoredCommand.resolvedParamsMapping,
-                                groupRestartCodes: restoredCommand.groupRestartCodes
-                            });
                             
                             // Генеруємо parameterTemplates на основі збереженого resolvedParamsMapping
                             this.generateParameterTemplatesForCommand(restoredCommand, objectId);
@@ -596,7 +579,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             });
         }
         
-        console.log('[CommandSystem] Loaded commands. Current queues:', this.commandQueues);
+
     }
     
     reset(): void {
@@ -689,7 +672,11 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
 
         const removed = queue.removeCommand(commandId);
         if (removed && queue.getLength() === 0) {
-            // Якщо черга порожня, видаляємо executor
+            // Якщо черга порожня, видаляємо executor та очищаємо animationId
+            const object = this.mapLogic.scene.getObjectById(objectId);
+            if (object && object.data) {
+                object.data.animationId = null;
+            }
             this.executors.delete(objectId);
         }
         return removed;

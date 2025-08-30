@@ -65,6 +65,8 @@ export interface ResolveParametersPipeline {
 }
 
 // UI метадані для групи команд
+import { Requirement } from '@systems/requirements';
+
 export interface CommandGroupUI {
   scope: 'gather' | 'build' | 'none';
   category: string; // 'stone', 'ore', 'all', 'building', 'repair'
@@ -86,6 +88,7 @@ export interface CommandGroup {
   resolveParametersPipeline?: ResolveParametersPipeline[]; // Пайплайн резолюції параметрів
   tasksPipeline: CommandGroupPipeline;
   ui?: CommandGroupUI; // UI метадані
+  requirements?: Requirement[]; // Додаємо реквайрменти
 }
 
 // Стан групи команд

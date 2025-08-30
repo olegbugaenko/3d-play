@@ -12,6 +12,13 @@ export interface ICommandGroupSystem extends SaveLoadManager {
   getAllCommandGroups(): Map<string, any>;
   getActiveGroups(): Map<string, any>;
   
+  // Методи для UI з реквайрментами
+  isUnlocked(groupId: string): boolean;
+  getAvailableCommandGroups(): any[];
+  getAvailableUIGroups(): any[];
+  getAvailableGroupsByScope(scope: 'gather' | 'build' | 'none'): any[];
+  getAvailableGroupsByScopeAndCategory(scope: 'gather' | 'build' | 'none', category: string): any[];
+  
   // Системні методи
   tick(dT: number): void;
   update(dT: number): void;

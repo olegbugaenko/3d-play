@@ -1,3 +1,5 @@
+import { Requirement } from '@systems/requirements';
+
 // База даних ресурсів
 export type ResourceId = 'energy' | 'stone' | 'ore';
 
@@ -8,6 +10,7 @@ export interface ResourceDefinition {
   icon?: string;
   color?: string;
   description?: string;
+  requirements?: Requirement[];  // Додаємо реквайрменти
 }
 
 export const RESOURCES_DB: Record<ResourceId, ResourceDefinition> = {
@@ -33,7 +36,14 @@ export const RESOURCES_DB: Record<ResourceId, ResourceDefinition> = {
     maxCapacity: 300,
     icon: '⛏️',
     color: '#696969',
-    description: 'Руда для виробництва металів'
+    description: 'Руда для виробництва металів',
+    requirements: [
+      {
+        scope: 'upgrade',
+        id: 'miningEfficiency1',
+        level: 2
+      }
+    ]
   }
 };
 

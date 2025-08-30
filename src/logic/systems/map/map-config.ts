@@ -29,7 +29,7 @@ export const MAP_CONFIG = {
     // Terrain налаштування
     terrain: {
         resolution: 10,    // Data resolution для пам'яті
-        maxHeight: 40,     // Максимальна висота terrain
+        maxHeight: 25,     // Максимальна висота terrain
         minHeight: 0,      // Мінімальна висота terrain
         renderResolution: 2, // Render resolution для візуальної якості
         

@@ -100,11 +100,38 @@ export class ParameterResolvers {
 
   /**
    * Знаходить всі ресурси з вказаним тегом в межах радіуса
+   * Фільтрує тільки розблоковані ресурси
    */
   getResourcesInRadius(tag: string, center: { x: number; y: number; z: number }, radius: number): any[] {
-            // Пошук об'єктів у радіусі
-    console.log(`Getting ${tag} resources within radius: `, center, radius);
-    return this.mapLogic.scene.getObjectsByTagInRadius('resource', center, radius).filter((one: TSceneObject) => tag === 'resource' || one.data.resourceId === tag).map((one: TSceneObject) => one.id);
+    // Пошук об'єктів у радіусі
+    
+    // Отримуємо всі ресурси в радіусі
+    const allResources = this.mapLogic.scene.getObjectsByTagInRadius('resource', center, radius);
+    
+    // Фільтруємо по типу ресурсу та розблокованості
+    const filteredResources = allResources.filter((one: TSceneObject) => {
+      // Перевіряємо чи це потрібний тип ресурсу
+      if (tag !== 'resource' && one.data.resourceId !== tag) {
+        return false;
+      }
+      
+      // Перевіряємо чи ресурс розблокований
+      const resourceId = one.data.resourceId;
+      if (!resourceId) {
+        return false;
+      }
+      
+      // Отримуємо ResourceManager через MapLogic
+      const resourceManager = this.mapLogic.resources;
+      if (!resourceManager) {
+        console.warn('ResourceManager not available for resource filtering');
+        return true; // Якщо нема ResourceManager - показуємо всі
+      }
+      
+      return resourceManager.isUnlocked(resourceId);
+    });
+    
+    return filteredResources.map((one: TSceneObject) => one.id);
   }
 
   /**

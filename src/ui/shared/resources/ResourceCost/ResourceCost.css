@@ -1,0 +1,110 @@
+.resource-cost {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cost-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cost-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.cost-item.affordable {
+  background: rgba(0, 255, 0, 0.1);
+  border-color: rgba(0, 255, 0, 0.3);
+}
+
+.cost-item.unaffordable {
+  background: rgba(255, 0, 0, 0.1);
+  border-color: rgba(255, 0, 0, 0.3);
+}
+
+.cost-icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+}
+
+.cost-amount {
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.cost-status {
+  font-size: 12px;
+  font-weight: bold;
+  width: 16px;
+  text-align: center;
+}
+
+.cost-item.affordable .cost-status {
+  color: #00ff00;
+}
+
+.cost-item.unaffordable .cost-status {
+  color: #ff0000;
+}
+
+.cost-summary {
+  text-align: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.cost-summary.affordable {
+  background: rgba(0, 255, 0, 0.2);
+  color: #00ff00;
+  border: 1px solid rgba(0, 255, 0, 0.4);
+}
+
+.cost-summary.unaffordable {
+  background: rgba(255, 0, 0, 0.2);
+  color: #ff0000;
+  border: 1px solid rgba(255, 0, 0, 0.4);
+}
+
+/* Компактний режим */
+.resource-cost.compact .cost-items {
+  gap: 4px;
+}
+
+.resource-cost.compact .cost-item {
+  padding: 2px 6px;
+  gap: 4px;
+}
+
+.resource-cost.compact .cost-icon {
+  font-size: 14px;
+  width: 16px;
+}
+
+.resource-cost.compact .cost-amount {
+  font-size: 11px;
+}
+
+.resource-cost.compact .cost-status {
+  font-size: 10px;
+  width: 14px;
+}
+
+.resource-cost.compact .cost-summary {
+  padding: 2px 6px;
+  font-size: 10px;
+}

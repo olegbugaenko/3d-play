@@ -11,6 +11,9 @@ export interface IBonusSystem {
   // Отримання ефектів
   getEffectValue(effectId: string): number;
   
+  // Отримання деталей бонусів
+  getBonusDetails(bonusSourceId: string): any[];
+  
   // Системні методи
   reset(): void;
 }

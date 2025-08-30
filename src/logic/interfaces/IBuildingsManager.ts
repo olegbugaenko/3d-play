@@ -18,6 +18,11 @@ export interface IBuildingsManager extends SaveLoadManager {
   setInitialState(instanceId: string, typeId: string, level?: number, built?: boolean, position?: Vector3): void;
   generateBuilding(typeId: string, position: Vector3, level?: number): void;
   
+  // Методи для реквайрментів
+  canBuild(buildingTypeId: string): boolean;
+  getTotalLevelForBuildingType(buildingTypeId: string): number;
+  getMaxLevelForBuildingType(buildingTypeId: string): number;
+  
   // Системні методи
   reset(): void;
   beforeInit?(): void;

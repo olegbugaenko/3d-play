@@ -1,22 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getGroupsByScope, getGroupsByScopeAndCategory, CommandGroup } from '@systems/commands';
+import { CommandGroup } from '@systems/commands';
+import { Game } from '@core/game/game';
 
 interface CommandPanelProps {
   selectedUnits: string[];
   // onCommandSelect: (commandGroup: CommandGroup, centerPosition: { x: number; y: number; z: number }) => void;
   onCommandChange: (commandGroup: CommandGroup | null) => void;
+  game: Game;
 }
 
-export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCommandChange }) => {
+export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCommandChange, game }) => {
   
   const [selectedScope, setSelectedScope] = useState<'gather' | 'build' | null>(null);
   const [availableScopes, setAvailableScopes] = useState<string[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [selectedCommand, setSelectedCommand] = useState<CommandGroup | null>(null);
-
-  // Мемоізуємо функції, щоб вони не створювалися заново
-  const memoizedGetGroupsByScope = useCallback(getGroupsByScope, []);
-  const memoizedGetGroupsByScopeAndCategory = useCallback(getGroupsByScopeAndCategory, []);
 
   // Отримуємо доступні scope для вибраних юнітів
   useEffect(() => {
@@ -28,10 +26,10 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
       return;
     }
 
-    // Отримуємо всі доступні scope
+    // Отримуємо всі доступні scope через CommandGroupSystem
     const scopes = ['gather', 'build'];
     const availableScopes = scopes.filter(scope => {
-      const groups = memoizedGetGroupsByScope(scope as 'gather' | 'build');
+      const groups = game.commandGroupSystem.getAvailableGroupsByScope(scope as 'gather' | 'build');
       return groups.length > 0;
     });
 
@@ -43,7 +41,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
       setSelectedCommand(null);
       onCommandChange(null);
     }
-  }, [selectedUnits, memoizedGetGroupsByScope, onCommandChange]);
+  }, [selectedUnits, game.commandGroupSystem, onCommandChange]);
 
   // Отримуємо доступні категорії для обраного scope
   useEffect(() => {
@@ -52,12 +50,12 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
       return;
     }
 
-    const groups = memoizedGetGroupsByScope(selectedScope);
+    const groups = game.commandGroupSystem.getAvailableGroupsByScope(selectedScope);
     
     // Отримуємо унікальні категорії з UI метаданих
     const categories = [...new Set(groups.map(group => group.ui?.category).filter(Boolean))] as string[];
     setAvailableCategories(categories);
-  }, [selectedScope, memoizedGetGroupsByScope]);
+  }, [selectedScope, game.commandGroupSystem]);
 
   // Обробник кліку по scope
   const handleScopeClick = useCallback((scope: 'gather' | 'build') => {
@@ -129,7 +127,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
           </div>
           <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', justifyContent: 'center' }}>
             {availableCategories.map(category => {
-              const groups = memoizedGetGroupsByScopeAndCategory(selectedScope, category);
+              const groups = game.commandGroupSystem.getAvailableGroupsByScopeAndCategory(selectedScope, category);
               return groups.map(group => (
                 <button
                   key={group.id}

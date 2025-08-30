@@ -33,13 +33,8 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
      * Завантажує БД типів дронів
      */
     public beforeInit(): void {
-        console.log('[DroneManager] Starting beforeInit...');
-        
         // Копіюємо БД типів дронів
         this.droneTypesDB = new Map(DRONE_TYPES_DB);
-        console.log(`[DroneManager] Loaded ${this.droneTypesDB.size} drone types from DB:`, Array.from(this.droneTypesDB.keys()));
-        
-        console.log('[DroneManager] beforeInit completed');
     }
     
     // ==================== Drone Management ====================
@@ -76,7 +71,6 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
             terrainAlign: true,
             commandType: ['move-to', 'collect-resource', 'build', 'charge']
         };
-        console.log('Adding drone: ', drone, position, drone.tags);
         // Додаємо дрона в сцену
         this.scene.pushObjectWithTerrainConstraint(drone);
         return drone;
@@ -114,13 +108,9 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
      * Створює початкових дронів для нової гри
      */
     newGameDrones(): void {
-        console.log('[DroneManager] Створюємо початкових дронів для нової гри');
-        
         // Створюємо 1 дрон
         this.createDrone('rover_1', { x: 0, y: 0, z: 0 }, 'basic_rover');
         this.updateDroneData('rover_1', true);
-        
-        console.log('[DroneManager] Початкові дрони створені');
     }
     
     /**
@@ -362,7 +352,7 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
             this.scene.removeObject(drone.id);
         });
         
-        console.log('[DroneManager] Reset completed');
+
     }
 
     /**
@@ -380,7 +370,6 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         drone.rotation2D = angle;
         drone.rotation = { x: 0, y: angle, z: 0 };
         
-        console.log(`[DroneManager] Moved drone ${droneId} to position:`, target);
         return true;
     }
 

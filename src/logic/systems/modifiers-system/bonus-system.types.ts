@@ -37,3 +37,13 @@ export interface BonusFormula {
     description: string;
     initialValue: number; // Початкове значення ефекту
   }
+
+  // Новий інтерфейс для деталей бонусів
+  export interface BonusDetail {
+    type: 'effect' | 'resource';
+    id: string;
+    name: string;
+    bonusType: 'income' | 'multiplier' | 'consumption' | 'cap' | 'capMulti';
+    currentLevelValue: number;
+    nextLevelValue: number;
+  }

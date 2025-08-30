@@ -1,26 +1,11 @@
 import React from 'react';
 import { Modal } from '@ui/shared';
+import { ResourceCost } from '@ui/shared/resources/ResourceCost';
+import { EffectsSection } from '@ui/shared/resources/EffectsSection';
+import { UpgradesModalProps } from '../upgrades.types';
 import './UpgradesModal.css';
 
-interface UpgradeItem {
-  typeId: string;
-  name: string;
-  description: string;
-  currentLevel: number;
-  maxLevel: number;
-  unlocked: boolean;
-  canUpgrade: boolean;
-  nextLevelCost: Record<string, number>;
-  canAfford: boolean;
-  costCheck: any;
-}
 
-interface UpgradesModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  upgrades: UpgradeItem[];
-  onPurchaseUpgrade: (typeId: string) => void;
-}
 
 export const UpgradesModal: React.FC<UpgradesModalProps> = ({
   isOpen,
@@ -29,14 +14,7 @@ export const UpgradesModal: React.FC<UpgradesModalProps> = ({
   onPurchaseUpgrade
 }) => {
 
-  const getResourceColor = (resourceId: string) => {
-    const colors: Record<string, string> = {
-      stone: '#8B4513',
-      ore: '#696969',
-      energy: '#32CD32'
-    };
-    return colors[resourceId] || '#333';
-  };
+
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Upgrades" size="large">
@@ -58,22 +36,20 @@ export const UpgradesModal: React.FC<UpgradesModalProps> = ({
                 
                 <p className="upgrade-description">{upgrade.description}</p>
                 
-                {upgrade.currentLevel < upgrade.maxLevel && upgrade.unlocked && (
+                {upgrade.currentLevel < upgrade.maxLevel && upgrade.unlocked && upgrade.costCheck && (
                   <div className="upgrade-cost">
                     <h4>Next Level Cost:</h4>
-                    <div className="cost-items">
-                      {Object.entries(upgrade.nextLevelCost).map(([resourceId, amount]) => (
-                        <span 
-                          key={resourceId} 
-                          className="cost-item"
-                          style={{ color: getResourceColor(resourceId) }}
-                        >
-                          {resourceId}: {amount}
-                        </span>
-                      ))}
-                    </div>
+                    <ResourceCost costCheck={upgrade.costCheck} showStatus={true} />
                   </div>
                 )}
+                
+                {upgrade.bonusDetails && upgrade.bonusDetails.length > 0 ? (
+                  <EffectsSection 
+                    bonusDetails={upgrade.bonusDetails} 
+                    title="Upgrade Effects"
+                    compact={false}
+                  />
+                ) : null}
                 
                 <div className="upgrade-actions">
                   {upgrade.currentLevel >= upgrade.maxLevel ? (
@@ -90,23 +66,6 @@ export const UpgradesModal: React.FC<UpgradesModalProps> = ({
                     </button>
                   )}
                 </div>
-                
-                {!upgrade.canAfford && upgrade.currentLevel < upgrade.maxLevel && upgrade.unlocked && (
-                  <div className="missing-resources">
-                    <h4>Missing Resources:</h4>
-                    <div className="missing-items">
-                      {Object.entries(upgrade.costCheck.missing).map(([resourceId, amount]) => (
-                        <span 
-                          key={resourceId} 
-                          className="missing-item"
-                          style={{ color: getResourceColor(resourceId) }}
-                        >
-                          {resourceId}: {amount as number}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             ))}
           </div>

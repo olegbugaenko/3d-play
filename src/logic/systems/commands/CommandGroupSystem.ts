@@ -1,18 +1,21 @@
 import { Command } from './command.types';
 import { CommandGroup, CommandGroupContext, CommandGroupState } from './command-group.types';
-import { getCommandGroup } from './db/command-groups-db';
+import { getCommandGroup, COMMAND_GROUPS } from './db/command-groups-db';
 import { ParameterResolutionService } from './ParameterResolutionService';
 import { SaveLoadManager } from '../save-load/save-load.types';
 import { ICommandGroupSystem, ICommandSystem, IMapLogic } from '@interfaces/index';
+import { GameContainer } from '@core/game/GameContainer';
 
 export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem {
   private commandSystem: ICommandSystem;
   private activeGroups: Map<string, CommandGroupState> = new Map();
   public parameterResolutionService: ParameterResolutionService;
+  private container: GameContainer;
 
-  constructor(commandSystem: ICommandSystem, mapLogic: IMapLogic) {
+  constructor(commandSystem: ICommandSystem, mapLogic: IMapLogic, container: GameContainer) {
     this.commandSystem = commandSystem;
     this.parameterResolutionService = new ParameterResolutionService(mapLogic);
+    this.container = container;
   }
 
   // Запуск групи команд
@@ -267,7 +270,6 @@ export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem 
   }
   
   reset(): void {
-    console.log('[CommandGroupSystem] Resetting groups...');
     this.activeGroups.clear();
   }
 
@@ -336,6 +338,53 @@ export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem 
       }
     });
     return result;
+  }
+
+  /**
+   * Перевіряє чи група команд розблокована
+   */
+  public isUnlocked(groupId: string): boolean {
+    const group = getCommandGroup(groupId);
+    if (!group || !group.requirements || group.requirements.length === 0) {
+      return true; // Якщо нема реквайрментів - група автоматично доступна
+    }
+    
+    // Перевіряємо реквайрменти через RequirementsSystem
+    const requirementsSystem = this.container.get('requirementsSystem') as any;
+    const result = requirementsSystem.checkRequirements(group.requirements);
+    return result.satisfied;
+  }
+
+  /**
+   * Отримує список доступних груп команд для UI
+   */
+  public getAvailableCommandGroups(): CommandGroup[] {
+    // Отримуємо всі групи та фільтруємо по реквайрментах
+    const allGroups = COMMAND_GROUPS || [];
+    return allGroups.filter((group: CommandGroup) => this.isUnlocked(group.id));
+  }
+
+  /**
+   * Отримує доступні групи команд з UI метаданими
+   */
+  public getAvailableUIGroups(): CommandGroup[] {
+    return this.getAvailableCommandGroups().filter(group => group.ui);
+  }
+
+  /**
+   * Отримує доступні групи команд по scope
+   */
+  public getAvailableGroupsByScope(scope: 'gather' | 'build' | 'none'): CommandGroup[] {
+    return this.getAvailableCommandGroups().filter(group => group.ui?.scope === scope);
+  }
+
+  /**
+   * Отримує доступні групи команд по scope та категорії
+   */
+  public getAvailableGroupsByScopeAndCategory(scope: 'gather' | 'build' | 'none', category: string): CommandGroup[] {
+    return this.getAvailableCommandGroups().filter(group => 
+      group.ui?.scope === scope && group.ui?.category === category
+    );
   }
 
   /**

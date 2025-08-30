@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 // import { Scene3D } from '@ui/screens/colony/scene/Scene3D';
 import { MainMenu, Scene3D } from './ui';
+import { ResourcesBar } from '@ui/screens/colony/ui-controls/ResourcesBar';
 import { Game } from '@core/game/game';
 import './App.css';
 
@@ -37,12 +38,15 @@ function App() {
           game={game}
         />
       ) : (
-        <Scene3D 
-          saveManager={game.saveManager}
-          onShowMainMenu={handleShowMainMenu}
-          mapLogic={game.mapLogic}
-          game={game}
-        />
+        <>
+          <ResourcesBar resourceManager={game.mapLogic.resources} />
+          <Scene3D 
+            saveManager={game.saveManager}
+            onShowMainMenu={handleShowMainMenu}
+            mapLogic={game.mapLogic}
+            game={game}
+          />
+        </>
       )}
     </div>
   );

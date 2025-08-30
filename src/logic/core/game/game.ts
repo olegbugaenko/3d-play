@@ -9,6 +9,7 @@ import { UpgradesManager } from '@upgrades/UpgradesManager';
 import { BuildingsManager } from '@buildings/BuildingsManager';
 import { SceneLogic } from '@scene/scene-logic';
 import { DynamicsLogic } from '@scene/dynamics-logic';
+import { RequirementsSystem } from '@systems/requirements';
 import { initEffects } from '@shared/effects';
 import { GameContainer } from './GameContainer';
 import { ISceneLogic, IResourceManager, IBonusSystem, IBuildingsManager, IUpgradesManager, IDroneManager, ICommandSystem, IMapLogic, ICommandGroupSystem, ISaveManager } from '../../interfaces/index';
@@ -45,17 +46,24 @@ export class Game {
     
     // Реєструємо сервіси з залежностями
     this.container.register('dynamicsLogic', () => new DynamicsLogic(this.container.get('sceneLogic')));
-    this.container.register('resourceManager', () => new ResourceManager(this.container.get('bonusSystem')));
+    this.container.register('resourceManager', () => new ResourceManager(this.container.get('bonusSystem'), this.container));
     
-    // Реєструємо менеджери
+    // Реєструємо RequirementsSystem спочатку (з контейнером)
+    this.container.register('requirementsSystem', () => new RequirementsSystem(
+      this.container
+    ));
+    
+    // Реєструємо менеджери (з RequirementsSystem)
     this.container.register('upgradesManager', () => new UpgradesManager(
       this.container.get('bonusSystem'), 
-      this.container.get('resourceManager')
+      this.container.get('resourceManager'),
+      this.container.get('requirementsSystem')
     ));
     
     this.container.register('buildingsManager', () => new BuildingsManager(
       this.container.get('bonusSystem'), 
-      this.container.get('sceneLogic')
+      this.container.get('sceneLogic'),
+      this.container.get('requirementsSystem')
     ));
     
     this.container.register('droneManager', () => new DroneManager(
@@ -80,7 +88,8 @@ export class Game {
     
     this.container.register('commandGroupSystem', () => new CommandGroupSystem(
       this.container.get('commandSystem'),
-      this.container.get('mapLogic')
+      this.container.get('mapLogic'),
+      this.container
     ));
     
     // Реєструємо SaveManager останнім
@@ -90,8 +99,6 @@ export class Game {
   }
 
   private constructor() {
-    console.log('[Game] Initializing...');
-    
     // Ініціалізуємо контейнер
     this.container = GameContainer.getInstance();
     
@@ -146,8 +153,6 @@ export class Game {
     
     // Будуємо граф залежностей для системи бонусів
     this.bonusSystem.buildDependencyGraph();
-    
-    console.log('[Game] Initialized successfully');
   }
 
   public static getInstance(): Game {
@@ -165,10 +170,6 @@ export class Game {
   }
 
   public newGame(): void {
-    console.log('[Game] Starting new game...');
-    
-
-    
     // Ініціалізуємо нову гру
 
     this.resourceManager.reset();
@@ -181,13 +182,9 @@ export class Game {
     
     // Запускаємо тіки після ініціалізації
     this.startTicks();
-    
-    console.log('[Game] New game started');
   }
 
   public loadGame(slotId: number): boolean {
-    console.log(`[Game] Loading game from slot ${slotId}...`);
-    
     this.resourceManager.reset();
     this.droneManager.reset();
     this.commandSystem.reset();
@@ -201,17 +198,12 @@ export class Game {
     // Запускаємо тіки після завантаження
     this.startTicks();
     
-    console.log(`[Game] Game loaded from slot ${slotId}`);
     return true;
   }
 
   public saveGame(slotId: number): void {
-    console.log(`[Game] Saving game to slot ${slotId}...`);
-    
     // Зберігаємо гру
     this.saveManager.saveGame(slotId);
-    
-    console.log(`[Game] Game saved to slot ${slotId}`);
   }
 
   public getSaveSlots(): Array<{ slot: number; timestamp: number; hasData: boolean }> {
@@ -219,11 +211,8 @@ export class Game {
   }
 
   public deleteSlot(slotId: number): boolean {
-    console.log(`[Game] Deleting save slot ${slotId}...`);
     const success = this.saveManager.deleteSlot(slotId);
-    if (success) {
-      console.log(`[Game] Save slot ${slotId} deleted successfully`);
-    } else {
+    if (!success) {
       console.error(`[Game] Failed to delete save slot ${slotId}`);
     }
     return success;
@@ -233,12 +222,8 @@ export class Game {
    * Ініціалізує гру (викликається з App.tsx)
    */
   public initGame(): void {
-    console.log('[Game] Initializing game...');
-    
     // Тут можна додати додаткову логіку ініціалізації, якщо потрібно
     // Наприклад, завантаження початкових даних, налаштування UI тощо
-    
-    console.log('[Game] Game initialized successfully');
   }
 
   /**
@@ -256,13 +241,10 @@ export class Game {
    * Запускає автоматичні тіки гри
    */
   public startTicks(): void {
-    console.log('[Game] Starting automatic ticks...');
     this.dynamicsLogic.setEnabled(true);
     // Запускаємо тік кожні 1000мс (1 секунда)
     setInterval(() => {
       this.tick(0.1);
     }, 100);
-    
-    console.log('[Game] Automatic ticks started');
   }
 }

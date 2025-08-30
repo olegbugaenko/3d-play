@@ -9,3 +9,4 @@ export type { IMapLogic } from './IMapLogic';
 export type { ICommandGroupSystem } from './ICommandGroupSystem';
 export type { ISaveManager } from './ISaveManager';
 export type { ICommandQueue } from './ICommandQueue';
+export type { IRequirementsSystem } from './IRequirementsSystem';

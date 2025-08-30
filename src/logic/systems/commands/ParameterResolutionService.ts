@@ -21,7 +21,6 @@ export class ParameterResolutionService {
     resolveWhen: 'group-start' | 'before-command' | 'all'
   ): Record<string, any> {
     const resolvedParameters: Record<string, any> = {};
-    console.log('PIPELINE: ', pipeline, resolveWhen);
     // Фільтруємо параметри за resolveWhen
     let relevantPipeline: ResolveParametersPipeline[];
     

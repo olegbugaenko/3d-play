@@ -39,7 +39,6 @@ export class DependencyGraph {
   private effectToDependents: Map<string, Set<string>> = new Map();
   
   public buildGraph(registry: BonusRegistry): void {
-    console.log('[DependencyGraph] Building graph...');
     
     // Очищаємо попередній граф
     this.nodes.clear();
@@ -88,7 +87,7 @@ export class DependencyGraph {
         }
       }
 
-      console.log('RS: ', sourceData.modifiers);
+
       
       if (sourceData.modifiers.resource) {
         Object.entries(sourceData.modifiers.resource).forEach(([_resourceType, resources]) => {
@@ -159,15 +158,11 @@ export class DependencyGraph {
         
         this.nodes.set(effectId, node);
         // НЕ додаємо ефект як джерело самого себе
-        console.log(`[DependencyGraph] Created node for effect: ${effectId} with initial value: ${effectData.initialValue}`);
       }
     });
     
     // Будуємо залежності
     this.buildDependencies();
-    
-    console.log(`[DependencyGraph] Built graph with ${this.nodes.size} nodes`);
-    console.log('[DependencyGraph] Effect mappings:', this.effectToSources.size);
   }
   
   private addEffectToSource(effectId: string, sourceId: string): void {
@@ -178,7 +173,6 @@ export class DependencyGraph {
   }
   
   private buildDependencies(): void {
-    console.log('[DependencyGraph] Building dependencies...', this.nodes);
     
     // ВАЖЛИВО: Коли джерело дає income/multiplier до ефекту,
     // ефект має залежати ВІД джерела, а не навпаки!
@@ -205,7 +199,6 @@ export class DependencyGraph {
           // (має provides.length > 0), а не просто initialValue
           if (effectNode.provides.effects.length > 0 && !effectNode.dependsOn.effects.includes(sourceId)) {
             effectNode.dependsOn.effects.push(sourceId);
-            console.log(`[DependencyGraph] Added dependency: ${effectId} depends on ${sourceId}`);
           }
         } else {
           console.warn(`[DependencyGraph] Effect ${effectId} not found in nodes`);
@@ -220,14 +213,11 @@ export class DependencyGraph {
       if (node.dependsOn.effects.length > 0) {
         node.dependsOn.effects.forEach(depEffectId => {
           // Знаходимо хто дає цей ефект
-          this.nodes.forEach((otherNode, otherSourceId) => {
+          this.nodes.forEach((otherNode) => {
             if (otherNode.provides.effects.includes(depEffectId)) {
-              console.log(`[DependencyGraph] ${sourceId} depends on effect ${depEffectId} (provided by ${otherSourceId})`);
-              
               // Додаємо залежність між джерелами
               if (!otherNode.dependents.resources.has(sourceId)) {
                 otherNode.dependents.resources.add(sourceId);
-                console.log(`[DependencyGraph] Added dependency: ${otherSourceId} → ${sourceId} (resource depends on effect)`);
               }
               
               // Додаємо в мапінг ефект → залежні ресурси
@@ -248,15 +238,12 @@ export class DependencyGraph {
       if (node.dependsOn.effects.length > 0) {
         node.dependsOn.effects.forEach(depEffectId => {
           // Знаходимо хто дає цей ефект
-          this.nodes.forEach((otherNode, otherSourceId) => {
+          this.nodes.forEach((otherNode) => {
             if (otherNode.provides.effects.includes(depEffectId)) {
-              console.log(`[DependencyGraph] ${sourceId} depends on effect ${depEffectId} (provided by ${otherSourceId})`);
-              
               // Додаємо залежність між джерелами
               if (!otherNode.dependents.effects.has(sourceId)) {
                 otherNode.dependents.effects.add(sourceId);
-                console.log(`[DependencyGraph] Added dependency: ${otherSourceId} → ${sourceId} (effect depends on effect)`);
-              }
+            }
               
               // Додаємо в мапінг ефект → залежні ефекти
               if (!this.effectToDependents.has(depEffectId)) {
@@ -269,10 +256,7 @@ export class DependencyGraph {
       }
     });
     
-    console.log('[DependencyGraph] Effect to dependents mapping:');
-    this.effectToDependents.forEach((dependents, effect) => {
-      console.log(`  ${effect} -> ${Array.from(dependents)}`);
-    });
+
   }
   
   public getUpdateOrder(sourceId: string): UpdateOrderItem[] {

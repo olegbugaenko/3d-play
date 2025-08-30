@@ -8,9 +8,7 @@ export class BonusRegistry {
    * Реєструє джерело бонусів
    */
   public registerSource(id: string, data: BonusSourceData): void {
-    console.log(`[BonusRegistry] Registering source: ${id}`, data);
     this.sources.set(id, data);
-    console.log(`[BonusRegistry] Source ${id} added to registry. Total sources: ${this.sources.size}`);
   }
   
   /**

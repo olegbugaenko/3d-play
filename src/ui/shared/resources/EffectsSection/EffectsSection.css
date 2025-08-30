@@ -1,0 +1,129 @@
+.effects-section {
+  margin: 16px 0;
+}
+
+.effects-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.effects-table {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.effects-header {
+  display: grid;
+  grid-template-columns: 3fr 1fr 1fr;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  font-weight: 600;
+  font-size: 11px;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.effect-row {
+  display: grid;
+  grid-template-columns: 3fr 1fr 1fr;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background-color 0.2s ease;
+}
+
+.effect-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.effect-row:last-child {
+  border-bottom: none;
+}
+
+.effect-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffffff;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.effect-icon {
+  font-size: 14px;
+  width: 16px;
+  text-align: center;
+}
+
+.effect-type {
+  color: #cccccc;
+  font-size: 12px;
+  text-align: center;
+}
+
+.effect-bonus {
+  color: #00ff88;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  text-align: center;
+  font-weight: 600;
+}
+
+.effect-current {
+  color: #ffffff;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  text-align: center;
+}
+
+.effect-arrow {
+  color: #888888;
+  font-size: 14px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.effect-next {
+  color: #00ff88;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* Компактний режим */
+.effects-section.compact .effects-title {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.effects-section.compact .effects-header {
+  padding: 6px 8px;
+  font-size: 10px;
+}
+
+.effects-section.compact .effect-row {
+  padding: 4px 8px;
+}
+
+.effects-section.compact .effect-name {
+  font-size: 11px;
+}
+
+.effects-section.compact .effect-icon {
+  font-size: 12px;
+  width: 14px;
+}
+
+.effects-section.compact .effect-bonus,
+.effects-section.compact .effect-next {
+  font-size: 10px;
+}

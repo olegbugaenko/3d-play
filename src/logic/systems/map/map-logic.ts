@@ -56,7 +56,6 @@ export class MapLogic implements SaveLoadManager {
      */
     public collectRock(rockId: string): void {
         this.collectedRocks.add(rockId);
-        console.log(`[MapLogic] Added collected rock: ${rockId}`);
         this.scene.removeObject(rockId);
     }
 
@@ -76,7 +75,6 @@ export class MapLogic implements SaveLoadManager {
 
         // Генеруємо карту висот (terrain) з seed
         this.generateTerrain();
-        console.log('Generated terrain', this.generatedSeed);
         
         // Генеруємо болдери з seed
         this.generateBoulders();
@@ -101,7 +99,6 @@ export class MapLogic implements SaveLoadManager {
         }
         
         // НЕ генеруємо terrain, boulders, rocks - це буде зроблено в load()
-        console.log('Initialized base map (viewport only)');
     }
 
     /**
@@ -109,7 +106,6 @@ export class MapLogic implements SaveLoadManager {
      */
     newGame(): void {
         const seed = Date.now();
-        console.log('seed generated: ', seed);
         this.updateGenerationSeed(seed);
         this.initializeSeeded();
         // Генеруємо rover об'єкти через DroneManager
@@ -136,18 +132,6 @@ export class MapLogic implements SaveLoadManager {
 
         // Регенеруємо terrain з новим seed
         terrainManager.regenerateTerrainWithSeed(seed);
-        
-        console.log(`[MapLogic] Terrain згенеровано з seed: ${seed}`);
-        
-        // Додатково можемо логувати статистику terrain
-        const config = terrainManager.getConfig();
-        console.log(`[MapLogic] Terrain конфігурація:`, {
-            width: config.width,
-            height: config.height,
-            resolution: config.resolution,
-            maxHeight: config.maxHeight,
-            minHeight: config.minHeight
-        });
     }
 
     /**
@@ -162,7 +146,7 @@ export class MapLogic implements SaveLoadManager {
             maxZ: MAP_CONFIG.depth / 2
         };
 
-        console.log('Generating rocks for seed '+this.generationTracker.getSeed(), this.generatedSeed);
+
 
         const boulderRng = new SeededRandom(this.generationTracker.getSeed() + 1000); // Різний seed для болдерів
         
@@ -250,14 +234,13 @@ export class MapLogic implements SaveLoadManager {
         this.generationTracker = new MapGenerationTracker(newSeed);
         this.generatedSeed = newSeed;
         
-        console.log(`[MapLogic] Seed оновлено на: ${newSeed}`);
+
     }
 
     /**
      * Отримує поточний seed генерації
      */
     public getGenerationSeed(): number {
-        console.log('SD: ', this.generationTracker.getSeed());
         return this.generationTracker.getSeed();
     }
 
@@ -951,8 +934,6 @@ export class MapLogic implements SaveLoadManager {
             this.generationTracker = new MapGenerationTracker(data.seed);
             
             this.initializeSeeded();
-            
-            console.log('Loaded map with seed:', this.generatedSeed);
         }
         
         // Завантажуємо зібрані ресурси

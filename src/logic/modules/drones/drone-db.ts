@@ -23,14 +23,15 @@ export const DRONE_TYPES_DB: Map<string, DroneTypeData> = new Map([
         id: 'basic_rover',
         name: 'Basic Rover',
         description: 'Базовий дрон для збору ресурсів',
-        baseMovementSpeed: 2.0,
+        baseMovementSpeed: 1.5,
         baseCollectionSpeed: 0.1,
         baseInventoryCapacity: 5,
         baseUnloadSpeed: 1.0,
         baseBatteryCapacity: 15,
         baseEfficiencyMultiplier: 1.0,
         ui: {
-            defaultScale: { x: 0.4, y: 0.4, z: 0.4 },
+            modelPath: 'models/rover_animated.glb',
+            defaultScale: { x: 0.5, y: 0.5, z: 0.5 },
             rotationOffset: 0,
             iconName: 'rover-icon.png',
             color: '#4A90E2'

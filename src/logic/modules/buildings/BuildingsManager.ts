@@ -5,7 +5,7 @@ import {
   BuildingsManagerSaveData, 
 } from './buildings.types';
 import { BUILDINGS_DB } from './buildings-db';
-import { IBuildingsManager, IBonusSystem, ISceneLogic } from '@interfaces/index';
+import { IBuildingsManager, IBonusSystem, ISceneLogic, IRequirementsSystem } from '@interfaces/index';
 import { ResourceRequest } from '@resources/resource-types';
 
 export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
@@ -13,11 +13,13 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   private buildingInstances: Map<string, BuildingInstance> = new Map();
   private bonusSystem: IBonusSystem;
   private sceneLogic: ISceneLogic;
+  private requirementsSystem: IRequirementsSystem;
 
-  constructor(bonusSystem: IBonusSystem, sceneLogic: ISceneLogic) {
+  constructor(bonusSystem: IBonusSystem, sceneLogic: ISceneLogic, requirementsSystem: IRequirementsSystem) {
     this.bonusSystem = bonusSystem;
     this.sceneLogic = sceneLogic;
-    console.log('[BuildingsManager] Initialized');
+    this.requirementsSystem = requirementsSystem;
+
   }
 
   /**
@@ -25,19 +27,18 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
    * Читає об'єкти з БД будівель, створює бонус-сорти
    */
   public beforeInit(): void {
-    console.log('[BuildingsManager] Starting beforeInit...');
+
     
     // Копіюємо БД будівель
     this.buildingsDB = new Map(BUILDINGS_DB);
-    console.log(`[BuildingsManager] Loaded ${this.buildingsDB.size} building types from DB:`, Array.from(this.buildingsDB.keys()));
+
     
     // Реєструємо кожну будівлю як бонус-сорт в BonusSystem
     this.buildingsDB.forEach((buildingType, typeId) => {
-      console.log(`[BuildingsManager] Processing building type: ${typeId}`);
-      console.log(`[BuildingsManager] Building data:`, buildingType);
+
       
       if (buildingType.modifier) {
-        console.log(`[BuildingsManager] Building ${typeId} has modifier:`, buildingType.modifier);
+
         
         // Створюємо унікальний ID для бонус-сорта
         const bonusSourceId = this.getBonusSourceId(typeId);
@@ -49,17 +50,13 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
           modifiers: buildingType.modifier
         });
         this.bonusSystem.setSourceState(bonusSourceId, 0, 1.0);
-        console.log(`[BuildingsManager] Successfully registered building type as bonus source: ${bonusSourceId}`, {
-            name: buildingType.name,
-            description: buildingType.description,
-            modifiers: buildingType.modifier
-          });
+
       } else {
-        console.log(`[BuildingsManager] Building ${typeId} has no modifier, skipping bonus registration`);
+
       }
     });
     
-    console.log(`[BuildingsManager] beforeInit completed. Registered ${this.buildingsDB.size} building types`);
+
   }
 
   /**
@@ -67,7 +64,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
    */
   public registerBuildingType(id: string, data: BuildingTypeData): void {
     this.buildingsDB.set(id, data);
-    console.log(`[BuildingsManager] Registered building type: ${id}`);
+
   }
 
   /**
@@ -94,7 +91,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       this.bonusSystem.updateBonusSourceLevel(bonusSourceId, level);
     }
     
-    console.log(`[BuildingsManager] Set initial state for ${instanceId} (type: ${typeId}): level=${level}, built=${built}`);
+
   }
 
   /**
@@ -121,7 +118,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       this.buildingInstances.set(instanceId, newInstance);
       const bonusSourceId = this.getBonusSourceId(typeId);
       this.bonusSystem.updateBonusSourceLevel(bonusSourceId, 1);
-      console.log(`[BuildingsManager] Built ${instanceId} (type: ${typeId}) at level 1`);
       return true;
     }
 
@@ -132,7 +128,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       if (position) instance.position = position;
       const bonusSourceId = this.getBonusSourceId(typeId);
       this.bonusSystem.updateBonusSourceLevel(bonusSourceId, 1);
-      console.log(`[BuildingsManager] Built ${instanceId} (type: ${typeId}) at level 1`);
       return true;
     }
 
@@ -145,7 +140,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     instance.level++;
     const bonusSourceId = this.getBonusSourceId(typeId);
     this.bonusSystem.updateBonusSourceLevel(bonusSourceId, instance.level);
-    console.log(`[BuildingsManager] Upgraded ${instanceId} (type: ${typeId}) to level ${instance.level}`);
     return true;
   }
 
@@ -167,7 +161,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     const bonusSourceId = this.getBonusSourceId(instance.typeId);
     this.bonusSystem.updateBonusSourceLevel(bonusSourceId, 0);
     
-    console.log(`[BuildingsManager] Destroyed building: ${instanceId}`);
     return true;
   }
 
@@ -183,7 +176,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     }
 
     instance.position = newPosition;
-    console.log(`[BuildingsManager] Moved ${instanceId} to position:`, newPosition);
     return true;
   }
 
@@ -307,9 +299,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
     // Додаємо об'єкт на сцену з terrain constraint
     const success = this.sceneLogic.pushObjectWithTerrainConstraint(buildingObject);
-    if (success) {
-      console.log(`[BuildingsManager] Generated building: ${typeId} at ${JSON.stringify(position)} with level ${level}`);
-    } else {
+    if (!success) {
       console.warn(`[BuildingsManager] Failed to add building ${typeId} to scene`);
     }
   }
@@ -318,27 +308,20 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
    * Створює початкові будівлі для нової гри
    */
   public newGameBuildings(): void {
-    console.log('[BuildingsManager] Generating new game buildings...');
-    
     // Створюємо склад
     this.generateBuilding('storage', { x: 3, y: 30, z: 3 }, 1);
     
     // Створюємо зарядну станцію  
     this.generateBuilding('chargingStation', { x: -3, y: 30, z: -3 }, 1);
-    
-    console.log('[BuildingsManager] New game buildings generated');
   }
 
   // SaveLoadManager implementation
   public save(): BuildingsManagerSaveData {
     const buildingInstances = Array.from(this.buildingInstances.values());
-    console.log(`[BuildingsManager] Saving ${buildingInstances.length} building instances`);
     return { buildingInstances };
   }
 
   public load(data: BuildingsManagerSaveData): void {
-    console.log(`[BuildingsManager] Loading ${data.buildingInstances.length} building instances`);
-    
     // Очищаємо поточні екземпляри
     this.buildingInstances.clear();
     
@@ -356,13 +339,9 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
         this.bonusSystem.updateBonusSourceLevel(bonusSourceId, instance.level);
       }
     });
-    
-    console.log(`[BuildingsManager] Loaded ${data.buildingInstances.length} building instances`);
   }
 
   public reset(): void {
-    console.log('[BuildingsManager] Resetting all building instances');
-    
     // Скидаємо всі екземпляри до початкових значень
     this.buildingInstances.forEach((instance, _instanceId) => {
       instance.level = 0;
@@ -373,7 +352,61 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       const bonusSourceId = this.getBonusSourceId(instance.typeId);
       this.bonusSystem.updateBonusSourceLevel(bonusSourceId, 0);
     });
+  }
+
+  /**
+   * Перевіряє чи можна побудувати будівлю
+   */
+  public canBuild(buildingTypeId: string): boolean {
+    const buildingData = this.buildingsDB.get(buildingTypeId);
+    if (!buildingData) return false;
     
-    console.log('[BuildingsManager] Reset completed');
+    // Якщо нема реквайрментів - будівлю можна будувати автоматично
+    if (!buildingData.requirements || buildingData.requirements.length === 0) {
+      return true;
+    }
+
+    // Перевіряємо реквайрменти через RequirementsSystem
+    const result = this.requirementsSystem.checkRequirements(buildingData.requirements);
+    return result.satisfied;
+  }
+
+  /**
+   * Отримує список доступних типів будівель для UI
+   */
+  public getAvailableBuildingTypes(): BuildingTypeData[] {
+    return Array.from(this.buildingsDB.values()).filter(building => 
+      this.canBuild(building.id)
+    );
+  }
+
+  /**
+   * Отримує сумарний рівень всіх будівель типу
+   */
+  public getTotalLevelForBuildingType(buildingTypeId: string): number {
+    let totalLevel = 0;
+    
+    for (const instance of this.buildingInstances.values()) {
+      if (instance.typeId === buildingTypeId && instance.built) {
+        totalLevel += instance.level;
+      }
+    }
+    
+    return totalLevel;
+  }
+
+  /**
+   * Отримує максимальний рівень серед будівель типу
+   */
+  public getMaxLevelForBuildingType(buildingTypeId: string): number {
+    let maxLevel = 0;
+    
+    for (const instance of this.buildingInstances.values()) {
+      if (instance.typeId === buildingTypeId && instance.built) {
+        maxLevel = Math.max(maxLevel, instance.level);
+      }
+    }
+    
+    return maxLevel;
   }
 }

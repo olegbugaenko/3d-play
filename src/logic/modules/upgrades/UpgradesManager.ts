@@ -1,19 +1,21 @@
 import { SaveLoadManager, UpgradesManagerSaveData } from '@save-load/save-load.types';
 import { UpgradeTypeData, UpgradeState } from './upgrades.types';
 import { UPGRADES_DB } from './upgrades-db';
-import { IUpgradesManager, IBonusSystem, IResourceManager } from '@interfaces/index';
-import { ResourceRequest } from '../resources/resource-types';
+import { IUpgradesManager, IBonusSystem, IResourceManager, IRequirementsSystem } from '@interfaces/index';
+import { ResourceRequest } from '@resources/resource-types';
 
 export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
   private upgradesDB: Map<string, UpgradeTypeData> = new Map();
   private upgradeStates: Map<string, UpgradeState> = new Map();
   private bonusSystem: IBonusSystem;
   private resourceManager: IResourceManager;
+  private requirementsSystem: IRequirementsSystem;
 
-  constructor(bonusSystem: IBonusSystem, resourceManager: IResourceManager) {
+  constructor(bonusSystem: IBonusSystem, resourceManager: IResourceManager, requirementsSystem: IRequirementsSystem) {
     this.bonusSystem = bonusSystem;
     this.resourceManager = resourceManager;
-    console.log('[UpgradesManager] Initialized');
+    this.requirementsSystem = requirementsSystem;
+
   }
 
   /**
@@ -21,19 +23,18 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
    * Читає об'єкти з БД апгрейдів, створює бонус-сорти
    */
   public beforeInit(): void {
-    console.log('[UpgradesManager] Starting beforeInit...');
+
     
     // Копіюємо БД апгрейдів
     this.upgradesDB = new Map(UPGRADES_DB);
-    console.log(`[UpgradesManager] Loaded ${this.upgradesDB.size} upgrade types from DB:`, Array.from(this.upgradesDB.keys()));
+
     
     // Реєструємо кожен апгрейд як бонус-сорт в BonusSystem
     this.upgradesDB.forEach((upgradeType, typeId) => {
-      console.log(`[UpgradesManager] Processing upgrade type: ${typeId}`);
-      console.log(`[UpgradesManager] Upgrade data:`, upgradeType);
+
       
       if (upgradeType.modifier) {
-        console.log(`[UpgradesManager] Upgrade ${typeId} has modifier:`, upgradeType.modifier);
+
         
         // Створюємо унікальний ID для бонус-сорта
         const bonusSourceId = this.getBonusSourceId(typeId);
@@ -45,17 +46,13 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
           modifiers: upgradeType.modifier
         });
         this.bonusSystem.setSourceState(bonusSourceId, 0, 1.0);
-        console.log(`[UpgradesManager] Successfully registered upgrade type as bonus source: ${bonusSourceId}`, {
-            name: upgradeType.name,
-            description: upgradeType.description,
-            modifiers: upgradeType.modifier
-          });
+
       } else {
-        console.log(`[UpgradesManager] Upgrade ${typeId} has no modifier, skipping bonus registration`);
+
       }
     });
     
-    console.log(`[UpgradesManager] beforeInit completed. Registered ${this.upgradesDB.size} upgrade types`);
+
   }
 
   /**
@@ -63,7 +60,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
    */
   public registerUpgradeType(id: string, data: UpgradeTypeData): void {
     this.upgradesDB.set(id, data);
-    console.log(`[UpgradesManager] Registered upgrade type: ${id}`);
+
   }
 
   /**
@@ -87,7 +84,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       this.bonusSystem.updateBonusSourceLevel(bonusSourceId, level);
     }
     
-    console.log(`[UpgradesManager] Set initial state for ${typeId}: level=${level}, unlocked=${unlocked}`);
+
   }
 
   /**
@@ -123,7 +120,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
     const bonusSourceId = this.getBonusSourceId(typeId);
     this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
     
-    console.log(`[UpgradesManager] Upgraded ${typeId} to level ${state.level}`);
+
     return true;
   }
 
@@ -148,7 +145,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
     const bonusSourceId = this.getBonusSourceId(typeId);
     this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
     
-    console.log(`[UpgradesManager] Unlocked upgrade ${typeId}`);
+
     return true;
   }
 
@@ -186,7 +183,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       // Перевіряємо чи достатньо ресурсів
       const checkResult = this.resourceManager.checkResources(cost);
       if (!checkResult.isAffordable) {
-        console.log(`[UpgradesManager] Not enough resources for upgrade ${typeId} to level ${nextLevel}`);
+    
         return false;
       }
 
@@ -210,7 +207,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       const bonusSourceId = this.getBonusSourceId(typeId);
       this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
       
-      console.log(`[UpgradesManager] Successfully purchased upgrade ${typeId} to level ${state.level}`);
+  
       return true;
     }
   }
@@ -258,10 +255,16 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
     nextLevelCost: any;
     canAfford: boolean;
     costCheck: any;
+    bonusDetails: any[];
   }> {
     const result = [];
     
     for (const [typeId, upgradeType] of this.upgradesDB) {
+      // Перевіряємо чи апгрейд розблокований
+      if (!this.isUnlocked(typeId)) {
+        continue; // Пропускаємо заблоковані апгрейди
+      }
+      
       const state = this.upgradeStates.get(typeId) || { level: 0, unlocked: false };
       
       // Розраховуємо вартість наступного рівня
@@ -269,6 +272,9 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       const buildingCost = upgradeType.cost(nextLevel);
       const nextLevelCost = this.convertBuildingCostToResourceRequest(buildingCost);
       const costCheck = this.resourceManager.checkResources(nextLevelCost);
+      
+      // Отримуємо деталі бонусів для цього апгрейду
+      const bonusDetails = this.bonusSystem.getBonusDetails(this.getBonusSourceId(typeId));
       
       result.push({
         typeId,
@@ -280,9 +286,12 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
         canUpgrade: state.unlocked && state.level < upgradeType.maxLevel,
         nextLevelCost,
         canAfford: costCheck.isAffordable,
-        costCheck
+        costCheck,
+        bonusDetails
       });
     }
+
+
     
     return result;
   }
@@ -316,7 +325,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       this.setInitialState(typeId, 0, true);
     }
     
-    console.log(`[UpgradesManager] Reset completed. Created ${this.upgradesDB.size} initial upgrades`);
+
   }
 
   /**
@@ -356,7 +365,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       }
     }
     
-    console.log(`[UpgradesManager] Loaded ${this.upgradeStates.size} upgrade states`);
+
   }
 
   /**
@@ -364,6 +373,32 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
    */
   private getBonusSourceId(typeId: string): string {
     return `upgrade_${typeId}`;
+  }
+
+  /**
+   * Перевіряє чи розблокований апгрейд
+   */
+  public isUnlocked(upgradeId: string): boolean {
+    const upgradeData = this.upgradesDB.get(upgradeId);
+    if (!upgradeData) return false;
+    
+    // Якщо нема реквайрментів - апгрейд автоматично доступний
+    if (!upgradeData.requirements || upgradeData.requirements.length === 0) {
+      return true;
+    }
+
+    // Перевіряємо реквайрменти через RequirementsSystem
+    const result = this.requirementsSystem.checkRequirements(upgradeData.requirements);
+    return result.satisfied;
+  }
+
+  /**
+   * Отримує список доступних апгрейдів для UI
+   */
+  public getAvailableUpgrades(): UpgradeTypeData[] {
+    return Array.from(this.upgradesDB.values()).filter(upgrade => 
+      this.isUnlocked(upgrade.id)
+    );
   }
 
   /**

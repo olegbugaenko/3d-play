@@ -10,6 +10,11 @@ export interface IUpgradesManager extends SaveLoadManager {
   getUpgrade(typeId: string): any | null;
   getAllUpgrades(): Map<string, any>;
   getUpgradeCost(typeId: string, level: number): any | undefined;
+  getUpgradeState(typeId: string): any | undefined;
+  
+  // Методи для реквайрментів
+  isUnlocked(upgradeId: string): boolean;
+  getAvailableUpgrades(): any[];
   
   // Додаткові методи
   registerUpgradeType(id: string, data: any): void;

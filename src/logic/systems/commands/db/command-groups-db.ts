@@ -328,6 +328,13 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     endCondition: null,
     loopCondition: null,
     isLoop: true, // Повторюємо поки є ресурси
+    requirements: [
+      {
+        scope: 'resource',
+        id: 'ore',
+        level: 1  // Команда збору руди доступна після відкриття руди
+      }
+    ],
     ui: {
       scope: 'gather',
       category: 'ore',
@@ -656,7 +663,8 @@ export const COMMAND_GROUPS: CommandGroup[] = [
 ];
 
 /**
- * Отримати всі групи команд
+ * Отримати всі групи команд (без фільтрації по реквайрментах)
+ * Для UI використовуйте getAvailableCommandGroups() з CommandGroupSystem
  */
 export function getAllCommandGroups(): CommandGroup[] {
   return [...COMMAND_GROUPS];
@@ -677,24 +685,70 @@ export function getAutoExecuteGroups(): CommandGroup[] {
 }
 
 /**
- * Отримати групи команд з UI метаданими
+ * Отримати групи команд з UI метаданими (без фільтрації по реквайрментах)
+ * Для UI використовуйте getAvailableCommandGroups() з CommandGroupSystem та фільтруйте по ui
  */
 export function getUIGroups(): CommandGroup[] {
   return COMMAND_GROUPS.filter(group => group.ui);
 }
 
 /**
- * Отримати групи команд по scope
+ * Отримати групи команд по scope (без фільтрації по реквайрментах)
+ * Для UI використовуйте getAvailableCommandGroups() з CommandGroupSystem та фільтруйте по scope
  */
 export function getGroupsByScope(scope: 'gather' | 'build' | 'none'): CommandGroup[] {
   return COMMAND_GROUPS.filter(group => group.ui?.scope === scope);
 }
 
 /**
- * Отримати групи команд по scope та категорії
+ * Отримати групи команд по scope та категорії (без фільтрації по реквайрментах)
+ * Для UI використовуйте getAvailableCommandGroups() з CommandGroupSystem та фільтруйте по scope та category
  */
 export function getGroupsByScopeAndCategory(scope: 'gather' | 'build' | 'none', category: string): CommandGroup[] {
   return COMMAND_GROUPS.filter(group => 
     group.ui?.scope === scope && group.ui?.category === category
+  );
+}
+
+// ==================== НОВІ UI ФУНКЦІЇ З РЕКВАЙРМЕНТАМИ ====================
+// УВАГА: Ці функції потребують CommandGroupSystem для перевірки реквайрментів
+// Використовуйте їх тільки якщо у вас є доступ до CommandGroupSystem
+
+/**
+ * Отримати доступні групи команд з UI метаданими (з урахуванням реквайрментів)
+ * @param commandGroupSystem - екземпляр CommandGroupSystem для перевірки реквайрментів
+ */
+export function getAvailableUIGroups(commandGroupSystem: any): CommandGroup[] {
+  return COMMAND_GROUPS.filter(group => 
+    group.ui && commandGroupSystem.isUnlocked(group.id)
+  );
+}
+
+/**
+ * Отримати доступні групи команд по scope (з урахуванням реквайрментів)
+ * @param scope - scope групи команд
+ * @param commandGroupSystem - екземпляр CommandGroupSystem для перевірки реквайрментів
+ */
+export function getAvailableGroupsByScope(scope: 'gather' | 'build' | 'none', commandGroupSystem: any): CommandGroup[] {
+  return COMMAND_GROUPS.filter(group => 
+    group.ui?.scope === scope && commandGroupSystem.isUnlocked(group.id)
+  );
+}
+
+/**
+ * Отримати доступні групи команд по scope та категорії (з урахуванням реквайрментів)
+ * @param scope - scope групи команд
+ * @param category - категорія групи команд
+ * @param commandGroupSystem - екземпляр CommandGroupSystem для перевірки реквайрментів
+ */
+export function getAvailableGroupsByScopeAndCategory(
+  scope: 'gather' | 'build' | 'none', 
+  category: string, 
+  commandGroupSystem: any
+): CommandGroup[] {
+  return COMMAND_GROUPS.filter(group => 
+    group.ui?.scope === scope && 
+    group.ui?.category === category && 
+    commandGroupSystem.isUnlocked(group.id)
   );
 }

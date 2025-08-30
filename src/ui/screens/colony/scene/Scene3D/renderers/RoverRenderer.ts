@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+// FIX: безпечний імпорт SkeletonUtils (працює на різних версіях three)
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { BaseRenderer, SceneObject } from './BaseRenderer';
 
 export interface RoverData {
@@ -13,6 +15,7 @@ export interface RoverData {
   maxCapacity?: number;
   power?: number;
   maxPower?: number;
+  animationId?: string | null; // FIX: ідентифікатор кліпу для програвання
 }
 
 type ProgressBarOpts = {
@@ -36,6 +39,10 @@ const GAP_Y = 0.41; // відстань між power і resource барами
 export class RoverRenderer extends BaseRenderer {
   private loader: GLTFLoader;
   private modelCache: Map<string, THREE.Group> = new Map();
+  // FIX: окремо кешуємо кліпи
+  private animCache: Map<string, THREE.AnimationClip[]> = new Map();
+  // FIX: свій clock для mixer.update()
+  private clock = new THREE.Clock();
 
   constructor(scene: THREE.Scene) {
     super(scene);
@@ -65,7 +72,16 @@ export class RoverRenderer extends BaseRenderer {
       this.attachOrUpdateProgressBar(mesh, roverData);
       this.attachOrUpdatePowerBar(mesh, roverData);
 
-      console.warn(`ROVER RENDERED: `, object)
+      // FIX: підвісити міксер/екшени з кешу
+      const clips = this.animCache.get(modelPath) || [];
+      if (clips.length) {
+        const mixer = new THREE.AnimationMixer(mesh);
+        const actions: Record<string, THREE.AnimationAction> = {};
+        clips.forEach((clip) => (actions[clip.name] = mixer.clipAction(clip)));
+        (mesh.userData.mixer = mixer),
+        (mesh.userData.actions = actions),
+        (mesh.userData.currentAction = null);
+      }
 
       return mesh;
     }
@@ -74,9 +90,11 @@ export class RoverRenderer extends BaseRenderer {
       modelPath,
       (gltf) => {
         this.modelCache.set(modelPath, gltf.scene);
+        this.animCache.set(modelPath, gltf.animations); // FIX: зберегли кліпи
+        console.log('anims: ', gltf.animations);
         const mesh = this.createRoverMesh(gltf.scene, roverData);
         this.setupMesh(mesh, object);
-        console.warn('Drone now added', object);
+
         // замінюємо fallback (+ прибираємо його індикатори)
         const prev = this.meshes.get(object.id) as THREE.Mesh | undefined;
         if (prev) {
@@ -93,10 +111,18 @@ export class RoverRenderer extends BaseRenderer {
         // Створюємо індикатори після того, як anchor у сцені
         this.attachOrUpdateProgressBar(mesh, roverData);
         this.attachOrUpdatePowerBar(mesh, roverData);
+
+        // FIX: завели міксер та екшени
+        if (gltf.animations && gltf.animations.length) {
+          const mixer = new THREE.AnimationMixer(mesh);
+          const actions: Record<string, THREE.AnimationAction> = {};
+          gltf.animations.forEach((clip) => (actions[clip.name] = mixer.clipAction(clip)));
+          (mesh.userData.mixer = mixer),
+          (mesh.userData.actions = actions),
+          (mesh.userData.currentAction = null);
+        }
       },
-      (_progress) => {
-        
-      },
+      (_progress) => {},
       (error) => {
         console.error(`Error loading rover model for ${object.id}:`, error);
       }
@@ -120,7 +146,11 @@ export class RoverRenderer extends BaseRenderer {
   private createRoverMesh(model: THREE.Group, data: RoverData): THREE.Mesh {
     const scale = data.scale ?? 1.0;
 
-    const clonedModel = model.clone(true);
+    // FIX: коректний клон скіну (з фолбеком на clone(true))
+    const clonedModel = ((SkeletonUtils as any)?.clone
+      ? (SkeletonUtils as any).clone(model)
+      : model.clone(true)) as THREE.Group;
+
     clonedModel.traverse((o: any) => {
       if (o.isMesh) {
         o.castShadow = false;
@@ -130,7 +160,14 @@ export class RoverRenderer extends BaseRenderer {
     clonedModel.scale.setScalar(scale);
 
     const containerGeom = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-    const containerMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0, visible: false });
+    // FIX: невидимий контейнер не тестує/не пише depth — точно не заважає рендеру
+    const containerMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.0,
+      visible: false,
+      depthTest: false,
+      depthWrite: false,
+    });
     const mesh = new THREE.Mesh(containerGeom, containerMat);
     mesh.frustumCulled = false;
 
@@ -308,7 +345,7 @@ export class RoverRenderer extends BaseRenderer {
     group.add(border, bg, fillPivot);
 
     // Оновлення трансформів — на BG (рендерюваний об'єкт)
-    bg.onBeforeRender = (_renderer, _scene, camera) => {
+    (bg as any).onBeforeRender = (_renderer: any, _scene: any, camera: THREE.Camera) => {
       const anchor = group.userData.anchor as THREE.Object3D | undefined;
       if (!anchor) return;
 
@@ -322,7 +359,7 @@ export class RoverRenderer extends BaseRenderer {
       group.position.copy(_worldPos);
 
       // орієнтація (дивимось у камеру)
-      camera.getWorldQuaternion(_qCam);
+      (camera as THREE.Object3D).getWorldQuaternion(_qCam);
       group.quaternion.copy(_qCam);
 
       // анти-скейл (щоб бар не масштабувався з моделлю)
@@ -342,7 +379,7 @@ export class RoverRenderer extends BaseRenderer {
 
     const fill = fillPivot.children[0] as THREE.Mesh;
     if (fill && fill.scale) {
-      fill.scale.x = Math.max(progress, 0.0001);
+      (fill.scale as THREE.Vector3).x = Math.max(progress, 0.0001);
     }
   }
 
@@ -364,7 +401,7 @@ export class RoverRenderer extends BaseRenderer {
     if (group) {
       this.applyProgressToBar(group, progress);
     } else {
-      this.attachOrUpdateProgressBar(anchorMesh, data);
+      this.attachOrUpdateProgressBar(anchorMesh as THREE.Mesh, data);
     }
   }
 
@@ -386,7 +423,7 @@ export class RoverRenderer extends BaseRenderer {
     if (group) {
       this.applyProgressToBar(group, progress);
     } else {
-      this.attachOrUpdatePowerBar(anchorMesh, data);
+      this.attachOrUpdatePowerBar(anchorMesh as THREE.Mesh, data);
     }
   }
 
@@ -432,10 +469,34 @@ export class RoverRenderer extends BaseRenderer {
   public update(object: SceneObject): void {
     super.update(object);
     const existingMesh = this.meshes.get(object.id) as THREE.Mesh | undefined;
-    if (existingMesh) {
-      this.updateProgressBar(existingMesh, object.data as RoverData);
-      this.updatePowerBar(existingMesh, object.data as RoverData);
+    if (!existingMesh) return;
+
+    this.updateProgressBar(existingMesh, object.data as RoverData);
+    this.updatePowerBar(existingMesh, object.data as RoverData);
+
+    // FIX: оновлюємо mixer + керуємо animationId
+    const mixer = existingMesh.userData.mixer as THREE.AnimationMixer | undefined;
+    if (mixer) mixer.update(this.clock.getDelta());
+
+    const actions = existingMesh.userData.actions as Record<string, THREE.AnimationAction> | undefined;
+    if (!actions) return;
+
+    const want = (object.data as RoverData)?.animationId ?? null;
+    const current = (existingMesh.userData.currentAction as string | null) ?? null;
+    if (want === current) return;
+
+    const fade = 0.2;
+    const next = want && actions[want] ? actions[want] : null;
+
+    if (!next) {
+      if (current && actions[current]) actions[current].fadeOut(fade);
+      existingMesh.userData.currentAction = null;
+      return;
     }
+
+    next.reset().fadeIn(fade).play();
+    if (current && actions[current]) actions[current].crossFadeTo(next, fade, false);
+    existingMesh.userData.currentAction = want;
   }
 
   // -------------------------
@@ -455,10 +516,14 @@ export class RoverRenderer extends BaseRenderer {
         this.scene.remove(powerBar);
         mesh.userData.powerBar = undefined;
       }
+      // FIX: зупиняємо міксер, якщо є
+      const mixer = mesh.userData.mixer as THREE.AnimationMixer | undefined;
+      mixer?.stopAllAction();
     }
 
     // Очищаємо кеш моделей
     this.modelCache.clear();
+    this.animCache.clear(); // FIX
     
     // Очищаємо меші
     this.meshes.clear();

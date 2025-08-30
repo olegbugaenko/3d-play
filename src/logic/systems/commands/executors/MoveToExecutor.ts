@@ -36,6 +36,8 @@ export class MoveToExecutor extends CommandExecutor {
             return { success: false, message: 'Object not found' };
         }
 
+        object.data.animationId = 'move';
+
         // Автоматично розв'язуємо targetId до координат якщо position = {0,0,0}
         if (this.command.targetId && 
             this.command.position.x === 0 && 
@@ -78,7 +80,6 @@ export class MoveToExecutor extends CommandExecutor {
                 this.stuckTime += this.context.deltaTime;
                 if (this.stuckTime > this.stuckThreshold) {
                     this.stopMovement();
-                    console.log('COMM: ', this.command);
                     return { 
                         success: false, 
                         message: `Object stuck in ${distance.toFixed(2)} meters`,

@@ -59,7 +59,6 @@ export class AutoGroupMonitor {
         
         // Перевіряємо чи перша команда не належить цій групі
         const commandQueue = this.mapLogic.commandSystem.getCommandQueue(object.id);
-        console.log('commandQueue: ', commandQueue);
         if (commandQueue && commandQueue.getLength() > 0) {
             const firstCommand = commandQueue.getCurrentCommand();
             if (firstCommand?.groupId === group.id) {

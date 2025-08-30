@@ -40,8 +40,6 @@ export class ChargeExecutor extends CommandExecutor {
         // Заряджаємо об'єкт зі швидкістю станції
         const chargeRate = chargingStation.data.chargeRate || 0.02; // Використовуємо chargeRate зі станції
         const chargeAmount = chargeRate * deltaTime;
-        
-        console.log('Charging...', chargeAmount, chargeRate, object.data, chargingStation.data);
 
         if (object.data.power < object.data.maxPower) {
             // Споживаємо глобальний ресурс power

@@ -1,5 +1,6 @@
 import { CostFormula } from '@shared/types';
 import { BonusSourceModifier } from '@systems/modifiers-system';
+import { Requirement } from '@systems/requirements';
 
 // Тип даних для апгрейду
 export interface UpgradeTypeData {
@@ -8,6 +9,7 @@ export interface UpgradeTypeData {
   description: string;
   maxLevel: number;
   modifier: BonusSourceModifier;
+  requirements?: Requirement[]; // Реквайрменти для розблокування апгрейду
   ui: {
     defaultScale: { x: number; y: number; z: number };
     rotationOffset: { x: number; y: number; z: number };

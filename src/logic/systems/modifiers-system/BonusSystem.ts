@@ -2,6 +2,7 @@ import { BonusRegistry } from './BonusRegistry';
 import { DependencyGraph } from './DependencyGraph';
 import { FormulaEngine } from './FormulaEngine';
 import { IBonusSystem } from '@interfaces/index';
+import { BonusDetail, BonusModifier } from './bonus-system.types';
 
 export interface BonusSourceState {
   id: string;
@@ -46,17 +47,13 @@ export class BonusSystem implements IBonusSystem {
     this.registry = new BonusRegistry();
     this.graph = new DependencyGraph();
     this.formulaEngine = new FormulaEngine();
-    
-    console.log('[BonusSystem] Initialized');
   }
   
   /**
    * Реєструє джерело бонусів
    */
   public registerSource(id: string, data: any): void {
-    console.log(`[BonusSystem] Registering source: ${id}`, data);
     this.registry.registerSource(id, data);
-    console.log(`[BonusSystem] Source ${id} registered successfully`);
   }
   
   /**
@@ -82,7 +79,7 @@ export class BonusSystem implements IBonusSystem {
       throw new Error('Cyclic dependencies detected in bonus system');
     }
     
-    console.log('[BonusSystem] Dependency graph built successfully');
+
   }
   
   /**
@@ -100,7 +97,7 @@ export class BonusSystem implements IBonusSystem {
     // Інвалідуємо кеші для цього джерела та всіх залежних
     this.invalidateCaches(id);
     
-    console.log(`[BonusSystem] Set source state: ${id} (level: ${level}, efficiency: ${efficiency})`);
+
   }
   
   /**
@@ -153,7 +150,6 @@ export class BonusSystem implements IBonusSystem {
     if (currentState.level !== level) {
       currentState.level = level;
       this.invalidateCaches(sourceId);
-      console.log(`[BonusSystem] Updated source level: ${sourceId} -> ${level}`);
     }
   }
   
@@ -294,7 +290,6 @@ export class BonusSystem implements IBonusSystem {
     // Знаходимо всі джерела які дають цей ресурс
     const sources = this.graph.getEffectSources(resourceId);
     
-    console.log(`Sources for ${resourceId}: `, sources);
     sources.forEach(sourceId => {
       const source = this.registry.getSource(sourceId);
       const state = this.sourceStates.get(sourceId);
@@ -357,8 +352,6 @@ export class BonusSystem implements IBonusSystem {
    * Інвалідує кеші для джерела та всіх залежних
    */
   private invalidateCaches(sourceId: string): void {
-    console.log(`[BonusSystem] Invalidating caches for source: ${sourceId}`);
-    
     // Знаходимо всі залежні бонуси
     const dependents = this.graph.getUpdateOrder(sourceId);
     
@@ -421,6 +414,115 @@ export class BonusSystem implements IBonusSystem {
   }
   
   /**
+   * Отримує детальну інформацію про бонуси для конкретного джерела
+   */
+  public getBonusDetails(bonusSourceId: string): BonusDetail[] {
+    const source = this.registry.getSource(bonusSourceId);
+    if (!source) {
+      console.warn(`[BonusSystem] Source ${bonusSourceId} not found`);
+      return [];
+    }
+
+    const sourceState = this.sourceStates.get(bonusSourceId);
+    if (!sourceState) {
+      console.warn(`[BonusSystem] Source ${bonusSourceId} state not found`);
+      return [];
+    }
+
+    const details: BonusDetail[] = [];
+    const currentLevel = sourceState.level;
+    const nextLevel = currentLevel + 1;
+
+    // Обробляємо бонуси до ефектів
+    if (source.modifiers.effect) {
+      if (source.modifiers.effect.income) {
+        Object.entries(source.modifiers.effect.income).forEach(([effectId, modifier]) => {
+          if (modifier) {
+            const effect = this.registry.getEffect(effectId);
+            if (effect) {
+              const currentValue = this.calculateBonusValue(modifier, currentLevel);
+              const nextValue = this.calculateBonusValue(modifier, nextLevel);
+              
+              details.push({
+                type: 'effect',
+                id: effectId,
+                name: effect.name,
+                bonusType: 'income',
+                currentLevelValue: currentValue,
+                nextLevelValue: nextValue
+              });
+            }
+          }
+        });
+      }
+
+      if (source.modifiers.effect.multiplier) {
+        Object.entries(source.modifiers.effect.multiplier).forEach(([effectId, modifier]) => {
+          if (modifier) {
+            const effect = this.registry.getEffect(effectId);
+            if (effect) {
+              const currentValue = this.calculateBonusValue(modifier, currentLevel);
+              const nextValue = this.calculateBonusValue(modifier, nextLevel);
+              
+              details.push({
+                type: 'effect',
+                id: effectId,
+                name: effect.name,
+                bonusType: 'multiplier',
+                currentLevelValue: currentValue,
+                nextLevelValue: nextValue
+              });
+            }
+          }
+        });
+      }
+    }
+
+    // Обробляємо бонуси до ресурсів
+    if (source.modifiers.resource) {
+      Object.entries(source.modifiers.resource).forEach(([resourceType, resources]) => {
+        Object.entries(resources).forEach(([resourceId, modifier]) => {
+          if (modifier) {
+            const currentValue = this.calculateBonusValue(modifier, currentLevel);
+            const nextValue = this.calculateBonusValue(modifier, nextLevel);
+            
+            details.push({
+              type: 'resource',
+              id: resourceId,
+              name: resourceId, // Можна додати RESOURCES_DB для кращих назв
+              bonusType: resourceType as 'income' | 'multiplier' | 'consumption' | 'cap' | 'capMulti',
+              currentLevelValue: currentValue,
+              nextLevelValue: nextValue
+            });
+          }
+        });
+      });
+    }
+
+    return details;
+  }
+
+  /**
+   * Розраховує значення бонусу для конкретного рівня
+   */
+  private calculateBonusValue(modifier: BonusModifier, level: number): number {
+    try {
+      const formula = modifier.formula({ level });
+      
+      if (formula.type === 'linear') {
+        return formula.A * level + formula.B;
+      } else if (formula.type === 'exponential') {
+        return formula.A * Math.pow(level, formula.B);
+      }
+      
+      return 0;
+    } catch (error) {
+      console.error(`[BonusSystem] Error calculating bonus value:`, error);
+      return 0;
+    }
+  }
+
+  /**
    * Скидає стан системи (для нової гри)
    */
   public reset(): void {
@@ -429,6 +531,5 @@ export class BonusSystem implements IBonusSystem {
     this.effectsCache.clear();
     this.resourcesCache.clear();
     this.resetCacheStats();
-    console.log('[BonusSystem] Reset completed');
   }
 }

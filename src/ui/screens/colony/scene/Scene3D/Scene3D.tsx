@@ -7,7 +7,7 @@ import { SelectionHandler } from '@ui/screens/colony/scene/ui-handlers'
 import { SceneObject } from './renderers/BaseRenderer'
 import { TerrainRenderer } from './renderers/TerrainRenderer'
 import { AreaSelectionRenderer } from '@ui/screens/colony/scene/AreaSelectionRenderer'
-import { ResourcesBar, CommandPanel, UpgradesPanel } from '@ui/screens/colony'
+import { CommandPanel, UpgradesPanel } from '@ui/screens/colony'
 import { ISaveManager, IMapLogic } from '@interfaces/index';
 import { TSceneObject } from '@logic/systems/scene/scene.types'
 
@@ -22,7 +22,7 @@ function useThreeCore() {
     dir.position.set(50, 100, 50)
     dir.castShadow = false
     s.add(ambient, dir)
-    ;(s as any).__lights__ = { ambient, dir }
+    ;(s as THREE.Scene & { __lights__?: { ambient: THREE.AmbientLight; dir: THREE.DirectionalLight } }).__lights__ = { ambient, dir }
     return s
   }, [])
 
@@ -42,7 +42,7 @@ function useThreeCore() {
 
   useEffect(() => {
     return () => {
-      const lights = (scene as any).__lights__
+      const lights = (scene as THREE.Scene & { __lights__?: { ambient: THREE.AmbientLight; dir: THREE.DirectionalLight } }).__lights__
       if (lights) {
         scene.remove(lights.ambient)
         scene.remove(lights.dir)
@@ -271,7 +271,7 @@ function useSelectionAndCommands(
       const mesh = rm.getMeshById(obj.id)
       if (!mesh) continue
       const sphere = new THREE.Sphere()
-      const { pos, scale } = sr.getCorrectPositionAndScale(obj.id, mesh as any)
+      const { pos, scale } = sr.getCorrectPositionAndScale(obj.id, mesh as THREE.Object3D)
       sphere.center.copy(pos)
       sphere.radius = scale.length() * 0.5
       if (ray.ray.intersectsSphere(sphere)) {
@@ -506,7 +506,7 @@ function useRenderLoop(
   checkAndGenerateTerrain: () => void,
   autoPanStep: () => void,
   syncVisibleObjects: () => void,
-  areaSelectionRendererRef: React.MutableRefObject<any|null>
+  areaSelectionRendererRef: React.MutableRefObject<AreaSelectionRenderer|null>
 ) {
   const rafRef = useRef<number>()
   const [fps, setFps] = useState(0)
@@ -516,11 +516,18 @@ function useRenderLoop(
   const tick = useCallback(() => {
     rafRef.current = requestAnimationFrame(tick)
 
-    // FPS
+    // FPS - оновлюємо рідше (кожні 2 секунди) і тільки якщо значення змінилося
     frameCountRef.current++
     const now = performance.now()
-    if (now - lastTimeRef.current >= 1000) {
-      setFps(frameCountRef.current)
+    if (now - lastTimeRef.current >= 2000) { // Збільшуємо інтервал до 2 секунд
+      const newFps = frameCountRef.current / 2 // Ділимо на 2 бо тепер рахуємо за 2 секунди
+      setFps(prevFps => {
+        // Оновлюємо тільки якщо значення змінилося більше ніж на 5 FPS
+        if (Math.abs(prevFps - newFps) > 5) {
+          return newFps
+        }
+        return prevFps // Повертаємо той самий об'єкт
+      })
       frameCountRef.current = 0
       lastTimeRef.current = now
     }
@@ -533,9 +540,12 @@ function useRenderLoop(
     // апдейти ефектів
     const rm = rendererManagerRef.current
     if (rm) {
-      const tryCall = (key:string, fn:string) => {
+      const tryCall = (key: string, fn: string) => {
         const r = rm.renderers.get(key)
-        if (r && fn in r) (r as any)[fn]()
+        if (r && fn in r) {
+          const renderer = r as unknown as { [key: string]: () => void }
+          renderer[fn]()
+        }
       }
       tryCall('cloud', 'updateAllClouds')
       tryCall('smoke', 'updateAllSmoke')
@@ -684,6 +694,9 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
   }, [camera, controller, ensureTargetOnTerrain, mapLogicRef, scene, terrainRendererRef])
 
   /** --------- NEW: object sync (like your renderObjects) --------- */
+  // Ref для зберігання попереднього стану об'єктів
+  const prevObjectsRef = useRef<Map<string, SceneObject>>(new Map())
+  
   const syncVisibleObjects = useCallback(() => {
     const rm = rendererManagerRef.current
     const map = mapLogicRef.current
@@ -699,8 +712,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
       data: obj.data
     })) as SceneObject[]
 
-    ;(syncVisibleObjects as any)._prev ??= new Map<string, SceneObject>()
-    const prev: Map<string, SceneObject> = (syncVisibleObjects as any)._prev
+    const prev = prevObjectsRef.current
 
     const currentIds = new Set(current.map(o => o.id))
     // remove
@@ -722,19 +734,18 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
       // selection highlight
       if (map.selection.isSelected(obj.id)) {
         const mesh = rm.getMeshById(obj.id)
-        if (mesh && (mesh as any).position) {
+        if (mesh && 'position' in mesh && 'scale' in mesh && 'rotation' in mesh) {
           selectionRendererRef.current?.updateHighlightPosition(
-            obj.id, (mesh as any).position, (mesh as any).scale, (mesh as any).rotation
+            obj.id, mesh.position, mesh.scale, mesh.rotation
           )
         }
       }
       // target indicators
       if (obj.tags?.includes('controlled')) {
-        const isSel = map.selection.isSelected(obj.id)
-        const tgt = (obj.data as any)?.target
-        if (tgt && isSel) {
+        const tgt = obj.data?.target
+        if (tgt && typeof tgt === 'object' && 'x' in tgt && 'y' in tgt && 'z' in tgt) {
           selectionRendererRef.current?.addTargetIndicator(
-            obj.id, new THREE.Vector3(tgt.x, tgt.y, tgt.z)
+            obj.id, new THREE.Vector3(tgt.x as number, tgt.y as number, tgt.z as number)
           )
         } else {
           selectionRendererRef.current?.removeTargetIndicator(obj.id)
@@ -808,7 +819,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mousedown', onMouseDown)
       window.removeEventListener('mouseup', onMouseUp)
-      window.removeEventListener('wheel', onWheel as any)
+      window.removeEventListener('wheel', onWheel)
       window.removeEventListener('resize', onResize)
       if (mountRef.current?.contains(renderer.domElement)) {
         mountRef.current.removeChild(renderer.domElement)
@@ -830,23 +841,53 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
       if (map) {
         try {
           const objects = map.scene.getVisibleObjects()
-          setVisibleObjectsCount(objects.length)
-          setTotalObjectsCount(map.scene.getTotalObjectsCount())
+          const newVisibleCount = objects.length
+          const newTotalCount = map.scene.getTotalObjectsCount()
+          
+          setVisibleObjectsCount(prev => prev === newVisibleCount ? prev : newVisibleCount)
+          setTotalObjectsCount(prev => prev === newTotalCount ? prev : newTotalCount)
         } catch {}
-        setCurrentDistance(Math.round(camera.position.distanceTo(controller.getTarget()) * 100) / 100)
-        const sceneLogic: any = map.scene
-        const vp = sceneLogic?.viewPort
+        
+        const newDistance = Math.round(camera.position.distanceTo(controller.getTarget()) * 100) / 100
+        setCurrentDistance(prev => prev === newDistance ? prev : newDistance)
+        const sceneLogic = map.scene
+        const vp = (sceneLogic as { viewPort?: { centerX: number; centerY: number; width: number; height: number } })?.viewPort
         if (vp) {
-          setViewportData({
-            centerX: Math.round(vp.centerX * 100) / 100,
-            centerY: Math.round(vp.centerY * 100) / 100,
-            width: Math.round(vp.width * 100) / 100,
-            height: Math.round(vp.height * 100) / 100,
-          })
+          const newCenterX = Math.round(vp.centerX * 100) / 100
+          const newCenterY = Math.round(vp.centerY * 100) / 100
+          const newWidth = Math.round(vp.width * 100) / 100
+          const newHeight = Math.round(vp.height * 100) / 100
+          
+          setViewportData(prev => {
+            if (prev.centerX === newCenterX && 
+                prev.centerY === newCenterY && 
+                prev.width === newWidth && 
+                prev.height === newHeight) {
+              return prev; // Повертаємо той самий об'єкт
+            }
+            return { 
+              centerX: newCenterX, 
+              centerY: newCenterY, 
+              width: newWidth, 
+              height: newHeight 
+            };
+          });
         }
-        const gridSystem = sceneLogic?.gridSystem
+        const gridSystem = (sceneLogic as { gridSystem?: { grid: { size: number } } })?.gridSystem
         if (gridSystem) {
-          setGridInfo({ totalCells: gridSystem.grid.size, visibleCells: sceneLogic.getVisibleGridCellsCount() })
+          const newTotalCells = gridSystem.grid.size
+          const newVisibleCells = (sceneLogic as unknown as { getVisibleGridCellsCount: () => number }).getVisibleGridCellsCount()
+          
+          setGridInfo(prev => {
+            if (prev.totalCells === newTotalCells && 
+                prev.visibleCells === newVisibleCells) {
+              return prev; // Повертаємо той самий об'єкт
+            }
+            return { 
+              totalCells: newTotalCells, 
+              visibleCells: newVisibleCells 
+            };
+          });
         }
       }
       id = window.setTimeout(updateUI, 250)
@@ -854,6 +895,8 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
     updateUI()
     return () => window.clearTimeout(id)
   }, [camera, controller, mapLogicRef])
+
+
 
   return (
     <div ref={mountRef} style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
@@ -936,26 +979,13 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
         <div>Selected Command: {selectedCommand ? (selectedCommand.ui?.name || selectedCommand.name) : 'None'}</div>
       </div>
 
-      {/* Resources Bar */}
-      {mapLogicRef.current && (
-        <ResourcesBar
-          getAvailableResources={() => {
-            const all = mapLogicRef.current!.resources.getAllResources()
-            const result: Record<string, { current:number; max:number; progress:number }> = {}
-            Object.entries<number>(all).forEach(([id, current]) => {
-              const max = mapLogicRef.current!.resources.getResourceCapacity(id as any)
-              const progress = mapLogicRef.current!.resources.getResourceProgress(id as any)
-              result[id] = { current, max, progress }
-            })
-            return result
-          }}
-        />
-      )}
+
 
       {/* Command Panel */}
       <CommandPanel
         selectedUnits={selectedUnits}
         onCommandChange={handleCommandChange}
+        game={game}
       />
 
       {/* Upgrades Panel */}

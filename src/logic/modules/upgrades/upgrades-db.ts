@@ -31,7 +31,7 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
     },
     cost: (level: number) => ({
       stone: 3 * (1.2 ** (level - 1)),
-      energy: 10 * (1.2 ** (level - 1)),
+      energy: 5 * (1.2 ** (level - 1)),
     })
   }],
 
@@ -40,6 +40,13 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
     name: 'Repair Battery',
     description: 'Збільшує ємність батареї дрона',
     maxLevel: 5,
+    requirements: [
+      {
+        scope: 'upgrade',
+        id: 'miningEfficiency1',
+        level: 2,
+      }
+    ],
     modifier: {
       effect: {
         multiplier: {
@@ -61,8 +68,8 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
       color: '#FFD700' // Золотий для ефективності
     },
     cost: (level: number) => ({
-      ore: 5 * (1.2 ** (level - 1)),
-      energy: 10 * (1.2 ** (level - 1)),
+      stone: 5 * (1.2 ** (level - 1)),
+      energy: 8 * (1.2 ** (level - 1)),
     })
   }],
 
@@ -71,6 +78,13 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
     name: 'Repair Battery',
     description: 'Збільшує ємність батареї головної батареї на 25 на рівень',
     maxLevel: 10,
+    requirements: [
+      {
+        scope: 'upgrade',
+        id: 'miningEfficiency1',
+        level: 1,
+      }
+    ],
     modifier: {
       resource: {
         cap: {
@@ -102,6 +116,18 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
     name: 'Storage Capacity',
     description: 'Збільшує ємність складу ресурсів',
     maxLevel: 8,
+    requirements: [
+      {
+        scope: 'upgrade',
+        id: 'miningEfficiency1',
+        level: 3,
+      },
+      {
+        scope: 'upgrade',
+        id: 'repairBattery',
+        level: 1,
+      }
+    ],
     modifier: {
       resource: {
         cap: {
