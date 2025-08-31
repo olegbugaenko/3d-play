@@ -125,18 +125,18 @@ function useCameraController(
   renderer: THREE.WebGLRenderer,
   mapLogicRef: React.MutableRefObject<IMapLogic|null>
 ) {
-  const controller = useMemo(() => {
-    const c = new CameraController(camera, renderer.domElement, {
-      enableDamping: true,
-      dampingFactor: 0.05,
-      minDistance: 1,
-      maxDistance: 25,
-      panSpeed: 0.05,
-      rotateSpeed: 0.01,
-      zoomSpeed: 0.2,
-    })
-    return c
-  }, [camera, renderer])
+     const controller = useMemo(() => {
+     const c = new CameraController(camera, renderer.domElement, {
+       enableDamping: true,
+       dampingFactor: 0.05,
+       minDistance: 1,
+       maxDistance: 25,
+       panSpeed: 0.05,
+       rotateSpeed: 0.05, // Збільшуємо швидкість обертання
+       zoomSpeed: 0.3,    // Збільшуємо швидкість зуму
+     })
+     return c
+   }, [camera, renderer])
 
   useEffect(() => {
     controller.setGetTerrainHeight((x,z) => {
@@ -506,7 +506,8 @@ function useRenderLoop(
   checkAndGenerateTerrain: () => void,
   autoPanStep: () => void,
   syncVisibleObjects: () => void,
-  areaSelectionRendererRef: React.MutableRefObject<AreaSelectionRenderer|null>
+  areaSelectionRendererRef: React.MutableRefObject<AreaSelectionRenderer|null>,
+  mapLogicRef: React.MutableRefObject<IMapLogic|null>
 ) {
   const rafRef = useRef<number>()
   const [fps, setFps] = useState(0)
@@ -536,6 +537,30 @@ function useRenderLoop(
     maybeUpdateViewportOnMove()
     checkAndGenerateTerrain()
     autoPanStep()
+    
+    // Camera pinning logic
+    if (controller.isCameraPinned()) {
+      const pinnedObjectId = controller.getPinnedObjectId()
+      if (pinnedObjectId) {
+                  const pinnedObject = mapLogicRef.current?.scene.getObjectById(pinnedObjectId)
+          if (pinnedObject) {
+            // Встановлюємо точку фокусу на закріплений об'єкт
+            const targetLookAt = new THREE.Vector3(
+              pinnedObject.coordinates.x,
+              pinnedObject.coordinates.y,
+              pinnedObject.coordinates.z
+            )
+            
+            // Отримуємо позицію камери з орбіти
+            const targetPos = controller.getPinnedCameraPosition()
+            
+            controller.setTargetPosition(targetPos, targetLookAt)
+            
+            // Оновлюємо плавне переміщення
+            controller.updateSmoothMovement()
+          }
+      }
+    }
 
     // апдейти ефектів
     const rm = rendererManagerRef.current
@@ -761,7 +786,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
   const fps = useRenderLoop(
     scene, camera, renderer, controller,
     rendererManagerRef, maybeUpdateViewportOnMove, checkAndGenerate, autoPanStep,
-    syncVisibleObjects, areaSelectionRendererRef
+    syncVisibleObjects, areaSelectionRendererRef, mapLogicRef
   )
 
   /** --------- initial helpers + DOM mount --------- */
@@ -986,6 +1011,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
         selectedUnits={selectedUnits}
         onCommandChange={handleCommandChange}
         game={game}
+        cameraController={controller}
       />
 
       {/* Upgrades Panel */}

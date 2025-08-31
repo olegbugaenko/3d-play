@@ -34,6 +34,20 @@ export class CameraController {
   
   // Terrain adjustment
   private getTerrainHeight?: (x: number, z: number) => number | undefined
+  
+  // Camera pinning
+  private isPinned = false
+  private pinnedObjectId: string | null = null
+  
+  // Smooth interpolation
+  private targetPosition = new THREE.Vector3()
+  private targetLookAt = new THREE.Vector3()
+  private interpolationSpeed = 0.1 // Швидкість інтерполяції (0.1 = плавно, 1.0 = миттєво)
+  
+  // Camera pinning orbit controls
+  private pinnedDistance = 10 // Відстань до закріпленого об'єкта
+  private pinnedAngleX = 0 // Вертикальний кут (нахил)
+  private pinnedAngleY = 0 // Горизонтальний кут (обертання)
 
   constructor(
     camera: THREE.PerspectiveCamera, 
@@ -44,17 +58,17 @@ export class CameraController {
     this.domElement = domElement
     this.target = new THREE.Vector3(0, 0, 0)
     
-    // Default options
-    this.options = {
-      enableDamping: true,
-      dampingFactor: 0.05,
-      minDistance: 1,
-      maxDistance: 25,
-      panSpeed: 0.05,
-      rotateSpeed: 0.01,
-      zoomSpeed: 0.2,
-      ...options
-    }
+         // Default options
+     this.options = {
+       enableDamping: true,
+       dampingFactor: 0.05,
+       minDistance: 1,
+       maxDistance: 25,
+       panSpeed: 0.05,
+       rotateSpeed: 0.05, // Збільшуємо швидкість обертання
+       zoomSpeed: 0.3,    // Збільшуємо швидкість зуму
+       ...options
+     }
     
     this.setupEventListeners()
   }
@@ -156,11 +170,17 @@ export class CameraController {
       
       this.adjustHeightToTerrain()
     } else if (this.isRightMouseDown) {
-      // Обробка обертання камери середньою кнопкою (колесо миші)
-      const deltaX = event.movementX * this.options.rotateSpeed
-      const deltaY = event.movementY * this.options.rotateSpeed
-      
-      this.rotateCamera(deltaX, deltaY)
+      if (this.isPinned) {
+        // При пінінгу - обертання навколо закріпленого об'єкта
+        const deltaX = event.movementX * this.options.rotateSpeed
+        const deltaY = event.movementY * this.options.rotateSpeed
+        this.updatePinnedOrbit(deltaX, deltaY)
+      } else {
+        // Звичайне обертання камери
+        const deltaX = event.movementX * this.options.rotateSpeed
+        const deltaY = event.movementY * this.options.rotateSpeed
+        this.rotateCamera(deltaX, deltaY)
+      }
     }
   }
 
@@ -190,7 +210,13 @@ export class CameraController {
     event.preventDefault()
     const delta = event.deltaY > 0 ? -1 : 1
     
-    this.zoomCamera(delta)
+    if (this.isPinned) {
+      // При пінінгу - зум навколо закріпленого об'єкта
+      this.updatePinnedZoom(delta)
+    } else {
+      // Звичайний зум
+      this.zoomCamera(delta)
+    }
   }
 
   // Camera movement methods
@@ -369,6 +395,105 @@ export class CameraController {
   // Public method to get current distance
   public getDistance(): number {
     return this.camera.position.distanceTo(this.target)
+  }
+  
+  // Camera pinning methods
+  public pinToObject(objectId: string): void {
+    this.isPinned = true
+    this.pinnedObjectId = objectId
+  }
+  
+  public unpin(): void {
+    this.isPinned = false
+    this.pinnedObjectId = null
+  }
+  
+  public isCameraPinned(): boolean {
+    return this.isPinned
+  }
+  
+  public getPinnedObjectId(): string | null {
+    return this.pinnedObjectId
+  }
+  
+  // Smooth camera movement
+  public updateSmoothMovement(): void {
+    if (this.isPinned) {
+      // Плавно переміщуємо камеру до цільової позиції
+      this.camera.position.lerp(this.targetPosition, this.interpolationSpeed)
+      
+      // Плавно переміщуємо точку фокусу
+      this.target.lerp(this.targetLookAt, this.interpolationSpeed)
+      
+      // Завжди дивимося на поточну точку фокусу
+      this.camera.lookAt(this.target)
+      
+      // Викликаємо callback якщо є
+      if (this.onCameraMove) {
+        this.onCameraMove(this.camera)
+      }
+    }
+  }
+  
+  // Set target position for smooth movement
+  public setTargetPosition(position: THREE.Vector3, lookAt: THREE.Vector3): void {
+    this.targetPosition.copy(position)
+    this.targetLookAt.copy(lookAt)
+  }
+  
+  // Adjust interpolation speed
+  public setInterpolationSpeed(speed: number): void {
+    this.interpolationSpeed = Math.max(0.01, Math.min(1.0, speed))
+  }
+  
+  // Camera pinning orbit controls
+  public updatePinnedOrbit(deltaX: number, deltaY: number): void {
+    if (!this.isPinned) return
+    
+    // Оновлюємо кути обертання (збільшуємо швидкість реакції)
+    this.pinnedAngleY += deltaX * this.options.rotateSpeed * 3
+    this.pinnedAngleX += deltaY * this.options.rotateSpeed * 3
+    
+    // Обмежуємо вертикальний кут від +15° до +75° (щоб камера не провалювалася під ландшафт)
+    const minAngle = Math.PI / 12  // +15° = π/12
+    const maxAngle = Math.PI * 5 / 12  // +75° = 5π/12
+    this.pinnedAngleX = Math.max(minAngle, Math.min(maxAngle, this.pinnedAngleX))
+    
+    // Нормалізуємо горизонтальний кут
+    this.pinnedAngleY = this.pinnedAngleY % (2 * Math.PI)
+  }
+  
+  public updatePinnedZoom(delta: number): void {
+    if (!this.isPinned) return
+    
+    // Змінюємо відстань до закріпленого об'єкта (збільшуємо швидкість зуму)
+    this.pinnedDistance -= delta * this.options.zoomSpeed * 2
+    
+    // Обмежуємо відстань
+    this.pinnedDistance = Math.max(this.options.minDistance, Math.min(this.options.maxDistance, this.pinnedDistance))
+    
+    // Миттєво оновлюємо позицію камери після зуму
+    if (this.isPinned) {
+      const newPos = this.getPinnedCameraPosition()
+      this.camera.position.copy(newPos)
+      this.camera.lookAt(this.target)
+      
+      // Викликаємо callback якщо є
+      if (this.onCameraMove) {
+        this.onCameraMove(this.camera)
+      }
+    }
+  }
+  
+  public getPinnedCameraPosition(): THREE.Vector3 {
+    if (!this.isPinned) return this.camera.position.clone()
+    
+    // Розраховуємо позицію камери на основі кутів та відстані
+    const x = this.target.x + this.pinnedDistance * Math.sin(this.pinnedAngleY) * Math.cos(this.pinnedAngleX)
+    const y = this.target.y + this.pinnedDistance * Math.sin(this.pinnedAngleX)
+    const z = this.target.z + this.pinnedDistance * Math.cos(this.pinnedAngleY) * Math.cos(this.pinnedAngleX)
+    
+    return new THREE.Vector3(x, y, z)
   }
 
   // Cleanup

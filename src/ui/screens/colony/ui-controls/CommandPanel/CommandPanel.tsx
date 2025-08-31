@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CommandGroup } from '@systems/commands';
 import { Game } from '@core/game/game';
+import { CameraController } from '@ui/screens/colony/scene/CameraController';
 
 interface CommandPanelProps {
   selectedUnits: string[];
   // onCommandSelect: (commandGroup: CommandGroup, centerPosition: { x: number; y: number; z: number }) => void;
   onCommandChange: (commandGroup: CommandGroup | null) => void;
   game: Game;
+  cameraController: CameraController;
 }
 
-export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCommandChange, game }) => {
+export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCommandChange, game, cameraController }) => {
   
   const [selectedScope, setSelectedScope] = useState<'gather' | 'build' | null>(null);
   const [availableScopes, setAvailableScopes] = useState<string[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [selectedCommand, setSelectedCommand] = useState<CommandGroup | null>(null);
+  const [interpolationSpeed, setInterpolationSpeed] = useState(0.1);
 
   // Отримуємо доступні scope для вибраних юнітів
   useEffect(() => {
@@ -56,6 +59,11 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
     const categories = [...new Set(groups.map(group => group.ui?.category).filter(Boolean))] as string[];
     setAvailableCategories(categories);
   }, [selectedScope, game.commandGroupSystem]);
+  
+  // Оновлюємо швидкість інтерполяції в контролері камери
+  useEffect(() => {
+    cameraController.setInterpolationSpeed(interpolationSpeed);
+  }, [interpolationSpeed, cameraController]);
 
   // Обробник кліку по scope
   const handleScopeClick = useCallback((scope: 'gather' | 'build') => {
@@ -117,6 +125,73 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Кнопка Pin Camera */}
+      <div style={{ 
+        textAlign: 'center', 
+        marginBottom: '10px',
+        borderTop: '1px solid rgba(255, 255, 255, 0.2)',
+        paddingTop: '10px'
+      }}>
+        <button
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (cameraController.isCameraPinned()) {
+              cameraController.unpin();
+            } else if (selectedUnits.length === 1) {
+              // Пінимо камеру до першого вибраного юніта
+              cameraController.pinToObject(selectedUnits[0]);
+            }
+          }}
+          style={{
+            padding: '6px 12px',
+            backgroundColor: cameraController.isCameraPinned() ? '#FF5722' : '#9C27B0',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '11px',
+            pointerEvents: 'auto'
+          }}
+          title={cameraController.isCameraPinned() ? 'Unpin Camera' : 'Pin Camera to Selected Unit'}
+          disabled={selectedUnits.length !== 1}
+        >
+          {cameraController.isCameraPinned() ? 'Unpin Camera' : 'Pin Camera'}
+        </button>
+        
+        {/* Слайдер швидкості інтерполяції */}
+        {cameraController.isCameraPinned() && (
+          <div style={{ 
+            marginTop: '8px',
+            textAlign: 'center'
+          }}>
+            <div style={{ 
+              fontSize: '10px', 
+              opacity: 0.7, 
+              marginBottom: '4px' 
+            }}>
+              Smoothness: {Math.round(interpolationSpeed * 100)}%
+            </div>
+            <input
+              type="range"
+              min="0.01"
+              max="1.0"
+              step="0.01"
+              value={interpolationSpeed}
+              onChange={(e) => setInterpolationSpeed(parseFloat(e.target.value))}
+              style={{
+                width: '100%',
+                height: '4px',
+                borderRadius: '2px',
+                background: '#555',
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Панель команд для обраного scope */}
