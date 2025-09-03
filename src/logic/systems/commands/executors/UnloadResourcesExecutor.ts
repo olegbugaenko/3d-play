@@ -41,6 +41,11 @@ export class UnloadResourcesExecutor extends CommandExecutor {
             return { success: false, message: 'Object not found' };
         }
 
+        // 🚀 Обертаємо дрона до сховища (якщо є targetId)
+        if (this.command.targetId) {
+            this.rotateToTarget(this.command.targetId);
+        }
+
         const currentTime = performance.now();
         const deltaTime = (currentTime - this.lastUnloadTime) / 1000; // в секундах
         

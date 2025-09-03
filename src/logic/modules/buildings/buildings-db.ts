@@ -21,6 +21,9 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
     tags: ['storage'],
     description: 'Зберігає ресурси та збільшує ємність складу',
     maxLevel: 10,
+    data: {
+      obstacleSize: 1.5,
+    },
     modifier: {
         
           resource: {
@@ -45,7 +48,7 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
           }
     },
     ui: {
-      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
+      defaultScale: { x: 2.0, y: 1.0, z: 2.0 },
       rotationOffset: { x: 0, y: 0, z: 0 },
       modelName: 'storage-building.glb',
       color: '#8B4513' // Коричневий для складу
@@ -90,9 +93,46 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
       color: '#4169E1' // Синій для зарядки
     },
     data: {
-        chargeRate: 2.5,
+        chargeRate: 0.5,
+        obstacleSize: 1.5,
     },
     cost: chargingStationCostFormula
+  }],
+
+  ['solarPanel', {
+    id: 'solarPanel',
+    name: 'Solar Panel',
+    description: 'Generates energy',
+    maxLevel: 100,
+    tags: ['charge'],
+    modifier: {
+        resource: {
+            income: {
+              energy: {
+                formula: (_data: any) => ({
+                  type: 'linear',
+                  A: 0.2,
+                  B: 0
+                }),
+                deps: []
+              }
+            }
+          }
+    },
+    ui: {
+      defaultScale: { x: 1.2, y: 1.0, z: 1.2 },
+      rotationOffset: { x: 0, y: Math.PI / 4, z: 0 }, // Поворот на 45 градусів
+      modelName: 'charging-station.glb',
+      color: '#4169E1' // Синій для зарядки
+    },
+    data: {
+        obstacleSize: 1.5,
+    },
+    cost: (level: number) => ({
+      stone: 20 + (level - 1) * 50,
+      ore: 10 + (level - 1) * 30,
+      energy: 10 + (level - 1) * 10
+    })
   }]
 ]);
 

@@ -7,9 +7,11 @@ import { SelectionHandler } from '@ui/screens/colony/scene/ui-handlers'
 import { SceneObject } from './renderers/BaseRenderer'
 import { TerrainRenderer } from './renderers/TerrainRenderer'
 import { AreaSelectionRenderer } from '@ui/screens/colony/scene/AreaSelectionRenderer'
+
 import { CommandPanel, UpgradesPanel } from '@ui/screens/colony'
 import { ISaveManager, IMapLogic } from '@interfaces/index';
 import { TSceneObject } from '@logic/systems/scene/scene.types'
+import { BuildingsPanel } from '@ui/screens/colony/buildings/BuildingsPanel'
 
 /** ===================== core three setup ===================== */
 function useThreeCore() {
@@ -60,6 +62,7 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
   const selectionHandlerRef = useRef<SelectionHandler|null>(null)
   const terrainRendererRef   = useRef<TerrainRenderer|null>(null)
   const areaSelectionRendererRef = useRef<AreaSelectionRenderer|null>(null)
+
   const mapLogicRef          = useRef<IMapLogic|null>(null)
 
   useEffect(() => {
@@ -87,10 +90,13 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
       }).catch(e => console.error('Failed to render initial terrain:', e))
     }
 
+
+
     return () => {
       selectionRendererRef.current?.clearAll()
       rendererManagerRef.current?.dispose()
       terrainRendererRef.current?.dispose()
+
       if (tm) {
         areaSelectionRendererRef.current?.dispose()
       }
@@ -103,6 +109,7 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
     selectionHandlerRef,
     terrainRendererRef,
     areaSelectionRendererRef,
+
     mapLogicRef,
   }
 }
@@ -235,6 +242,31 @@ function useTerrainStreaming(
   return { updateTerrainForCamera, checkAndGenerate }
 }
 
+// 🚀 Окремий компонент для drag selection rectangle
+const DragSelectionRect: React.FC<{
+  isDragging: boolean;
+  dragStart: { x: number; y: number };
+  dragEnd: { x: number; y: number };
+}> = ({ isDragging, dragStart, dragEnd }) => {
+  if (!isDragging) return null;
+  
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: Math.min(dragStart.x, dragEnd.x),
+        top: Math.min(dragStart.y, dragEnd.y),
+        width: Math.abs(dragEnd.x - dragStart.x),
+        height: Math.abs(dragEnd.y - dragStart.y),
+        border: '2px solid #00ff00',
+        backgroundColor: 'rgba(0,255,0,0.1)',
+        pointerEvents: 'none',
+        zIndex: 1000
+      }}
+    />
+  );
+};
+
 function useSelectionAndCommands(
   camera: THREE.PerspectiveCamera,
   controller: CameraController,
@@ -250,6 +282,13 @@ function useSelectionAndCommands(
   const isDragging = useRef(false)
   const dragStart = useRef({ x:0, y:0 })
   const dragEnd   = useRef({ x:0, y:0 })
+
+  // 🚀 State для координат drag selection
+  const [dragCoords, setDragCoords] = useState({
+    isDragging: false,
+    start: { x: 0, y: 0 },
+    end: { x: 0, y: 0 }
+  });
 
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
   const updateSelectedUnits = useCallback(() => {
@@ -412,6 +451,15 @@ function useSelectionAndCommands(
       dragEnd.current   = dragStart.current
       isDragging.current = false
 
+      // 🚀 Оновлюємо state для drag coordinates
+      setDragCoords({
+        isDragging: false,
+        start: { x: evt.clientX, y: evt.clientY },
+        end: { x: evt.clientX, y: evt.clientY }
+      });
+
+
+
       if (!evt.shiftKey && selectionHandlerRef.current) {
         selectionHandlerRef.current.handleEmptyClick()
         selectionRendererRef.current?.highlightInteractiveObjects([])
@@ -420,13 +468,20 @@ function useSelectionAndCommands(
     }
   }, [selectionHandlerRef, selectionRendererRef, updateSelectedUnits])
 
-  const onMouseMove = useCallback((evt: MouseEvent) => {
+    const onMouseMove = useCallback((evt: MouseEvent) => {
     hoverInteractive(evt.clientX, evt.clientY)
     if (isLeftDown.current) {
       dragEnd.current = { x: evt.clientX, y: evt.clientY }
       const dx = dragEnd.current.x - dragStart.current.x
       const dy = dragEnd.current.y - dragStart.current.y
       if (Math.hypot(dx,dy) > 5) isDragging.current = true
+
+      // 🚀 Оновлюємо state для drag coordinates
+      setDragCoords(prev => ({
+        ...prev,
+        isDragging: isDragging.current,
+        end: { x: evt.clientX, y: evt.clientY }
+      }));
     }
   }, [hoverInteractive])
 
@@ -435,6 +490,8 @@ function useSelectionAndCommands(
     if (target && (target.closest('.command-panel') || target.closest('button'))) {
       isLeftDown.current = false
       isDragging.current = false
+      // 🚀 Скидаємо drag coordinates
+      setDragCoords(prev => ({ ...prev, isDragging: false }));
       return
     }
     if (evt.button === 0) {
@@ -442,10 +499,12 @@ function useSelectionAndCommands(
       else handleObjectSelection(evt)
       isLeftDown.current = false
       isDragging.current = false
+      // 🚀 Скидаємо drag coordinates
+      setDragCoords(prev => ({ ...prev, isDragging: false }));
     }
   }, [handleDragSelection, handleObjectSelection])
 
-  return { onMouseDown, onMouseMove, onMouseUp, isDraggingRef: isDragging, dragStartRef: dragStart, dragEndRef: dragEnd, selectedUnits }
+  return { onMouseDown, onMouseMove, onMouseUp, isDraggingRef: isDragging, dragStartRef: dragStart, dragEndRef: dragEnd, selectedUnits, dragCoords }
 }
 
 function useAutoPan(
@@ -617,6 +676,8 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
   const [selectedCommand, setSelectedCommand] = useState<any>(null)
   
 
+  
+
 
   const { scene, camera, renderer } = useThreeCore()
   const { rendererManagerRef, selectionRendererRef, selectionHandlerRef, terrainRendererRef, areaSelectionRendererRef, mapLogicRef } =
@@ -633,7 +694,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
   const {
     onMouseDown, onMouseMove, onMouseUp,
-    isDraggingRef, dragStartRef, dragEndRef, selectedUnits
+    isDraggingRef: _isDraggingRef, dragStartRef: _dragStartRef, dragEndRef: _dragEndRef, selectedUnits, dragCoords
   } = useSelectionAndCommands(
     camera, controller, mapLogicRef,
     rendererManagerRef, selectionRendererRef, selectionHandlerRef, getRay, selectedCommand,
@@ -642,6 +703,8 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
   const { setMouse, step: autoPanStep } =
     useAutoPan(camera, controller, mapLogicRef, updateTerrainForCamera)
+
+
 
   // Оновлюємо позицію кільця при руху миші
   const handleMouseMove = useCallback((event: MouseEvent) => {
@@ -674,6 +737,8 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
       areaRenderer.hide();
     }
   }, [selectedCommand])
+
+
 
   // Підписуємося на події миші для оновлення позиції кільця
   useEffect(() => {
@@ -722,41 +787,56 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
   // Ref для зберігання попереднього стану об'єктів
   const prevObjectsRef = useRef<Map<string, SceneObject>>(new Map())
   
+  // 🚀 ОПТИМІЗОВАНИЙ syncVisibleObjects З DIRTY FLAGS
   const syncVisibleObjects = useCallback(() => {
     const rm = rendererManagerRef.current
     const map = mapLogicRef.current
     if (!rm || !map) return
 
-    const current = map.scene.getVisibleObjects().map<TSceneObject>(obj => ({
+    // 🚀 Використовуємо оптимізований метод з needUpdate флагом
+    const current = map.scene.getVisibleObjectsOptimized().map<TSceneObject>(obj => ({
       tags: obj.tags,
       id: obj.id,
       type: obj.type,
       coordinates: obj.coordinates,
       scale: obj.scale,
       rotation: obj.rotation,
-      data: obj.data
+      data: obj.data,
+      // 🚀 Додаємо dirty flags та needUpdate для оптимізації
+      _dirtyFlags: obj._dirtyFlags,
+      _lastUpdate: obj._lastUpdate,
+      needUpdate: obj.needUpdate
     })) as SceneObject[]
 
     const prev = prevObjectsRef.current
 
+    // 🚀 ОПТИМІЗАЦІЯ: Обробляємо тільки змінені об'єкти
     const currentIds = new Set(current.map(o => o.id))
-    // remove
+    
+    // Видаляємо об'єкти які більше не існують
     for (const [id, oldObj] of prev) {
       if (!currentIds.has(id)) {
         rm.removeObject(id, oldObj.type)
         prev.delete(id)
       }
     }
-    // add/update
+    
+    // 🚀 ОПТИМІЗАЦІЯ: Додаємо/оновлюємо тільки змінені об'єкти
     for (const obj of current) {
-      if (prev.has(obj.id)) {
-        rm.updateObject(obj)
-      } else {
+      const prevObj = prev.get(obj.id)
+      
+      if (!prevObj) {
+        // Новий об'єкт - додаємо
         rm.renderObject(obj)
         prev.set(obj.id, obj)
+      } else if ((obj as any).needUpdate) {
+        // 🚀 Оновлюємо тільки якщо needUpdate = true
+        rm.updateObject(obj)
+        prev.set(obj.id, obj)
       }
+      // Якщо needUpdate = false - пропускаємо оновлення
 
-      // selection highlight
+      // 🚀 ОПТИМІЗАЦІЯ: Selection highlight тільки для вибраних
       if (map.selection.isSelected(obj.id)) {
         const mesh = rm.getMeshById(obj.id)
         if (mesh && 'position' in mesh && 'scale' in mesh && 'rotation' in mesh) {
@@ -765,7 +845,8 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
           )
         }
       }
-      // target indicators
+      
+      // 🚀 ОПТИМІЗАЦІЯ: Target indicators тільки для controlled об'єктів
       if (obj.tags?.includes('controlled')) {
         const tgt = obj.data?.target
         if (tgt && typeof tgt === 'object' && 'x' in tgt && 'y' in tgt && 'z' in tgt) {
@@ -778,8 +859,12 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
       }
     }
 
+    // 🚀 ОПТИМІЗАЦІЯ: Interactive objects оновлюємо рідше
     const interactive = map.selection.findInteractableObjects()
     selectionRendererRef.current?.highlightInteractiveObjects(interactive)
+    
+    // 🚀 ОЧИЩАЄМО DIRTY FLAGS після синхронізації
+    map.scene.clearDirtyFlagsAfterSync()
   }, [mapLogicRef, rendererManagerRef, selectionRendererRef])
 
   /** --------- render loop --------- */
@@ -834,7 +919,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
     const move = (e: MouseEvent) => { setMouse(e.clientX, e.clientY); onMouseMove(e) }
 
     window.addEventListener('mousemove', move)
-    window.addEventListener('mousedown', onMouseDown)
+         window.addEventListener('mousedown', onMouseDown)
     window.addEventListener('mouseup', onMouseUp)
     window.addEventListener('wheel', onWheel, { passive: false })
     window.addEventListener('resize', onResize)
@@ -842,7 +927,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
     return () => {
       window.removeEventListener('mousemove', move)
-      window.removeEventListener('mousedown', onMouseDown)
+             window.removeEventListener('mousedown', onMouseDown)
       window.removeEventListener('mouseup', onMouseUp)
       window.removeEventListener('wheel', onWheel)
       window.removeEventListener('resize', onResize)
@@ -925,22 +1010,12 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
   return (
     <div ref={mountRef} style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
-      {/* drag-rect */}
-      {isDraggingRef.current && (
-        <div
-          style={{
-            position: 'absolute',
-            left: Math.min(dragStartRef.current.x, dragEndRef.current.x),
-            top: Math.min(dragStartRef.current.y, dragEndRef.current.y),
-            width: Math.abs(dragEndRef.current.x - dragStartRef.current.x),
-            height: Math.abs(dragEndRef.current.y - dragStartRef.current.y),
-            border: '2px solid #00ff00',
-            backgroundColor: 'rgba(0,255,0,0.1)',
-            pointerEvents: 'none',
-            zIndex: 1000
-          }}
-        />
-      )}
+      {/* 🚀 Використовуємо новий компонент для drag selection */}
+      <DragSelectionRect
+        isDragging={dragCoords.isDragging}
+        dragStart={dragCoords.start}
+        dragEnd={dragCoords.end}
+      />
 
       {/* Main Menu Button */}
       <button
@@ -1016,6 +1091,14 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
       {/* Upgrades Panel */}
       <UpgradesPanel game={game} />
+
+      {/* Buildings Panel */}
+      <BuildingsPanel 
+        game={game} 
+        onSelectBuilding={(typeId: string) => {
+          console.log(`Selected building for construction: ${typeId}`);
+        }}
+      />
     </div>
   )
 }

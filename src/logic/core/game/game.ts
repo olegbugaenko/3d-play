@@ -63,7 +63,8 @@ export class Game {
     this.container.register('buildingsManager', () => new BuildingsManager(
       this.container.get('bonusSystem'), 
       this.container.get('sceneLogic'),
-      this.container.get('requirementsSystem')
+      this.container.get('requirementsSystem'),
+      this.container.get('resourceManager')
     ));
     
     this.container.register('droneManager', () => new DroneManager(

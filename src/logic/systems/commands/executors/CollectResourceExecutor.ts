@@ -37,6 +37,7 @@ export class CollectResourceExecutor extends CommandExecutor {
             return { success: false, message: 'Object not found' };
         }
         object.data.animationId = 'collect';
+        
         // Отримуємо цільовий ресурс
         if (!this.command.targetId) {
             return { success: false, message: 'No target resource specified' };
@@ -46,6 +47,9 @@ export class CollectResourceExecutor extends CommandExecutor {
         if (!targetResource) {
             return { success: false, message: 'Target resource not found: '+this.command.targetId, code: CommandFailureCode.RESOURCE_NOT_FOUND };
         }
+
+        // 🚀 Обертаємо дрона до ресурсу
+        this.rotateToTarget(this.command.targetId!);
 
         // Визначаємо тип ресурсу з цілі
         if (!this.resourceType) {

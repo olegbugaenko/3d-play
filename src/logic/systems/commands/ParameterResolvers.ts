@@ -49,19 +49,30 @@ export class ParameterResolvers {
 
   /**
    * Знаходить найближчий об'єкт з вказаним типом команди
+   * Враховує obstacleSize об'єктів при розрахунку відстані
+   * Використовує оптимізований пошук через gridSystem
    */
   getClosestObjectByCommandType(commandType: string, fromPosition: Vector3, maxDistance: number = 1000): any {
-    const objects = this.mapLogic.scene.getObjects();
+    // Використовуємо оптимізований метод для пошуку об'єктів в радіусі
+    const objectsInRadius = this.mapLogic.scene.getObjectsInRadius(
+      { x: fromPosition.x, y: fromPosition.y, z: fromPosition.z },
+      maxDistance
+    );
+    
     let closestObject = null;
     let closestDistance = maxDistance;
 
-    for (const obj of Object.values<TSceneObject>(objects)) {
+    for (const obj of objectsInRadius) {
       if (obj.commandType && obj.commandType.includes(commandType)) {
         const objPos = new Vector3(obj.coordinates.x, obj.coordinates.y, obj.coordinates.z);
-        const distance = fromPosition.distanceTo(objPos);
+        const baseDistance = fromPosition.distanceTo(objPos);
         
-        if (distance < closestDistance) {
-          closestDistance = distance;
+        // Враховуємо obstacleSize об'єкта при розрахунку відстані
+        const obstacleSize = obj.obstacleSize || 0;
+        const adjustedDistance = Math.max(0, baseDistance - obstacleSize);
+        
+        if (adjustedDistance < closestDistance) {
+          closestDistance = adjustedDistance;
           closestObject = obj;
         }
       }
@@ -124,7 +135,6 @@ export class ParameterResolvers {
       // Отримуємо ResourceManager через MapLogic
       const resourceManager = this.mapLogic.resources;
       if (!resourceManager) {
-        console.warn('ResourceManager not available for resource filtering');
         return true; // Якщо нема ResourceManager - показуємо всі
       }
       
@@ -149,5 +159,71 @@ export class ParameterResolvers {
       return null;
     }
     return list[0];
+  }
+
+  /**
+   * Сортує масив об'єктів за відстанню до дрона
+   * Повертає відсортований масив ID об'єктів (найближчі спочатку)
+   */
+  sortObjectsByDistanceToDrone(objectIds: string[], dronePosition: Vector3): string[] {
+    if (!Array.isArray(objectIds) || objectIds.length === 0) {
+      return [];
+    }
+
+    // Отримуємо всі об'єкти з ID
+    const objects = objectIds.map(id => this.mapLogic.scene.getObjectById(id)).filter(obj => obj !== undefined);
+    
+    // Сортуємо за відстанню до дрона
+    const sortedObjects = objects.sort((a, b) => {
+      const posA = new Vector3(a!.coordinates.x, a!.coordinates.y, a!.coordinates.z);
+      const posB = new Vector3(b!.coordinates.x, b!.coordinates.y, b!.coordinates.z);
+      
+      const distanceA = dronePosition.distanceTo(posA);
+      const distanceB = dronePosition.distanceTo(posB);
+      
+      return distanceA - distanceB; // Найближчі спочатку
+    });
+    
+    // Повертаємо тільки ID відсортованих об'єктів
+    return sortedObjects.map(obj => obj!.id);
+  }
+
+  /**
+   * Отримує найближчу точку доступу до об'єкта для взаємодії
+   * Використовує findDockingPointToStatic для знаходження оптимальної точки стиковки
+   */
+  getObjectAccessPoint(objectId: string, droneId: string): Vector3 | null {
+    const targetObject = this.mapLogic.scene.getObjectById(objectId);
+    const droneObject = this.mapLogic.scene.getObjectById(droneId);
+    
+    if (!targetObject || !droneObject) {
+      return null;
+    }
+
+    // Отримуємо PathfindingSystem
+    const pathfindingSystem = this.mapLogic.scene.pathfinder;
+    if (!pathfindingSystem) {
+      return null;
+    }
+
+    try {
+      // Знаходимо найближчу точку доступу до об'єкта
+      const dockingPoint = pathfindingSystem.findDockingPointToStatic(
+        droneObject,
+        targetObject,
+        0.05, // safety margin
+        true  // fullCircle
+      );
+
+      if (dockingPoint) {
+        return new Vector3(dockingPoint.x, dockingPoint.y, dockingPoint.z);
+      } else {
+        console.warn(`No docking point found for object ${objectId}`);
+        return null;
+      }
+    } catch (error) {
+      console.warn('Error finding docking point:', error);
+      return null;
+    }
   }
 }

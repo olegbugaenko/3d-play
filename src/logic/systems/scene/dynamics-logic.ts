@@ -25,8 +25,8 @@ export class DynamicsLogic {
         const dynamicList = this.scene.getObjectsByTag('dynamic').filter(one => !!one.speed && vLen(one.speed) > 1.e-8);
 
         dynamicList.forEach(item => {
-            // Розраховуємо нову позицію на основі швидкості та часу
-            if (item.speed) {
+            // 🚀 Додаткова перевірка: чи не обнулили speed в цьому кадрі
+            if (item.speed && vLen(item.speed) > 1.e-8) {
                 const newPosition = {
                     x: item.coordinates.x + (item.speed.x * delta),
                     y: item.coordinates.y + (item.speed.y * delta),

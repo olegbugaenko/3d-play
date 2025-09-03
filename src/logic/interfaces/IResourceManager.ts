@@ -19,4 +19,8 @@ export interface IResourceManager extends SaveLoadManager {
   // Системні методи
   tick(dT: number): void;
   reset(): void;
+  
+  // 🚀 Методи для роботи з історією
+  clearHistory(): void;
+  getHistoryStats(): { totalEntries: number; maxSize: number; oldestEntry?: number; newestEntry?: number };
 }

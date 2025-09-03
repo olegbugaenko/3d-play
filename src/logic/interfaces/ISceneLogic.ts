@@ -18,8 +18,14 @@ export interface ISceneLogic {
   // Теги
   addObjectTags(id: string, tags: string[]): void;
   removeObjectTags(id: string, tags: string[]): void;
+  setObjectTags(id: string, tags: string[]): void;
+  updateObjectTags(id: string, newTags: string[], removeTags?: string[]): void;
   getAllTags(): string[];
   getObjectsCountByTag(tag: string): number;
+  
+  // Валідація та очищення tagCache
+  validateTagCache(): { isValid: boolean; issues: string[] };
+  cleanupTagCache(): void;
   
   // Terrain
   getTerrainManager(): any | null;
@@ -34,5 +40,14 @@ export interface ISceneLogic {
   
   // Методи для Scene3D
   getVisibleObjects(): TSceneObject<any>[];
+  getVisibleObjectsOptimized(): TSceneObject<any>[];
+  getDirtyObjects(): TSceneObject<any>[];
+  clearDirtyFlagsAfterSync(): void;
   getTotalObjectsCount(): number;
+  
+  // 🚀 Метод для маркування об'єкта як dirty
+  markObjectDirty(id: string): void;
+  
+  // 🚀 Метод для синхронізації ротації
+  syncRotation(obj: TSceneObject<any>): void;
 }

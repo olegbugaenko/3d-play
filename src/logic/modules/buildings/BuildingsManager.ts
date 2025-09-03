@@ -5,7 +5,7 @@ import {
   BuildingsManagerSaveData, 
 } from './buildings.types';
 import { BUILDINGS_DB } from './buildings-db';
-import { IBuildingsManager, IBonusSystem, ISceneLogic, IRequirementsSystem } from '@interfaces/index';
+import { IBuildingsManager, IBonusSystem, ISceneLogic, IRequirementsSystem, IResourceManager } from '@interfaces/index';
 import { ResourceRequest } from '@resources/resource-types';
 
 export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
@@ -14,12 +14,18 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   private bonusSystem: IBonusSystem;
   private sceneLogic: ISceneLogic;
   private requirementsSystem: IRequirementsSystem;
+  private resourceManager: IResourceManager;
 
-  constructor(bonusSystem: IBonusSystem, sceneLogic: ISceneLogic, requirementsSystem: IRequirementsSystem) {
+  constructor(
+    bonusSystem: IBonusSystem, 
+    sceneLogic: ISceneLogic, 
+    requirementsSystem: IRequirementsSystem,
+    resourceManager: IResourceManager
+  ) {
     this.bonusSystem = bonusSystem;
     this.sceneLogic = sceneLogic;
     this.requirementsSystem = requirementsSystem;
-
+    this.resourceManager = resourceManager;
   }
 
   /**
@@ -278,20 +284,24 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     const bonusSourceId = this.getBonusSourceId(typeId);
     this.bonusSystem.updateBonusSourceLevel(bonusSourceId, level);
 
+    // Отримуємо дані будівлі з бази даних
+    const buildingData = this.buildingsDB.get(typeId);
+    
     // Створюємо об'єкт на карті аналогічно до generateBuildings
     const buildingObject = {
       id: instanceId,
       type: 'building',
       coordinates: position,
-      scale: { x: 1.5, y: 1.5, z: 1.5 },
-      rotation: { x: 0, y: 0, z: 0 },
+      scale: buildingData?.ui?.defaultScale || { x: 1.0, y: 1.0, z: 1.0 },
+      rotation: buildingData?.ui?.rotationOffset || { x: 0, y: 0, z: 0 },
+      obstacleSize: buildingData?.data?.obstacleSize || 1,
       data: { 
         buildingType: typeId,
         level: level,
         typeId: typeId,
-        ...(this.buildingsDB.get(typeId)?.data || {})
+        ...(buildingData?.data || {})
       },
-      tags: ['on-ground', 'static', 'building', ...(this.buildingsDB.get(typeId)?.tags || [])],
+      tags: ['on-ground', 'static', 'building', ...(buildingData?.tags || [])],
       bottomAnchor: -0.75,
       terrainAlign: true,
       targetType: ['unload-resource', 'repair', 'upgrade'],
@@ -304,12 +314,16 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     }
   }
 
+  public startConstruction(typeId: string, position: { x: number; y: number; z: number }): void {
+    console.log(`Start construct: ${typeId}`, position)
+  }
+
   /**
    * Створює початкові будівлі для нової гри
    */
   public newGameBuildings(): void {
     // Створюємо склад
-    this.generateBuilding('storage', { x: 3, y: 30, z: 3 }, 1);
+    this.generateBuilding('storage', { x: -7, y: 30, z: -6 }, 1);
     
     // Створюємо зарядну станцію  
     this.generateBuilding('chargingStation', { x: -3, y: 30, z: -3 }, 1);
@@ -355,11 +369,32 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   }
 
   /**
+   * Отримує кількість побудованих будівель типу
+   */
+  public getBuildingTypeCount(buildingTypeId: string): number {
+    let count = 0;
+    for (const instance of this.buildingInstances.values()) {
+      if (instance.typeId === buildingTypeId && instance.built) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
    * Перевіряє чи можна побудувати будівлю
    */
   public canBuild(buildingTypeId: string): boolean {
     const buildingData = this.buildingsDB.get(buildingTypeId);
     if (!buildingData) return false;
+
+    // Перевіряємо maxQuantity
+    if (buildingData.maxQuantity) {
+      const currentCount = this.getBuildingTypeCount(buildingTypeId);
+      if (currentCount >= buildingData.maxQuantity) {
+        return false;
+      }
+    }
     
     // Якщо нема реквайрментів - будівлю можна будувати автоматично
     if (!buildingData.requirements || buildingData.requirements.length === 0) {
@@ -408,5 +443,60 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     }
     
     return maxLevel;
+  }
+
+  /**
+   * Отримує список будівель для UI з детальною інформацією
+   */
+  public listBuildingsForUI(): Array<{
+    typeId: string;
+    name: string;
+    description: string;
+    currentCount: number;
+    maxQuantity?: number;
+    canBuild: boolean;
+    costCheck: any; // ResourceCheckResult
+    bonusDetails: any[]; // BonusDetail[]
+  }> {
+    const result = [];
+    
+    for (const [typeId, buildingType] of this.buildingsDB) {
+      const currentCount = this.getBuildingTypeCount(typeId);
+      const canBuild = this.canBuild(typeId);
+      
+      // Отримуємо вартість будівництва (рівень 1)
+      const buildingCost = buildingType.cost(1);
+      const nextLevelCost = this.convertBuildingCostToResourceRequest(buildingCost);
+      const costCheck = this.resourceManager.checkResources(nextLevelCost);
+      
+      // Отримуємо деталі бонусів для цієї будівлі
+      // Для нових будівель показуємо ефекти від 0 до першого рівня
+      const bonusDetails = this.bonusSystem.getBonusDetails(this.getBonusSourceId(typeId));
+      
+      
+      result.push({
+        typeId,
+        name: buildingType.name,
+        description: buildingType.description,
+        currentCount,
+        maxQuantity: buildingType.maxQuantity,
+        canBuild,
+        costCheck,
+        bonusDetails
+      });
+    }
+    
+    return result;
+  }
+
+  /**
+   * Конвертує вартість будівлі в запит ресурсів
+   */
+  private convertBuildingCostToResourceRequest(buildingCost: any): ResourceRequest {
+    const result: ResourceRequest = {};
+    if (buildingCost.energy) result.energy = buildingCost.energy;
+    if (buildingCost.stone) result.stone = buildingCost.stone;
+    if (buildingCost.ore) result.ore = buildingCost.ore;
+    return result;
   }
 }

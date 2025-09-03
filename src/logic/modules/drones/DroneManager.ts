@@ -73,6 +73,10 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         };
         // Додаємо дрона в сцену
         this.scene.pushObjectWithTerrainConstraint(drone);
+        
+        // 🚀 Позначаємо як dirty для першого рендерингу
+        this.markDroneDirty(id);
+        
         return drone;
     }
 
@@ -102,6 +106,9 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
 
         // Сетимо дрон реді лише тоді коли setInitials фолс (кличемо метод з тіку, коли у нас вже є всі дані)
         drone.data.isReady = drone.data.isReady || !setInitials;
+        
+        // 🚀 Позначаємо як dirty після оновлення даних
+        this.markDroneDirty(id);
     }
 
     /**
@@ -111,6 +118,9 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         // Створюємо 1 дрон
         this.createDrone('rover_1', { x: 0, y: 0, z: 0 }, 'basic_rover');
         this.updateDroneData('rover_1', true);
+        
+        // 🚀 Позначаємо як dirty після створення початкових дронів
+        // (createDrone та updateDroneData вже позначають як dirty)
     }
     
     /**
@@ -184,7 +194,14 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         const drone = this.getDrone(id);
         if (!drone) return false;
         
+        const oldStatus = drone.data.status;
         drone.data.status = status;
+        
+        // 🚀 Позначаємо як dirty якщо статус змінився
+        if (oldStatus !== status) {
+            this.markDroneDirty(id);
+        }
+        
         return true;
     }
     
@@ -196,6 +213,10 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         if (!drone) return false;
         
         drone.data.currentCommandId = commandId;
+        
+        // 🚀 Позначаємо як dirty якщо змінилася команда
+        this.markDroneDirty(id);
+        
         return true;
     }
     
@@ -207,7 +228,14 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         if (!drone) return false;
         
         const maxBattery = drone.data.maxPower || 100;
+        const oldBattery = drone.data.power;
         drone.data.power = Math.max(0, Math.min(battery, maxBattery));
+        
+        // 🚀 Позначаємо як dirty якщо батарея змінилася
+        if (oldBattery !== drone.data.power) {
+            this.markDroneDirty(id);
+        }
+        
         return true;
     }
     
@@ -225,10 +253,14 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         // Перевіряємо чи не переповнений інвентар
         if (newAmount > maxCapacity) {
             drone.data.storage[resourceType] = maxCapacity;
+            // 🚀 Позначаємо як dirty навіть при переповненні
+            this.markDroneDirty(id);
             return false; // Інвентар переповнений
         }
         
         drone.data.storage[resourceType] = newAmount;
+        // 🚀 Позначаємо як dirty якщо ресурс додано
+        this.markDroneDirty(id);
         return true;
     }
     
@@ -248,6 +280,9 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         if (drone.data.storage[resourceType] <= 0) {
             delete drone.data.storage[resourceType];
         }
+        
+        // 🚀 Позначаємо як dirty якщо ресурс видалено
+        this.markDroneDirty(id);
         
         return true;
     }
@@ -334,6 +369,8 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
                 // Створюємо дрона з збереженими параметрами
                 this.createDrone(droneData.id, droneData.position, droneData.type);
                 
+                // 🚀 createDrone вже позначає як dirty
+                
                 // Отримуємо створеного дрона і оновлюємо додаткові дані
                 const drone = this.getDrone(droneData.id);
                 if (drone) {
@@ -341,6 +378,10 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
                     drone.data.currentCommandId = droneData.currentCommandId;
                     drone.data.power = droneData.battery;
                     drone.data.storage = droneData.inventory;
+                    
+                    // 🚀 Позначаємо як dirty після завантаження даних
+                    // (createDrone вже позначає як dirty, але тут ми оновлюємо додаткові дані)
+                    this.markDroneDirty(droneData.id);
                 }
             });
         }
@@ -351,8 +392,23 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         this.getAllDrones().forEach(drone => {
             this.scene.removeObject(drone.id);
         });
-        
+    }
 
+    /**
+     * 🚀 Позначає дрона як dirty для оновлення рендерингу
+     */
+    private markDroneDirty(id: string): void {
+        const drone = this.getDrone(id);
+        if (!drone) return;
+
+        // Позначаємо дані як dirty
+        if (drone._dirtyFlags) {
+            drone._dirtyFlags.data = true;
+            drone._lastUpdate = Date.now();
+        }
+
+        // Також можна викликати метод SceneLogic для маркування
+        // this.scene.markObjectDirty(id); // Якщо SceneLogic має публічний метод
     }
 
     /**
@@ -369,6 +425,9 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         const angle = Math.atan2(target.z - drone.coordinates.z, target.x - drone.coordinates.x);
         drone.rotation2D = angle;
         drone.rotation = { x: 0, y: angle, z: 0 };
+        
+        // 🚀 Позначаємо як dirty для оновлення рендерингу
+        this.markDroneDirty(droneId);
         
         return true;
     }

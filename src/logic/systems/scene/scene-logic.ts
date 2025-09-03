@@ -5,6 +5,8 @@ import { TerrainManager, TerrainConfig } from './terrain-manager'
 import { MAP_CONFIG } from '../map/map-config'
 import * as THREE from 'three'
 import { ISceneLogic } from '@interfaces/index'
+import { PathfindingSystem } from './path-finding/pathfinding-system'
+import { OccupancyGridStore } from './path-finding/occupancy-grid'
 
 // Implements basic scene API
 
@@ -13,7 +15,8 @@ export class SceneLogic implements ISceneLogic {
     private objects: Record<string, TSceneObject<any>> = {};
     private viewPort!: TSceneViewport;
     private mapBounds: Vector3 = { x: 2000, y: 2000, z: 400 };
-    
+    public postponedRegeneration: boolean = false;
+
     // Grid system для швидкого пошуку об'єктів
     private gridSystem: GridSystem = {
         cellSize: 25, // Зменшуємо розмір клітинки для більш точної фільтрації
@@ -23,8 +26,122 @@ export class SceneLogic implements ISceneLogic {
     // Кеш тегів для швидкого доступу
     private tagCache: Map<string, Set<string>> = new Map();
 
+    // 🚀 СИСТЕМА DIRTY FLAGS ДЛЯ ОПТИМІЗАЦІЇ
+    private dirtyObjects: Set<string> = new Set();
+
+    // 🚀 МЕТОДИ ДЛЯ РОБОТИ З DIRTY FLAGS
+    public markObjectDirty(id: string): void {
+        this.dirtyObjects.add(id);
+    }
+
+    /**
+     * 🚀 Синхронізує rotation2D з rotation через логіку террейну
+     */
+    public syncRotation(obj: TSceneObject): void {
+
+        // Якщо включено terrainAlign - нахиляємо об'єкт по нормалі
+        if (obj.terrainAlign && this.terrainManager) {
+            const normal = this.terrainManager.getNormalAt(obj.coordinates.x, obj.coordinates.z);
+            if (normal) {
+                // Правильні формули для обертання по нормалі
+                const angleX = Math.atan2(-normal.z, normal.y); // Нахил вперед/назад (X-обертання)
+                const angleZ = Math.atan2(normal.x, normal.y);  // Нахил вліво/вправо (Z-обертання)
+                
+                obj.rotation.x = -angleX;
+                obj.rotation.z = -angleZ;
+                
+                // 🔥 НОВА ЛОГІКА: Додаємо 2D ротацію відносно нормалі
+                if (obj.rotation2D !== undefined) {
+                    obj.rotation = this.calculateRotationRelativeToNormal(obj.rotation2D, normal);
+                }
+            }
+        } else if(obj.rotation2D) {
+            // Для звичайних об'єктів просто копіюємо Y ротацію
+            obj.rotation.y = obj.rotation2D;
+        }
+
+        // Позначаємо ротацію як dirty
+        if (obj._dirtyFlags) {
+            obj._dirtyFlags.rotation = true;
+            obj._lastUpdate = Date.now();
+        }
+
+        // Маркуємо об'єкт як dirty
+        this.markObjectDirty(obj.id);
+    }
+
+
+    private isObjectDirty(id: string): boolean {
+        return this.dirtyObjects.has(id);
+    }
+
+    private clearAllDirtyFlags(): void {
+        this.dirtyObjects.clear();
+    }
+
+    /**
+     * Перевіряє чи об'єкт має dirty flags
+     */
+    private hasDirtyFlags(obj: TSceneObject<any>): boolean {
+        if (!obj._dirtyFlags) return false;
+        
+        return obj._dirtyFlags.position ||
+               obj._dirtyFlags.scale ||
+               obj._dirtyFlags.rotation ||
+               obj._dirtyFlags.data ||
+               obj._dirtyFlags.tags ||
+               obj._dirtyFlags.visibility;
+    }
+
+    /**
+     * Отримує тільки змінені об'єкти для оптимізованої синхронізації
+     */
+    public getDirtyObjects(): TSceneObject<any>[] {
+        const dirtyObjects: TSceneObject<any>[] = [];
+        for (const id of this.dirtyObjects) {
+            const obj = this.objects[id];
+            if (obj) {
+                dirtyObjects.push(obj);
+            }
+        }
+        return dirtyObjects;
+    }
+
+    /**
+     * Отримує всі видимі об'єкти з флагом needUpdate на основі dirty flags
+     */
+    public getVisibleObjectsOptimized(): TSceneObject<any>[] {
+        const allVisible = this.getVisibleObjects();
+        
+        return allVisible.map(obj => ({
+            ...obj,
+            needUpdate: this.isObjectDirty(obj.id) || this.hasDirtyFlags(obj)
+        }));
+    }
+
+    /**
+     * 🚀 Очищає dirty flags після синхронізації
+     */
+    public clearDirtyFlagsAfterSync(): void {
+        for (const id of this.dirtyObjects) {
+            const obj = this.objects[id];
+            if (obj && obj._dirtyFlags) {
+                // Очищаємо всі dirty flags
+                obj._dirtyFlags.position = false;
+                obj._dirtyFlags.scale = false;
+                obj._dirtyFlags.rotation = false;
+                obj._dirtyFlags.data = false;
+                obj._dirtyFlags.tags = false;
+                obj._dirtyFlags.visibility = false;
+            }
+        }
+        this.clearAllDirtyFlags();
+    }
+
     // Terrain system
     private terrainManager: TerrainManager | null = null;
+
+    public pathfinder: PathfindingSystem;
 
     constructor() {
         // Створюємо TerrainManager з MAP_CONFIG розмірами
@@ -40,7 +157,40 @@ export class SceneLogic implements ISceneLogic {
         };
         this.terrainManager = new TerrainManager(terrainConfig);
         
+        const grid = new OccupancyGridStore(
+            MAP_CONFIG.width *4,
+            MAP_CONFIG.height *4,
+            0.5,
+            -MAP_CONFIG.width,
+            -MAP_CONFIG.height
+        )
+        this.pathfinder = new PathfindingSystem(grid);
+
+        this.pathfinder.grid.computeClearanceMeters();
+
         // ResourceManager буде встановлений ззовні
+    }
+
+    public rebuildObstacles(bResume = false) {
+        if(bResume) {
+            this.postponedRegeneration = false;
+        }
+        if(!this.postponedRegeneration) {
+            this.pathfinder.grid.rebuildClearanceAfterStaticsChanged();
+        }
+    }
+
+    private isStaticObstacle(obj: TSceneObject<any>) {
+        return !!obj.obstacleSize && obj.tags?.includes('static');
+    }
+    
+    private isDynamicObstacle(obj: TSceneObject<any>) {
+        return !!obj.obstacleSize && !obj.tags?.includes('static');
+    }
+    
+    // Викликаєш один раз після пачкового додавання статиків:
+    public finalizeStatics(): void {
+        this.rebuildObstacles(true);
     }
 
     /*
@@ -148,6 +298,17 @@ export class SceneLogic implements ISceneLogic {
             return false; // Об'єкт за межами карти
         }
         
+        // 🚀 Ініціалізуємо dirty flags для нового об'єкта
+        obj._dirtyFlags = {
+            position: true,
+            scale: true,
+            rotation: true,
+            data: true,
+            tags: true,
+            visibility: true
+        };
+        obj._lastUpdate = Date.now();
+        
         this.objects[obj.id] = obj;
         this.addObjectToGrid(obj.id, obj.coordinates);
         
@@ -156,6 +317,29 @@ export class SceneLogic implements ISceneLogic {
             this.addObjectTags(obj.id, obj.tags);
         }
 
+        if(obj.obstacleSize) {
+            // додаємо у масив перешкод
+            if(obj.tags.includes('static')) {
+                this.pathfinder.grid.addStaticCircle(
+                    obj.id,
+                    obj.coordinates.x,
+                    obj.coordinates.z,
+                    obj.obstacleSize
+                )
+                this.rebuildObstacles();
+            } else {
+                this.pathfinder.grid.addDynamicRaw(
+                    obj.id,
+                    obj.coordinates.x,
+                    obj.coordinates.z,
+                    obj.obstacleSize
+                );
+            }
+        }
+        
+        // 🚀 Позначаємо як dirty для синхронізації
+        this.markObjectDirty(obj.id);
+        
         return true; // Об'єкт успішно додано
     }
 
@@ -181,6 +365,24 @@ export class SceneLogic implements ISceneLogic {
         obj.coordinates = { ...newPos };
         this.addObjectToGrid(id, obj.coordinates);
         
+        // 🚀 Позначаємо позицію як dirty
+        if (obj._dirtyFlags) {
+            obj._dirtyFlags.position = true;
+            obj._lastUpdate = Date.now();
+        }
+        
+        if (this.isDynamicObstacle(obj) && obj.obstacleSize) {
+            this.pathfinder.grid.moveDynamicRaw?.(
+                id,
+                obj.coordinates.x,
+                obj.coordinates.z,
+                obj.obstacleSize
+            );
+        }
+        
+        // 🚀 Позначаємо як dirty для синхронізації
+        this.markObjectDirty(id);
+        
         return true;
     }
 
@@ -193,11 +395,21 @@ export class SceneLogic implements ISceneLogic {
             return false; // Об'єкт не знайдено
         }
 
-        this.removeObjectFromGrid(id, obj.coordinates);
-        
-        // Видаляємо теги з кешу якщо вони є
+        // 🚀 КРИТИЧНО: Спочатку очищаємо tagCache ПЕРЕД видаленням об'єкта!
         if (obj.tags && obj.tags.length > 0) {
             this.removeObjectTags(id, obj.tags);
+        }
+
+        this.removeObjectFromGrid(id, obj.coordinates);
+        
+        if (obj.obstacleSize) {
+            if (this.isStaticObstacle(obj)) {
+                this.pathfinder.grid.removeStatic(id);
+                // оскільки видалення статики рідкісне — перерахувати clearance одразу
+                this.rebuildObstacles();
+            } else if (this.isDynamicObstacle(obj)) {
+                this.pathfinder.grid.removeDynamicRaw?.(id);
+            }
         }
         
         delete this.objects[id];
@@ -219,21 +431,7 @@ export class SceneLogic implements ISceneLogic {
                 
                 // Якщо включено terrainAlign - нахиляємо об'єкт по нормалі
                 if (obj.terrainAlign && this.terrainManager) {
-                    const normal = this.terrainManager.getNormalAt(obj.coordinates.x, obj.coordinates.z);
-                    if (normal) {
-                        const angleX = Math.atan2(-normal.z, normal.y); // Нахил вперед/назад (X-обертання)
-                        const angleZ = Math.atan2(normal.x, normal.y);  // Нахил вліво/вправо (Z-обертання)
-                        
-                        obj.rotation.x = -angleX;
-                        obj.rotation.z = -angleZ;
-                        // 🔥 НОВА ЛОГІКА: Додаємо 2D ротацію відносно нормалі
-                        if (obj.rotation2D !== undefined) {
-                            const calculatedRotation = this.calculateRotationRelativeToNormal(obj.rotation2D, normal);
-                            obj.rotation = calculatedRotation;
-                        }
-                        
-                        // console.log(`Object ${obj.id} aligned to terrain: normal(${normal.x.toFixed(2)}, ${normal.y.toFixed(2)}, ${normal.z.toFixed(2)}), rotation(${(angleX * 180 / Math.PI).toFixed(1)}°, ${(angleZ * 180 / Math.PI).toFixed(1)}°)`);
-                    }
+                    this.syncRotation(obj);
                 }
             }
         }
@@ -257,23 +455,10 @@ export class SceneLogic implements ISceneLogic {
                 const bottomOffset = obj.bottomAnchor || 0;
                 newPos.y = terrainHeight - bottomOffset;
                 
-                // Якщо включено terrainAlign - нахиляємо об'єкт по нормалі
-                if (obj.terrainAlign && this.terrainManager) {
-                    const normal = this.terrainManager.getNormalAt(newPos.x, newPos.z);
-                    if (normal) {
-                        // Правильні формули для обертання по нормалі
-                        const angleX = Math.atan2(-normal.z, normal.y); // Нахил вперед/назад (X-обертання)
-                        const angleZ = Math.atan2(normal.x, normal.y);  // Нахил вліво/вправо (Z-обертання)
-                        
-                        obj.rotation.x = -angleX;
-                        obj.rotation.z = -angleZ;
-                        
-                        // 🔥 НОВА ЛОГІКА: Додаємо 2D ротацію відносно нормалі
-                        if (obj.rotation2D !== undefined) {
-                            obj.rotation = this.calculateRotationRelativeToNormal(obj.rotation2D, normal);
-                        }
-                    }
-                }
+                                 // Якщо включено terrainAlign - нахиляємо об'єкт по нормалі
+                 if (obj.terrainAlign && this.terrainManager) {
+                     this.syncRotation(obj);
+                 }
             }
         }
 
@@ -352,6 +537,58 @@ export class SceneLogic implements ISceneLogic {
     getVisibleGridCellsCount(): number {
         return this.getVisibleGridCells().length;
     }
+
+    /**
+     * Отримує об'єкти в радіусі від заданої точки, використовуючи gridSystem
+     * @param center - центр пошуку
+     * @param radius - радіус пошуку
+     * @returns масив об'єктів в радіусі
+     */
+    getObjectsInRadius(center: { x: number; y: number; z: number }, radius: number): TSceneObject<any>[] {
+        // Перевіряємо чи існує gridSystem
+        if (!this.gridSystem || !this.gridSystem.grid) {
+            return [];
+        }
+
+        const objectIds = new Set<string>();
+        const cellSize = this.gridSystem.cellSize;
+        
+        // Конвертуємо радіус у кількість комірок (з запасом)
+        const cellsRadius = Math.ceil(radius / cellSize) + 1;
+        
+        // Конвертуємо центр у індекси гріда
+        const centerGridX = Math.floor(center.x / cellSize);
+        const centerGridZ = Math.floor(center.z / cellSize); // Z координата
+        
+        // Проходимо по комірках в радіусі
+        for (let gridX = centerGridX - cellsRadius; gridX <= centerGridX + cellsRadius; gridX++) {
+            for (let gridZ = centerGridZ - cellsRadius; gridZ <= centerGridZ + cellsRadius; gridZ++) {
+                const gridKey = `${gridX},${gridZ}`;
+                const cell = this.gridSystem.grid.get(gridKey);
+                
+                if (cell) {
+                    // Додаємо всі об'єкти з цієї комірки
+                    cell.objects.forEach(objId => {
+                        objectIds.add(objId);
+                    });
+                }
+            }
+        }
+        
+        // Конвертуємо ID в об'єкти та фільтруємо по відстані
+        return Array.from(objectIds)
+            .map(id => this.objects[id])
+            .filter(Boolean)
+            .filter(obj => {
+                const distance = Math.sqrt(
+                    Math.pow(obj.coordinates.x - center.x, 2) + 
+                    Math.pow(obj.coordinates.z - center.z, 2)
+                );
+                return distance <= radius + (obj.obstacleSize || 0);
+            });
+    }
+
+
 
     /**
      * Дебаг метод для перевірки viewport та гріду
@@ -448,6 +685,45 @@ export class SceneLogic implements ISceneLogic {
         });
     }
 
+    /**
+     * 🚀 Безпечно встановлює теги об'єкта (повна заміна)
+     */
+    setObjectTags(id: string, tags: string[]): void {
+        const obj = this.objects[id];
+        if (!obj) return;
+        
+        // Видаляємо старі теги з кешу
+        if (obj.tags && obj.tags.length > 0) {
+            this.removeObjectTags(id, obj.tags);
+        }
+        
+        // Встановлюємо нові теги
+        obj.tags = [...tags];
+        
+        // Додаємо нові теги в кеш
+        if (tags.length > 0) {
+            this.addObjectTags(id, tags);
+        }
+    }
+
+    /**
+     * 🚀 Безпечно оновлює теги об'єкта (додає нові, видаляє старі)
+     */
+    updateObjectTags(id: string, newTags: string[], removeTags: string[] = []): void {
+        const obj = this.objects[id];
+        if (!obj) return;
+        
+        // Видаляємо старі теги
+        if (removeTags.length > 0) {
+            this.removeObjectTags(id, removeTags);
+        }
+        
+        // Додаємо нові теги
+        if (newTags.length > 0) {
+            this.addObjectTags(id, newTags);
+        }
+    }
+
     getObjectsByTag(tag: string): TSceneObject<any>[] {
         const objectIds = this.tagCache.get(tag);
         if (!objectIds) return [];
@@ -455,6 +731,60 @@ export class SceneLogic implements ISceneLogic {
         return Array.from(objectIds)
             .map(id => this.objects[id])
             .filter(Boolean);
+    }
+
+    /**
+     * 🚀 Валідує консистентність tagCache
+     */
+    validateTagCache(): { isValid: boolean; issues: string[] } {
+        const issues: string[] = [];
+        
+        // Перевіряємо чи всі об'єкти в tagCache існують
+        this.tagCache.forEach((objectIds, tag) => {
+            objectIds.forEach(id => {
+                if (!this.objects[id]) {
+                    issues.push(`Tag '${tag}' references non-existent object '${id}'`);
+                }
+            });
+        });
+        
+        // Перевіряємо чи всі теги об'єктів є в tagCache
+        Object.values(this.objects).forEach(obj => {
+            if (obj.tags) {
+                obj.tags.forEach(tag => {
+                    const tagSet = this.tagCache.get(tag);
+                    if (!tagSet || !tagSet.has(obj.id)) {
+                        issues.push(`Object '${obj.id}' has tag '${tag}' but not in tagCache`);
+                    }
+                });
+            }
+        });
+        
+        return {
+            isValid: issues.length === 0,
+            issues
+        };
+    }
+
+    /**
+     * 🚀 Очищає tagCache від неіснуючих об'єктів
+     */
+    cleanupTagCache(): void {
+        this.tagCache.forEach((objectIds, tag) => {
+            const validIds = new Set<string>();
+            
+            objectIds.forEach(id => {
+                if (this.objects[id]) {
+                    validIds.add(id);
+                }
+            });
+            
+            if (validIds.size === 0) {
+                this.tagCache.delete(tag);
+            } else if (validIds.size !== objectIds.size) {
+                this.tagCache.set(tag, validIds);
+            }
+        });
     }
 
     getObjectsByTags(tags: string[]): TSceneObject<any>[] {
@@ -510,7 +840,8 @@ export class SceneLogic implements ISceneLogic {
                 Math.pow(obj.coordinates.y - center.y, 2) + 
                 Math.pow(obj.coordinates.z - center.z, 2)
             );
-            return distance <= radius;
+
+            return distance <= radius + (obj.obstacleSize || 0);
         });
     }
 
@@ -525,5 +856,38 @@ export class SceneLogic implements ISceneLogic {
         normal: Vector3,
     ): Vector3 {
         return orientOnSurfaceEulerXYZ(normal, rotation2D);
-      }
+    }
+
+    /**
+     * Знаходить оптимальний шлях з урахуванням перешкод та висоти ландшафту
+     * @param start - початкова точка
+     * @param end - кінцева точка  
+     * @param obj - об'єкт, для якого шукаємо шлях
+     * @returns масив точок шляху з правильною Y-координатою відповідно до ландшафту
+     */
+    public findOptimalPathWithTerrain(start: Vector3, end: Vector3, obj: TSceneObject<any>): Vector3[] {
+        // Викликаємо базовий пошук шляху (2D)
+        const path2D = this.pathfinder.findOptimalPath(start, end, obj);
+        
+        if (path2D.length === 0) {
+            return [];
+        }
+
+        // Модифікуємо Y-координати відповідно до висоти ландшафту
+        const pathWithTerrain: Vector3[] = path2D.map(point => {
+            const terrainHeight = this.terrainManager?.getHeightAt(point.x, point.z) ?? 0;
+            
+            // Якщо Y-координата не задана або 0, використовуємо висоту ландшафту
+            // Інакше залишаємо оригінальну Y (наприклад, для польоту)
+            const finalY = point.y === 0 || obj.tags.includes('on-ground') ? terrainHeight : point.y;
+            
+            return {
+                x: point.x,
+                y: finalY,
+                z: point.z
+            };
+        });
+
+        return pathWithTerrain;
+    }
 }

@@ -117,4 +117,75 @@ export abstract class CommandExecutor {
     getContext(): CommandContext {
         return this.context;
     }
+
+    /**
+     * 🚀 Утилітний метод для обертання об'єкта до цілі
+     */
+    protected rotateToTarget(targetId: string): void {
+        const object = this.context.scene.getObjectById(this.context.objectId);
+        if (!object || !object.data?.rotatable) {
+            return;
+        }
+
+        const target = this.context.scene.getObjectById(targetId);
+        if (!target) {
+            return;
+        }
+
+        const direction = {
+            x: target.coordinates.x - object.coordinates.x,
+            z: target.coordinates.z - object.coordinates.z
+        };
+        const targetRotation = Math.atan2(direction.x, direction.z);
+        const rotationOffset = object.data.rotationOffset || 0;
+        
+        // Якщо об'єкт terrainAlign - зберігаємо 2D ротацію відносно нормалі
+        if (object.terrainAlign) {
+            object.rotation2D = targetRotation + rotationOffset;
+        } else {
+            // Для звичайних об'єктів
+            object.rotation.y = targetRotation + rotationOffset;
+        }
+        
+        // 🚀 Синхронізуємо ротацію з рендерером
+        this.syncRotation(object);
+    }
+
+    /**
+     * 🚀 Утилітний метод для обертання об'єкта до цілі (по об'єкту)
+     */
+    protected rotateToTargetObject(target: any): void {
+        const object = this.context.scene.getObjectById(this.context.objectId);
+        if (!object || !object.data?.rotatable || !target) {
+            return;
+        }
+
+        const direction = {
+            x: target.coordinates.x - object.coordinates.x,
+            z: target.coordinates.z - object.coordinates.z
+        };
+        const targetRotation = Math.atan2(direction.x, direction.z);
+        const rotationOffset = object.data.rotationOffset || 0;
+        
+        // Якщо об'єкт terrainAlign - зберігаємо 2D ротацію відносно нормалі
+        if (object.terrainAlign) {
+            object.rotation2D = targetRotation + rotationOffset;
+        } else {
+            // Для звичайних об'єктів
+            object.rotation.y = targetRotation + rotationOffset;
+        }
+        
+        // 🚀 Синхронізуємо ротацію з рендерером
+        this.syncRotation(object);
+    }
+
+    /**
+     * 🚀 Синхронізує ротацію об'єкта з рендерером
+     */
+    protected syncRotation(object: any): void {
+        // Викликаємо метод SceneLogic для синхронізації ротації
+        if (this.context.scene.syncRotation) {
+            this.context.scene.syncRotation(object);
+        }
+    }
 }

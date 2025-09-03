@@ -242,11 +242,12 @@ export class CameraController {
     newOffset.applyMatrix4(verticalRotationMatrix)
     const newPosition = this.target.clone().add(newOffset)
     
-    // Обмежуємо вертикальний кут (щоб камера не переверталася)
+    // Обмежуємо вертикальний кут (щоб камера не переверталася і не провалювалася під ландшафт)
     const currentAngle = Math.atan2(newOffset.y, Math.sqrt(newOffset.x * newOffset.x + newOffset.z * newOffset.z))
+    const minAngle = Math.PI / 12  // Мінімальний кут 15 градусів над поверхнею
     const maxAngle = Math.PI / 2.5 // Максимальний кут 72 градуси
     
-    if (Math.abs(currentAngle) < maxAngle) {
+    if (currentAngle >= minAngle && currentAngle <= maxAngle) {
       this.camera.position.copy(newPosition)
     }
     

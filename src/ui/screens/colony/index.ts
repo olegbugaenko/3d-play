@@ -6,3 +6,6 @@ export { Scene3D, CameraController, AreaSelectionRenderer } from './scene';
 
 // Upgrades
 export { UpgradesPanel, UpgradesModal } from './upgrades';
+
+// Buildings
+export { BuildingsPanel, BuildingsModal } from './buildings';

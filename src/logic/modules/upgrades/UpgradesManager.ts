@@ -267,6 +267,11 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       
       const state = this.upgradeStates.get(typeId) || { level: 0, unlocked: false };
       
+      if (!state.unlocked) {
+        // Спочатку розблоковуємо
+        this.unlockUpgrade(typeId);
+      }
+
       // Розраховуємо вартість наступного рівня
       const nextLevel = state.level + 1;
       const buildingCost = upgradeType.cost(nextLevel);
@@ -322,6 +327,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
     
     // Створюємо початкові апгрейди для всіх типів з БД
     for (const [typeId] of this.upgradesDB) {
+      console.log(`Set initial for ${typeId}`);
       this.setInitialState(typeId, 0, true);
     }
     
@@ -350,7 +356,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
    * Завантажує стан апгрейдів
    */
   public load(data: UpgradesManagerSaveData): void {
-    this.upgradeStates.clear();
+    this.reset();
     
     for (const [typeId, stateData] of Object.entries(data.upgradeStates)) {
       this.upgradeStates.set(typeId, {

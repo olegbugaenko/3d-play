@@ -12,7 +12,7 @@ export interface IBonusSystem {
   getEffectValue(effectId: string): number;
   
   // Отримання деталей бонусів
-  getBonusDetails(bonusSourceId: string): any[];
+  getBonusDetails(bonusSourceId: string, level?: number): any[];
   
   // Системні методи
   reset(): void;

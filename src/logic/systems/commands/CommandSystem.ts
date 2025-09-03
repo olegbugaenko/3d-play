@@ -133,6 +133,8 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             // Виконуємо команду
             const result = executor.execute();
 
+        
+
             if (!result.success) {
                 console.warn(`Command execution failed for ${objectId}: ${result.message} [${result.code}]`);
                 

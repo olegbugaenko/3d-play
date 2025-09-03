@@ -9,12 +9,25 @@ export interface TSceneObject<T = any> {
     rotation: Vector3;
     rotation2D?: number; // 2D ротація відносно нормалі поверхні (для terrainAlign об'єктів)
     speed?: Vector3;
+    obstacleSize?: number; // Визначає наскільки цей обєкт є перешкодою
     data: T;
     tags: string[]; // Теги для швидкого доступу та фільтрації
     bottomAnchor?: number; // Зміщення від центру до низу об'єкта (наприклад, -0.5 для куба)
     terrainAlign?: boolean; // Автоматично нахиляти об'єкт по нормалі terrain
     targetType?: string[];
     commandType?: string[]; // Доступні типи команд для об'єкта
+
+      // 🚀 НОВА СИСТЕМА DIRTY FLAGS
+  _dirtyFlags?: {
+    position: boolean;    // Змінилася позиція
+    scale: boolean;       // Змінився масштаб
+    rotation: boolean;    // Змінилося обертання
+    data: boolean;        // Змінилися дані
+    tags: boolean;        // Змінилися теги
+    visibility: boolean;  // Змінилася видимість
+  };
+  _lastUpdate?: number;   // Timestamp останнього оновлення
+  needUpdate?: boolean;   // Флаг для оптимізації рендерингу
 }
 
 export interface TSceneViewport {

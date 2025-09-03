@@ -416,7 +416,7 @@ export class BonusSystem implements IBonusSystem {
   /**
    * Отримує детальну інформацію про бонуси для конкретного джерела
    */
-  public getBonusDetails(bonusSourceId: string): BonusDetail[] {
+  public getBonusDetails(bonusSourceId: string, level?: number): BonusDetail[] {
     const source = this.registry.getSource(bonusSourceId);
     if (!source) {
       console.warn(`[BonusSystem] Source ${bonusSourceId} not found`);
@@ -430,7 +430,7 @@ export class BonusSystem implements IBonusSystem {
     }
 
     const details: BonusDetail[] = [];
-    const currentLevel = sourceState.level;
+    const currentLevel = level == null ? sourceState.level : level;
     const nextLevel = currentLevel + 1;
 
     // Обробляємо бонуси до ефектів

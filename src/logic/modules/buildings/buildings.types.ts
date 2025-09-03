@@ -23,6 +23,7 @@ export interface BuildingTypeData {
   description: string;
   tags: string[];
   data?: Record<string, any>;
+  maxQuantity?: number;
 }
 
 // Стан конкретної будівлі на карті

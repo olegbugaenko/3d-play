@@ -23,9 +23,12 @@ export class ChargeExecutor extends CommandExecutor {
             return { success: false, message: 'No charging station nearby' };
         }
 
+        // 🚀 Обертаємо дрона до зарядки
+        this.rotateToTargetObject(chargingStation);
+
         // Перевіряємо відстань до зарядної станції
         const distance = this.calculateDistance(object.coordinates, chargingStation.coordinates);
-        if (distance > this.chargeDistance) {
+        if (distance > this.chargeDistance + (object.obstacleSize || 0) + (chargingStation.obstacleSize || 0)) {
             return { success: false, message: 'Too far from charging station' };
         }
 
@@ -105,7 +108,7 @@ export class ChargeExecutor extends CommandExecutor {
         const nearbyChargingStations = scene.getObjectsByTagInRadius(
             'charge',
             object.coordinates,
-            this.chargeDistance
+            this.chargeDistance + (object.obstacleSize || 0)
         );
         
         // Знаходимо найближчу зарядну станцію типу building

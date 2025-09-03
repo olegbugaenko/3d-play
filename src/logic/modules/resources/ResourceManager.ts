@@ -33,7 +33,7 @@ export interface ResourceStatus {
 export class ResourceManager implements SaveLoadManager, IResourceManager {
   private resources: Map<ResourceId, ResourceData> = new Map();
   private history: ResourceHistoryEntry[] = [];
-  private maxHistorySize = 1000; // максимальна кількість записів в історії
+  private maxHistorySize = 100; // максимальна кількість записів в історії
   private bonusSystem: IBonusSystem;
   private container: GameContainer;
 
@@ -437,12 +437,7 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
     return limit ? history.slice(0, limit) : history;
   }
 
-  /**
-   * Очистити історію
-   */
-  clearHistory(): void {
-    this.history = [];
-  }
+
 
   /**
    * Встановити кількість ресурсу (без обмежень)
@@ -481,13 +476,26 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
 
     this.history.push(entry);
 
-    // Обмежуємо розмір історії
+    // 🚀 Оптимізоване обмеження розміру історії
     if (this.history.length > this.maxHistorySize) {
-      this.history = this.history.slice(-this.maxHistorySize);
+      // Видаляємо найстаріші записи (з початку масиву)
+      this.history.splice(0, this.history.length - this.maxHistorySize);
     }
   }
 
   // === УТІЛІТИ ===
+
+  /**
+   * 🚀 Отримує статистику історії ресурсів
+   */
+  public getHistoryStats(): { totalEntries: number; maxSize: number; oldestEntry?: number; newestEntry?: number } {
+    return {
+      totalEntries: this.history.length,
+      maxSize: this.maxHistorySize,
+      oldestEntry: this.history.length > 0 ? this.history[0].timestamp : undefined,
+      newestEntry: this.history.length > 0 ? this.history[this.history.length - 1].timestamp : undefined
+    };
+  }
 
   /**
    * Отримати статистику ресурсів
@@ -568,5 +576,12 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
       { resourceId: 'ore', amount: 50, reason: 'Starting resources' },
       { resourceId: 'energy', amount: 200, reason: 'Starting resources' }
     ]);
+  }
+
+  /**
+   * Очистити історію
+   */
+  clearHistory(): void {
+    this.history = [];
   }
 }

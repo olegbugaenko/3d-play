@@ -14,8 +14,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     resolveParametersPipeline: [
       {
         id: 'resourcePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'targets.resource'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'targets.resource'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'group-start'
       },
       {
@@ -26,8 +29,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       },
       {
         id: 'storagePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.closestStorageId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.closestStorageId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       }
     ],
@@ -57,7 +63,7 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         priority: 2,
         createdAt: Date.now(),
         // Без resolvedParamsMapping - беремо все з контексту
-        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
+        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND, CommandFailureCode.TARGET_INACCESSIBLE]
       },
       {
         id: `return-to-base-${Date.now()}`,
@@ -105,8 +111,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       },
       {
         id: 'chargingStationPosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.chargingStationId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.chargingStationId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       }
     ],
@@ -167,8 +176,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       },
       {
         id: 'chargingStationPosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.chargingStationId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.chargingStationId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'group-start'
       }
     ],
@@ -229,24 +241,42 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       },
       {
+        id: 'dronePosition',
+        getterType: 'getCurrentObjectPosition',
+        args: [],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'sortedResourcesByDistance',
+        getterType: 'sortObjectsByDistanceToDrone',
+        args: [
+          {type: 'var', value: 'resolved.resourcesInRadius'},
+          {type: 'var', value: 'resolved.dronePosition'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
         id: 'validateResourcesExist',
         getterType: 'validate',
         args: [
           {type: 'lit', value: 'arrayNotEmpty'},
-          {type: 'var', value: 'resolved.resourcesInRadius'}
+          {type: 'var', value: 'resolved.sortedResourcesByDistance'}
         ],
         resolveWhen: 'before-command'
       },
       {
         id: 'firstResourceId',
         getterType: 'getFirstOfList',
-        args: [{type: 'var', value: 'resolved.resourcesInRadius'}],
+        args: [{type: 'var', value: 'resolved.sortedResourcesByDistance'}],
         resolveWhen: 'before-command'
       },
       {
         id: 'firstResourcePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.firstResourceId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.firstResourceId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       },
       {
@@ -257,8 +287,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       },
       {
         id: 'storagePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.closestStorageId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.closestStorageId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       }
     ],
@@ -288,7 +321,7 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolvedParamsMapping: {
           targetId: 'firstResourceId'
         },
-        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
+        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND, CommandFailureCode.TARGET_INACCESSIBLE]
       },
       {
         id: `return-to-storage-${Date.now()}`,
@@ -353,24 +386,42 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       },
       {
+        id: 'dronePosition',
+        getterType: 'getCurrentObjectPosition',
+        args: [],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'sortedResourcesByDistance',
+        getterType: 'sortObjectsByDistanceToDrone',
+        args: [
+          {type: 'var', value: 'resolved.resourcesInRadius'},
+          {type: 'var', value: 'resolved.dronePosition'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
         id: 'validateResourcesExist',
         getterType: 'validate',
         args: [
           {type: 'lit', value: 'arrayNotEmpty'},
-          {type: 'var', value: 'resolved.resourcesInRadius'}
+          {type: 'var', value: 'resolved.sortedResourcesByDistance'}
         ],
         resolveWhen: 'before-command'
       },
       {
         id: 'firstResourceId',
         getterType: 'getFirstOfList',
-        args: [{type: 'var', value: 'resolved.resourcesInRadius'}],
+        args: [{type: 'var', value: 'resolved.sortedResourcesByDistance'}],
         resolveWhen: 'before-command'
       },
       {
         id: 'firstResourcePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.firstResourceId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.firstResourceId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       },
       {
@@ -381,8 +432,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       },
       {
         id: 'storagePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.closestStorageId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.closestStorageId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       }
     ],
@@ -412,7 +466,7 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolvedParamsMapping: {
           targetId: 'firstResourceId'
         },
-        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
+        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND, CommandFailureCode.TARGET_INACCESSIBLE]
       },
       {
         id: `return-to-storage-${Date.now()}`,
@@ -464,15 +518,33 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       },
       {
+        id: 'dronePosition',
+        getterType: 'getCurrentObjectPosition',
+        args: [],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'sortedResourcesByDistance',
+        getterType: 'sortObjectsByDistanceToDrone',
+        args: [
+          {type: 'var', value: 'resolved.resourcesInRadius'},
+          {type: 'var', value: 'resolved.dronePosition'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
         id: 'firstResourceId',
         getterType: 'getFirstOfList',
-        args: [{type: 'var', value: 'resolved.resourcesInRadius'}],
+        args: [{type: 'var', value: 'resolved.sortedResourcesByDistance'}],
         resolveWhen: 'before-command'
       },
       {
         id: 'firstResourcePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.firstResourceId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.firstResourceId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       },
       {
@@ -483,8 +555,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       },
       {
         id: 'storagePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.closestStorageId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.closestStorageId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       }
     ],
@@ -571,24 +646,42 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       },
       {
+        id: 'dronePosition',
+        getterType: 'getCurrentObjectPosition',
+        args: [],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'sortedResourcesByDistance',
+        getterType: 'sortObjectsByDistanceToDrone',
+        args: [
+          {type: 'var', value: 'resolved.allResources'},
+          {type: 'var', value: 'resolved.dronePosition'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
         id: 'validateResourcesExist',
         getterType: 'validate',
         args: [
           {type: 'lit', value: 'arrayNotEmpty'},
-          {type: 'var', value: 'resolved.allResources'}
+          {type: 'var', value: 'resolved.sortedResourcesByDistance'}
         ],
         resolveWhen: 'before-command'
       },
       {
         id: 'firstResourceId',
         getterType: 'getFirstOfList',
-        args: [{type: 'var', value: 'resolved.allResources'}],
+        args: [{type: 'var', value: 'resolved.sortedResourcesByDistance'}],
         resolveWhen: 'before-command'
       },
       {
         id: 'firstResourcePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.firstResourceId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.firstResourceId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       },
       {
@@ -599,8 +692,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       },
       {
         id: 'storagePosition',
-        getterType: 'getObjectPosition',
-        args: [{type: 'var', value: 'resolved.closestStorageId'}],
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.closestStorageId'},
+          {type: 'var', value: 'objectId'}
+        ],
         resolveWhen: 'before-command'
       }
     ],

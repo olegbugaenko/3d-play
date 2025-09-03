@@ -30,8 +30,8 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
       color: '#FFD700' // Золотий для ефективності
     },
     cost: (level: number) => ({
-      stone: 3 * (1.2 ** (level - 1)),
-      energy: 5 * (1.2 ** (level - 1)),
+      stone: 4 * (1.25 ** (level - 1)),
+      energy: 4 * (1.25 ** (level - 1)),
     })
   }],
 
@@ -61,6 +61,31 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
         }
       }
     },
+    ui: {
+      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
+      rotationOffset: { x: 0, y: 0, z: 0 },
+      iconName: 'mining-upgrade.png',
+      color: '#FFD700' // Золотий для ефективності
+    },
+    cost: (level: number) => ({
+      stone: 5 * (1.2 ** (level - 1)),
+      energy: 8 * (1.2 ** (level - 1)),
+    })
+  }],
+
+  ['building_constructions', {
+    id: 'building_constructions',
+    name: 'Building',
+    description: 'Unlocks buildings',
+    maxLevel: 1,
+    modifier: {},
+    requirements: [
+      {
+        scope: 'upgrade',
+        id: 'miningEfficiency1',
+        level: 4,
+      }
+    ],
     ui: {
       defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
       rotationOffset: { x: 0, y: 0, z: 0 },

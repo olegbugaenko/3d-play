@@ -75,12 +75,16 @@ export class MapLogic implements SaveLoadManager {
 
         // Генеруємо карту висот (terrain) з seed
         this.generateTerrain();
+
+        this.scene.postponedRegeneration = true;
         
         // Генеруємо болдери з seed
         this.generateBoulders();
         
         // Генеруємо каменюки з seed
         this.generateRocks();
+
+        this.scene.rebuildObstacles(true);
         
     }
 
@@ -113,6 +117,25 @@ export class MapLogic implements SaveLoadManager {
 
         // Генеруємо будівлі через BuildingsManager
         this.buildingsManager.newGameBuildings();
+
+
+        // test obstacles
+        const rover = this.scene.getObjectsByTag('rover');
+        if(rover) {
+            // Path finding tests (commented out to avoid unused variables)
+            // this.scene.findOptimalPathWithTerrain(
+            //     rover[0].coordinates,
+            //     {x: -4, y:0, z: -10},
+            //     rover[0]
+            // )
+    
+            // this.scene.findOptimalPathWithTerrain(
+            //     rover[0].coordinates,
+            //     {x: 0, y:0, z: -10},
+            //     rover[0]
+            // )
+        }
+        
     }
 
 
@@ -187,6 +210,7 @@ export class MapLogic implements SaveLoadManager {
                     roughness,
                     modelPath: this.getRandomModelPath(boulderRng)
                 },
+                obstacleSize: size,
                 tags: ['on-ground', 'static', 'boulder'], // Автоматично розміститься на terrain
                 bottomAnchor: -0.2, // Каменюк стоїть на своєму низу
                 terrainAlign: false // Вимкаємо terrainAlign щоб болдери стояли вертикально
@@ -353,7 +377,7 @@ export class MapLogic implements SaveLoadManager {
       
           // палітри
           const resourceColors = resourceType === 'stone'
-            ? [0x8B8355, 0x696969, 0x808080, 0xA0522D, 0x8B7593] // камінь
+            ? [0x8B8355, 0x696969, 0x808080, 0xA0A29D, 0x8B7593] // камінь
             : [0x8B4513, 0x654321, 0x8B6914, 0x6B4423, 0x654321]; // руда
       
           for (let j = 0; j < rocksPerCluster; j++) {
@@ -391,6 +415,7 @@ export class MapLogic implements SaveLoadManager {
                 y: rockRng.nextFloat(0, Math.PI),
                 z: rockRng.nextFloat(0, Math.PI),
               },
+              obstacleSize: baseSize*0.5,
               data: {
                 color,
                 size: baseSize,

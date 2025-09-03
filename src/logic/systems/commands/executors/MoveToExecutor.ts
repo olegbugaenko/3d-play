@@ -8,6 +8,11 @@ export class MoveToExecutor extends CommandExecutor {
     private lastPosition: THREE.Vector3 = new THREE.Vector3();
     private stuckThreshold: number = 2.0; // Секунди
     private arrivalDistance: number = 0.5; // Дистанція прибуття
+    
+    // Маршрут та поточна точка
+    private waypoints: THREE.Vector3[] = [];
+    private currentWaypointIndex: number = 0;
+    private pathPlanned: boolean = false;
 
     constructor(command: any, context: any) {
         super(command, context);
@@ -17,6 +22,63 @@ export class MoveToExecutor extends CommandExecutor {
         return 0;
     }
 
+    /**
+     * Перевіряє чи доступна цільова точка для об'єкта
+     */
+    private isTargetAccessible(target: THREE.Vector3, object: any): boolean {
+        try {
+            // Отримуємо PathfindingSystem з контексту
+            const pathfindingSystem = this.context.scene.pathfinder;
+            if (!pathfindingSystem) {
+                console.warn('PathfindingSystem not available');
+                return false;
+            }
+
+            // Перевіряємо чи можна стати в цільовій точці
+            return pathfindingSystem.canStandAtWorld(target.x, target.z, object, 0.05);
+        } catch (error) {
+            console.warn('Target accessibility check failed:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Планує маршрут до цілі через pathfinding
+     */
+    private planPath(start: THREE.Vector3, target: THREE.Vector3, object: any): boolean {
+        try {
+            // Спочатку перевіряємо чи доступна цільова точка
+            if (!this.isTargetAccessible(target, object)) {
+                console.warn(`Target point (${target.x.toFixed(2)}, ${target.z.toFixed(2)}) is not accessible for object ${object.id}`);
+                return false;
+            }
+
+            // Викликаємо pathfinding для пошуку оптимального шляху
+            const path = this.context.scene.findOptimalPathWithTerrain(
+                { x: start.x, y: start.y, z: start.z },
+                { x: target.x, y: target.y, z: target.z },
+                object
+            );
+
+            
+            if (path.length === 0) {
+                return false; // Шлях не знайдено
+            }
+
+            // Конвертуємо в THREE.Vector3 та додаємо початкову точку
+            this.waypoints = [...path.map((p: any) => new THREE.Vector3(p.x, p.y, p.z))];
+            this.currentWaypointIndex = 1; // Починаємо з першої проміжної точки
+            this.pathPlanned = true;
+            // Застосовуємо у з вейпойнту, так як він уже враховує висоту террейну
+            this.command.position.y = this.waypoints[this.waypoints.length - 1].y;
+            console.warn('Path planned: ', path, this.waypoints);
+
+            return true;
+        } catch (error) {
+            console.warn('Path planning failed:', error);
+            return false;
+        }
+    }
     canExecute(): boolean {
         if (!this.command.position) {
             return false;
@@ -65,12 +127,39 @@ export class MoveToExecutor extends CommandExecutor {
             object.coordinates.y,
             object.coordinates.z
         );
+
+        // Плануємо маршрут при першому виклику
+        if (!this.pathPlanned) {
+            if (!this.planPath(currentPos, new THREE.Vector3(target.x, target.y, target.z), object)) {
+                return { 
+                    success: false, 
+                    message: `Failed to plan path to target (${target.x.toFixed(2)}, ${target.z.toFixed(2)}) - target may be inaccessible`,
+                    code: CommandFailureCode.TARGET_INACCESSIBLE
+                };
+            }
+        }
+
+        // Отримуємо поточну цільову точку (waypoint або фінальна ціль)
+        let currentTarget: THREE.Vector3 = new THREE.Vector3(0,0,0);
+        if (this.currentWaypointIndex < this.waypoints.length) {
+            currentTarget.copy(this.waypoints[this.currentWaypointIndex]);
+        } else {
+            currentTarget = new THREE.Vector3(target.x, target.y, target.z);
+        }
         
-        const distance = currentPos.distanceTo(new THREE.Vector3(target.x, target.y, target.z));
-        
+        const distance = currentPos.distanceTo(currentTarget);
+        // console.log('Moving: ', currentTarget, this.currentWaypointIndex, this.waypoints, distance);
+
+        // Якщо досягли поточної точки - переходимо до наступної
         if (distance <= this.arrivalDistance) {
-            this.stopMovement();
-            return { success: true, message: 'Target reached' };
+            if (this.currentWaypointIndex < this.waypoints.length - 1) {
+                this.currentWaypointIndex++;
+                return { success: true, message: 'Moving to next waypoint' };
+            } else {
+                // Досягли фінальної цілі
+                this.stopMovement();
+                return { success: true, message: 'Target reached', data: { distance, currentTarget}  };
+            }
         }
 
         // Перевіряємо чи не застряг об'єкт (тільки якщо рухаємося)
@@ -100,8 +189,8 @@ export class MoveToExecutor extends CommandExecutor {
         // Зберігаємо поточну позицію для перевірки застрягання
         this.lastPosition.copy(currentPos);
 
-        // Встановлюємо швидкість руху
-        const direction = new THREE.Vector3(target.x, target.y, target.z).sub(currentPos).normalize();
+        // Встановлюємо швидкість руху до поточної цільової точки
+        const direction = currentTarget.sub(currentPos).normalize();
         const speed = object.data?.maxSpeed || 1.0;
         
         // Ініціалізуємо speed якщо не існує
@@ -127,6 +216,9 @@ export class MoveToExecutor extends CommandExecutor {
                 // Для звичайних об'єктів - як зараз
                 object.rotation.y = targetRotation + rotationOffset;
             }
+            
+            // 🚀 Синхронізуємо ротацію з рендерером
+            this.syncRotation(object);
         }
 
         return { success: true, message: 'Moving to target' };
@@ -144,17 +236,18 @@ export class MoveToExecutor extends CommandExecutor {
 
         const target = this.command.position!;
         
+        // Перевіряємо чи досягли фінальної цілі
         const distance = currentPos.distanceTo(new THREE.Vector3(
             target.x,
             target.y,
             target.z
         ));
 
+
+
         if (distance <= this.arrivalDistance) {
-            // Очищаємо target коли прибули
-            if (object.data) {
-                object.data.target = undefined;
-            }
+            // 🚀 Зупиняємо рух коли прибули
+            this.stopMovement();
             return true;
         }
 
@@ -173,6 +266,17 @@ export class MoveToExecutor extends CommandExecutor {
         if (object && object.data) {
             object.data.target = undefined;
         }
+        object.data.animationId = null;
+
+        // 🚀 Синхронізуємо зміни з рендерером
+        if (object) {
+            this.syncRotation(object);
+        }
+        
+        // Очищаємо маршрут
+        this.waypoints = [];
+        this.currentWaypointIndex = 0;
+        this.pathPlanned = false;
         
         this.isMoving = false;
     }

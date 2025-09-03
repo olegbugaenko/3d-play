@@ -117,6 +117,16 @@ export class ParameterResolutionService {
         const list = resolvedArgs[0];
         return this.parameterResolvers.getFirstOfList(list);
       
+      case 'sortObjectsByDistanceToDrone':
+        const objectIds = resolvedArgs[0];
+        const dronePosition = resolvedArgs[1];
+        return this.parameterResolvers.sortObjectsByDistanceToDrone(objectIds, dronePosition);
+      
+      case 'getObjectAccessPoint':
+        const targetObjectId = resolvedArgs[0];
+        const droneObjectId = resolvedArgs[1];
+        return this.parameterResolvers.getObjectAccessPoint(targetObjectId, droneObjectId);
+      
       case 'validate':
         return null;
       
