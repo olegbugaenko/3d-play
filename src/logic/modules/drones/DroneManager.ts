@@ -56,6 +56,7 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
             coordinates: { ...position },
             scale: droneDBData.ui.defaultScale,
             rotation2D: angle + randomOffset,
+            obstacleSize: 0.4,
             rotation: { x: 0, y: angle + randomOffset, z: 0 },
             data: { 
                 droneType: type,

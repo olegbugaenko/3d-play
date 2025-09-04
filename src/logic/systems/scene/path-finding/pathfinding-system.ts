@@ -47,12 +47,20 @@ export class PathfindingSystem {
     this.grid = grid;
   }
 
+  // ──────────────────────────────
+  //           API helpers
+  // ──────────────────────────────
+
   canStandAtWorld(x: number, z: number, obj: TSceneObject, safety = 0): boolean {
     const { i, j } = this.grid.worldToCell(x, z);
     if (!this.grid.inb(i, j)) return false;
-    // Використовує clearance + динаміку (raw index / hybrid) усередині
     return this.grid.passable(i, j, obj.obstacleSize ?? 0.5, safety);
   }
+
+  /**
+   * Найближча валідна "точка дотику" для СТАТИЧНОЇ цілі (без A*).
+   * Повертає world-позицію (x,y,z) або null.
+   */
   public findDockingPointToStatic(
     drone: TSceneObject,
     target: TSceneObject,
@@ -62,98 +70,99 @@ export class PathfindingSystem {
     const g = this.grid;
     const rA = drone.obstacleSize ?? 0.5;
     const rB = target.obstacleSize ?? 0.0;
-  
-    // Базовий радіус кільця
+
     const R0 = rA + rB + safety;
-  
+
     const sx = drone.coordinates.x,  sz = drone.coordinates.z;
     const cx = target.coordinates.x, cz = target.coordinates.z;
-  
+
     const baseAngle = Math.atan2(sz - cz, sx - cx);
-  
-    // Крок по куту: дуга ≈ 0.5 клітинки
+
+    // дуга ≈ 0.5 клітинки
     const arcMeters = Math.max(g.s * 0.5, 0.001);
     const dTheta = Math.min(Math.PI / 6, arcMeters / Math.max(R0, 1e-6));
     const stepsEachSide = Math.ceil((fullCircle ? Math.PI : Math.PI / 2) / dTheta);
-  
+
     // Радіальні бампи (компенсація дискретизації)
-    const bumps = [0, g.s * 0.25, g.s * 0.5]; // спробуємо 0, +0.125м, +0.25м при s=0.5
-  
+    const bumps = [0, g.s * 0.25, g.s * 0.5, g.s * 0.75];
+
     let best: Vector3 | null = null;
     let bestDist2 = Infinity;
-  
+
     for (let k = 0; k <= stepsEachSide; k++) {
       const offsets = k === 0 ? [0] : [-k, +k];
       for (const sgn of offsets) {
         const theta = baseAngle + sgn * dTheta;
-  
-        // пробуємо кілька радіусів (R0 + бамп)
         for (const bump of bumps) {
           const R = R0 + bump;
           const x = cx + Math.cos(theta) * R;
           const z = cz + Math.sin(theta) * R;
-  
+
           const { i, j } = g.worldToCell(x, z);
           if (!g.inb(i, j)) continue;
-  
           if (!g.passable(i, j, rA, safety)) continue;
-  
+
           const d2 = (x - sx) * (x - sx) + (z - sz) * (z - sz);
           if (d2 < bestDist2) {
             bestDist2 = d2;
             best = { x, y: drone.coordinates.y, z };
           }
-  
-          // Якщо хочеш першу валідну — можеш одразу return {x,y,z};
-          // Я лишаю пошук найкоротшої для стабільності.
-          break; // цей кут дав валідну точку — не збільшуємо радіус ще
+          break; // цей кут дав валідну точку — далі bump не пробуємо
         }
       }
     }
-  
     return best;
   }
-  
-
 
   /**
    * Знаходить оптимальний шлях у 2D (XZ) для агента obj.
-   * Повертає масив world-waypoints (x,y,z). y виставляємо = start.y для зручності.
+   * Повертає масив world-waypoints (x,y,z). y = start.y.
    */
   findOptimalPath(start: Vector3, end: Vector3, obj: TSceneObject): Vector3[] {
     const g = this.grid;
-    const r = (obj.obstacleSize ?? 0.5);
+    const r = obj.obstacleSize ?? 0.5;
     const safety = 0.05;
 
-    // 1) Перетворюємо світ→клітинка
+    // 1) світ→клітинка + clamp
     let { i: si, j: sj } = g.worldToCell(start.x, start.z);
     let { i: gi, j: gj } = g.worldToCell(end.x, end.z);
-
-    // обмежуємо в межі
     si = Math.max(0, Math.min(g.W - 1, si));
     sj = Math.max(0, Math.min(g.H - 1, sj));
     gi = Math.max(0, Math.min(g.W - 1, gi));
     gj = Math.max(0, Math.min(g.H - 1, gj));
 
-    // 2) Якщо старт/фініш непридатні — знайдемо найближчу прохідну клітинку (локальний пошук)
-    const sCell = this.findNearestPassable(si, sj, r, safety, 30);
-    const gCell = this.findNearestPassable(gi, gj, r, safety, 30);
-    if (!sCell || !gCell) return []; // немає доступного старту або фінішу
+    // 2) нормалізація старт/фініш
+    const sCell = this.findNearestPassable(si, sj, r, safety, 40);
+    const gCell = this.findNearestPassable(gi, gj, r, safety, 40);
+    if (!sCell || !gCell) return [];
 
-    // 3) A* (octile) з діагоналями та без "corner cutting"
-    const pathCells = this.astar(sCell, gCell, r, safety, /*allowDiagonal*/ true, /*maxExpand*/ g.W * g.H);
+    // 2.5) ранній LoS-­шорткат
+    if (this.hasLineOfSight(sCell, gCell, r, safety)) {
+      const p1 = g.cellCenter(gCell.i, gCell.j);
+      return [
+        { x: start.x, y: start.y, z: start.z },
+        { x: p1.x,   y: start.y,  z: p1.y   },
+        { x: end.x,  y: start.y,  z: end.z  },
+      ];
+    }
+
+    // 3) A* (best-effort, без corner cutting на діагоналях)
+    const pathCells = this.astarSafe(
+      sCell, gCell, r, safety,
+      /*allowDiag*/ true,
+      /*maxExpand*/ 250_000 // обмеження, щоб не “заливати” всю мапу
+    );
     if (pathCells.length === 0) return [];
 
-    // 4) LoS string-pull: агресивно скорочуємо перелік клітин
+    // 4) LoS string-pull (спрощення)
     const simplifiedCells = this.simplifyByLoS(pathCells, r, safety);
 
-    // 5) Перетворюємо клітинки у світові точки (XZ → x,z), y тримаємо як start.y
+    // 5) клітинки → world
     const waypoints: Vector3[] = simplifiedCells.map(({ i, j }) => {
-      const c = g.cellCenter(i, j); // {x, y} де y == друга вісь ґріда (у тебе це Z)
+      const c = g.cellCenter(i, j);
       return { x: c.x, y: start.y, z: c.y };
     });
 
-    // (необов’язково) закинемо точні start/end у початок/кінець траєкторії
     if (waypoints.length > 0) {
       waypoints[0] = { x: start.x, y: start.y, z: start.z };
       waypoints[waypoints.length - 1] = { x: end.x, y: start.y, z: end.z };
@@ -161,22 +170,112 @@ export class PathfindingSystem {
     return waypoints;
   }
 
-  // ---------- A* з octile-евристикою ----------
-  private astar(start: Cell, goal: Cell, r: number, safety: number, allowDiag = true, maxExpand = 1e7): Cell[] {
-    const W = this.grid.W, H = this.grid.H;
-    const N = W * H;
-    const idx = (i: number, j: number) => i + j * W;
+  // ──────────────────────────────
+  //        A* (safe wrapper)
+  // ──────────────────────────────
 
-    const gScore = new Float32Array(N); gScore.fill(Infinity);
-    const parent = new Int32Array(N); parent.fill(-1);
-    const closed = new Uint8Array(N);
+  private astarSafe(
+    start: Cell,
+    goal: Cell,
+    r: number,
+    safety: number,
+    allowDiag = true,
+    maxExpand = 250_000
+  ): Cell[] {
+    const sCell = this.findNearestPassable(start.i, start.j, r, safety, 40);
+    const gCell = this.findNearestPassable(goal.i, goal.j, r, safety, 40);
+    if (!sCell || !gCell) return [];
+
+    // Вікно пошуку: прямокутник навколо [start..goal] з буфером
+    const buf = 300; // клітинок запасу
+    const minI = Math.max(0, Math.min(sCell.i, gCell.i) - buf);
+    const maxI = Math.min(this.grid.W - 1, Math.max(sCell.i, gCell.i) + buf);
+    const minJ = Math.max(0, Math.min(sCell.j, gCell.j) - buf);
+    const maxJ = Math.min(this.grid.H - 1, Math.max(sCell.j, gCell.j) + buf);
+
+    return this.astarCore(sCell, gCell, r, safety, allowDiag, maxExpand, { minI, maxI, minJ, maxJ });
+  }
+
+  // ──────────────────────────────
+  //      A* ядро з runId буферами
+  // ──────────────────────────────
+
+  // runId-буфери (реюз, без великих fill)
+  private runId = 1;
+  private N = 0;
+  private Wbuf = 0;
+  private Hbuf = 0;
+  private gScore!: Float32Array;
+  private gSeen!: Uint32Array;
+  private parent!: Int32Array;
+  private pSeen!: Uint32Array;
+  private closed!: Uint32Array;
+
+  // Опційна мемоїзація passable на один запуск
+  private passSeen!: Uint32Array;
+  private passBin!: Uint8Array;
+
+  private ensureBuffers() {
+    const W = this.grid.W, H = this.grid.H, N = W * H;
+    if (N !== this.N) {
+      this.N = N; this.Wbuf = W; this.Hbuf = H;
+      this.gScore = new Float32Array(N);
+      this.gSeen  = new Uint32Array(N);
+      this.parent = new Int32Array(N);
+      this.pSeen  = new Uint32Array(N);
+      this.closed = new Uint32Array(N);
+      this.passSeen = new Uint32Array(N);
+      this.passBin  = new Uint8Array(N);
+    }
+    // новий запуск (уникаємо 0)
+    this.runId = (this.runId + 1) >>> 0 || 1;
+  }
+  private getG(k: number): number {
+    return this.gSeen[k] === this.runId ? this.gScore[k] : Infinity;
+  }
+  private setG(k: number, v: number) {
+    this.gSeen[k] = this.runId; this.gScore[k] = v;
+  }
+  private getParent(k: number): number {
+    return this.pSeen[k] === this.runId ? this.parent[k] : -1;
+  }
+  private setParent(k: number, p: number) {
+    this.pSeen[k] = this.runId; this.parent[k] = p;
+  }
+  private isClosed(k: number): boolean {
+    return this.closed[k] === this.runId;
+  }
+  private setClosed(k: number) {
+    this.closed[k] = this.runId;
+  }
+  private passableMemo(i: number, j: number, r: number, safety: number): boolean {
+    const k = i + j * this.grid.W;
+    if (this.passSeen[k] !== this.runId) {
+      this.passSeen[k] = this.runId;
+      this.passBin[k] = this.grid.passable(i, j, r, safety) ? 1 : 0;
+    }
+    return this.passBin[k] === 1;
+  }
+
+  private astarCore(
+    start: Cell,
+    goal: Cell,
+    r: number,
+    safety: number,
+    allowDiag = true,
+    maxExpand = 250_000,
+    bounds?: { minI:number; maxI:number; minJ:number; maxJ:number }
+  ): Cell[] {
+    this.ensureBuffers();
+    const W = this.grid.W, H = this.grid.H, idx = (i: number, j: number) => i + j * W;
 
     const heap = new MinHeap();
     const sk = idx(start.i, start.j);
     const tk = idx(goal.i, goal.j);
 
     const h0 = this.octile(start.i, start.j, goal.i, goal.j);
-    gScore[sk] = 0;
+    this.setG(sk, 0);
+    this.setParent(sk, -1); // корінь ланцюга у цьому run
     heap.push({ k: sk, f: h0 });
 
     const dirs: Array<[number, number, number]> = allowDiag
@@ -185,16 +284,25 @@ export class PathfindingSystem {
 
     let expanded = 0;
 
+    // best-effort вузол — найменша евристика
+    let bestK = sk;
+    let bestH = h0;
+
+    // невеликий таймбокс, щоб не фризити кадр
+    const startTs = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const MAX_MS = 12;
+
     while (heap.size()) {
       const cur = heap.pop()!;
       const k = cur.k;
-      if (closed[k]) continue;
-      closed[k] = 1;
+      if (this.isClosed(k)) continue;
+      this.setClosed(k);
 
-      if (k === tk) {
-        return this.reconstructPath(parent, k, W);
-      }
+      if (k === tk) return this.reconstructPathCurrentRun(k, W);
       if (++expanded > maxExpand) break;
+
+      const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+      if (now - startTs > MAX_MS) break;
 
       const ci = k % W;
       const cj = (k / W) | 0;
@@ -203,36 +311,51 @@ export class PathfindingSystem {
         const ni = ci + dx, nj = cj + dy;
         if (ni < 0 || nj < 0 || ni >= W || nj >= H) continue;
 
-        // забораняємо "corner cutting" для діагоналі
-        if (dx !== 0 && dy !== 0) {
-          if (!this.grid.passable(ci + dx, cj, r, safety)) continue;
-          if (!this.grid.passable(ci, cj + dy, r, safety)) continue;
+        // вікно пошуку
+        if (bounds) {
+          if (ni < bounds.minI || ni > bounds.maxI || nj < bounds.minJ || nj > bounds.maxJ) continue;
         }
-        if (!this.grid.passable(ni, nj, r, safety)) continue;
+
+        // без corner cutting
+        if (dx !== 0 && dy !== 0) {
+          if (!this.passableMemo(ci + dx, cj, r, safety)) continue;
+          if (!this.passableMemo(ci, cj + dy, r, safety)) continue;
+        }
+        if (!this.passableMemo(ni, nj, r, safety)) continue;
 
         const nk = idx(ni, nj);
-        if (closed[nk]) continue;
+        if (this.isClosed(nk)) continue;
 
-        const tentativeG = gScore[k] + stepCost;
+        const tentativeG = this.getG(k) + stepCost;
+        if (tentativeG < this.getG(nk)) {
+          this.setG(nk, tentativeG);
+          this.setParent(nk, k);
 
-        if (tentativeG < gScore[nk]) {
-          gScore[nk] = tentativeG;
-          parent[nk] = k;
           const h = this.octile(ni, nj, goal.i, goal.j);
-          // трошки підсилюємо евристику для tie-break
-          const f = tentativeG + h * (1 + 1e-6);
+          if (h < bestH) { bestH = h; bestK = nk; }
+
+          const f = tentativeG + h + 1e-6 * h; // легкий tie-break
           heap.push({ k: nk, f });
         }
       }
     }
-    return [];
+
+    // best-effort
+    return this.reconstructPathCurrentRun(bestK, W);
   }
 
-  private reconstructPath(parent: Int32Array, k: number, W: number): Cell[] {
+  private reconstructPathCurrentRun(k: number, W: number): Cell[] {
     const out: Cell[] = [];
-    while (k !== -1) {
+    const GUARD = this.N + 5; // safety
+    let steps = 0;
+    while (k !== -1 && steps++ < GUARD) {
       out.push({ i: k % W, j: (k / W) | 0 });
-      k = parent[k];
+      // читаємо parent ТІЛЬКИ якщо він виставлений у цьому runId
+      if (this.pSeen[k] === this.runId) {
+        k = this.parent[k];
+      } else {
+        k = -1;
+      }
     }
     out.reverse();
     return out;
@@ -240,13 +363,15 @@ export class PathfindingSystem {
 
   private octile(i0: number, j0: number, i1: number, j1: number): number {
     const dx = Math.abs(i1 - i0), dy = Math.abs(j1 - j0);
-    // const d = Math.max(dx, dy);
     const m = Math.min(dx, dy);
     // D=1, D2=sqrt(2): h = (dx+dy) + (sqrt(2)-2)*min(dx,dy)
     return (dx + dy) + (Math.SQRT2 - 2) * m;
   }
 
-  // ---------- Найближча прохідна клітинка (квадратні "кільця") ----------
+  // ──────────────────────────────
+  //   Найближча прохідна клітинка
+  // ──────────────────────────────
+
   private findNearestPassable(i: number, j: number, r: number, safety: number, maxRadiusCells = 30): Cell | null {
     if (this.grid.inb(i, j) && this.grid.passable(i, j, r, safety)) return { i, j };
     for (let R = 1; R <= maxRadiusCells; R++) {
@@ -266,7 +391,10 @@ export class PathfindingSystem {
     return null;
   }
 
-  // ---------- LoS string-pull (суперпростий і швидкий) ----------
+  // ──────────────────────────────
+  //         LoS string-pull
+  // ──────────────────────────────
+
   private simplifyByLoS(path: Cell[], r: number, safety: number): Cell[] {
     if (path.length <= 2) return path.slice();
     const out: Cell[] = [path[0]];
@@ -286,7 +414,7 @@ export class PathfindingSystem {
    * Крок семплу — половина розміру клітинки.
    */
   private hasLineOfSight(a: Cell, b: Cell, r: number, safety: number): boolean {
-    const c0 = this.grid.cellCenter(a.i, a.j); // {x, y} де y — друга вісь ґріда (твій Z)
+    const c0 = this.grid.cellCenter(a.i, a.j); // {x, y} де y — твій Z
     const c1 = this.grid.cellCenter(b.i, b.j);
     const dx = c1.x - c0.x, dy = c1.y - c0.y;
     const len = Math.hypot(dx, dy);
@@ -300,6 +428,5 @@ export class PathfindingSystem {
       if (!this.grid.inb(i, j) || !this.grid.passable(i, j, r, safety)) return false;
     }
     return true;
-    // (якщо потрібно суперконсервативно: при переході через межі семплити +ε у сусідні клітини)
   }
 }

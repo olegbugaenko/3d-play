@@ -52,14 +52,12 @@ export class MoveToExecutor extends CommandExecutor {
                 console.warn(`Target point (${target.x.toFixed(2)}, ${target.z.toFixed(2)}) is not accessible for object ${object.id}`);
                 return false;
             }
-
             // Викликаємо pathfinding для пошуку оптимального шляху
             const path = this.context.scene.findOptimalPathWithTerrain(
                 { x: start.x, y: start.y, z: start.z },
                 { x: target.x, y: target.y, z: target.z },
                 object
             );
-
             
             if (path.length === 0) {
                 return false; // Шлях не знайдено

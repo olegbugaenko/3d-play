@@ -280,6 +280,15 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       },
       {
+        id: 'validateFirstResourcePosition',
+        getterType: 'validate',
+        args: [
+          {type: 'lit', value: 'objectExists'},
+          {type: 'var', value: 'resolved.firstResourcePosition'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
         id: 'closestStorageId',
         getterType: 'getClosestStorage',
         args: [{type: 'lit', value: {maxDistance: 200}}],
@@ -425,6 +434,15 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       },
       {
+        id: 'validateFirstResourcePosition',
+        getterType: 'validate',
+        args: [
+          {type: 'lit', value: 'objectExists'},
+          {type: 'var', value: 'resolved.firstResourcePosition'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
         id: 'closestStorageId',
         getterType: 'getClosestStorage',
         args: [{type: 'lit', value: {maxDistance: 200}}],
@@ -544,6 +562,15 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         args: [
           {type: 'var', value: 'resolved.firstResourceId'},
           {type: 'var', value: 'objectId'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'validateFirstResourcePosition',
+        getterType: 'validate',
+        args: [
+          {type: 'lit', value: 'objectExists'},
+          {type: 'var', value: 'resolved.firstResourcePosition'}
         ],
         resolveWhen: 'before-command'
       },
@@ -681,6 +708,15 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         args: [
           {type: 'var', value: 'resolved.firstResourceId'},
           {type: 'var', value: 'objectId'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'validateFirstResourcePosition',
+        getterType: 'validate',
+        args: [
+          {type: 'lit', value: 'objectExists'},
+          {type: 'var', value: 'resolved.firstResourcePosition'}
         ],
         resolveWhen: 'before-command'
       },

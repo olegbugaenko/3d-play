@@ -2,16 +2,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { CommandGroup } from '@systems/commands';
 import { Game } from '@core/game/game';
 import { CameraController } from '@ui/screens/colony/scene/CameraController';
+import { useInteractionContext } from '@ui/screens/colony/scene/context/InteractionContext';
 
 interface CommandPanelProps {
   selectedUnits: string[];
-  // onCommandSelect: (commandGroup: CommandGroup, centerPosition: { x: number; y: number; z: number }) => void;
   onCommandChange: (commandGroup: CommandGroup | null) => void;
   game: Game;
   cameraController: CameraController;
 }
 
 export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCommandChange, game, cameraController }) => {
+  const interactionManager = useInteractionContext();
   
   const [selectedScope, setSelectedScope] = useState<'gather' | 'build' | null>(null);
   const [availableScopes, setAvailableScopes] = useState<string[]>([]);
@@ -67,7 +68,8 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
 
   // Обробник кліку по scope
   const handleScopeClick = useCallback((scope: 'gather' | 'build') => {
-    setSelectedScope(selectedScope === scope ? null : scope);
+    const newScope = selectedScope === scope ? null : scope;
+    setSelectedScope(newScope);
     setSelectedCommand(null);
     onCommandChange(null);
   }, [selectedScope, onCommandChange]);
@@ -76,15 +78,31 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
   const handleCommandClick = useCallback((commandGroup: CommandGroup) => {
     setSelectedCommand(commandGroup);
     onCommandChange(commandGroup);
-  }, [onCommandChange]);
+    
+    // Змінюємо режим інтеракції на основі команди
+    if (interactionManager) {
+      if (commandGroup.ui?.scope === 'gather') {
+        interactionManager.setMode('gather');
+        // Встановлюємо команду для gather хендлера
+        interactionManager.setSelectedCommand(commandGroup);
+      } else {
+        interactionManager.setMode('command');
+        // Встановлюємо команду для command хендлера
+        interactionManager.setSelectedCommand(commandGroup);
+      }
+    }
+  }, [onCommandChange, interactionManager]);
 
   // Якщо немає вибраних юнітів, не показуємо панель
   if (selectedUnits.length === 0) {
     return null;
   }
 
+  // Додатковий захист - якщо панель активна, не зникаємо навіть якщо юніти тимчасово скидаються
+  const shouldShowPanel = selectedUnits.length > 0 || selectedScope !== null;
+
   return (
-    <div className="command-panel" style={{
+    <div className="command-panel ui-panel" style={{
       position: 'fixed',
       bottom: '20px',
       left: '50%',
@@ -95,7 +113,21 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
       color: 'white',
       zIndex: 9999,
       pointerEvents: 'auto'
-    }}>
+    }}
+    onMouseDown={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }}
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }}
+    >
+      {/* Debug info */}
+      <div style={{ fontSize: '10px', opacity: 0.7, marginBottom: '5px' }}>
+        Debug: selectedScope={selectedScope}, categories={availableCategories.length}
+      </div>
+
       {/* Панель scope */}
       <div className="scope-panel" style={{ marginBottom: '10px' }}>
         <div style={{ textAlign: 'center', marginBottom: '5px', fontSize: '12px', opacity: 0.7 }}>
@@ -105,7 +137,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
           {availableScopes.map(scope => (
             <button
               key={scope}
-              onMouseDown={(e) => {
+              onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 handleScopeClick(scope as 'gather' | 'build');
@@ -135,7 +167,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
         paddingTop: '10px'
       }}>
         <button
-          onMouseDown={(e) => {
+          onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             if (cameraController.isCameraPinned()) {
@@ -198,7 +230,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
       {selectedScope && (
         <div className="commands-panel">
           <div style={{ textAlign: 'center', marginBottom: '5px', fontSize: '12px', opacity: 0.7 }}>
-            {selectedScope} Commands
+            {selectedScope} Commands ({availableCategories.length} categories)
           </div>
           <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', justifyContent: 'center' }}>
             {availableCategories.map(category => {
@@ -206,7 +238,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
               return groups.map(group => (
                 <button
                   key={group.id}
-                  onMouseDown={(e) => {
+                  onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     handleCommandClick(group);

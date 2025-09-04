@@ -48,9 +48,9 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
           }
     },
     ui: {
-      defaultScale: { x: 2.0, y: 1.0, z: 2.0 },
+      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
       rotationOffset: { x: 0, y: 0, z: 0 },
-      modelName: 'storage-building.glb',
+      modelName: 'models/buildings/simple_storage.glb',
       color: '#8B4513' // Коричневий для складу
     },
     cost: storageCostFormula
@@ -87,10 +87,10 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
           }
     },
     ui: {
-      defaultScale: { x: 1.2, y: 1.0, z: 1.2 },
-      rotationOffset: { x: 0, y: Math.PI / 4, z: 0 }, // Поворот на 45 градусів
-      modelName: 'charging-station.glb',
-      color: '#4169E1' // Синій для зарядки
+      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
+      rotationOffset: { x: 0, y: 0, z: 0 }, // Поворот на 45 градусів
+      modelName: 'models/buildings/simple_charging_station.glb',
+      bottomAnchor: -0.15
     },
     data: {
         chargeRate: 0.5,

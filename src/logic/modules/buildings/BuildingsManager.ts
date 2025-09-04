@@ -288,12 +288,14 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     const buildingData = this.buildingsDB.get(typeId);
     
     // Створюємо об'єкт на карті аналогічно до generateBuildings
+    const rotationOffset = buildingData?.ui?.rotationOffset || { x: 0, y: 0, z: 0 };
     const buildingObject = {
       id: instanceId,
       type: 'building',
       coordinates: position,
       scale: buildingData?.ui?.defaultScale || { x: 1.0, y: 1.0, z: 1.0 },
-      rotation: buildingData?.ui?.rotationOffset || { x: 0, y: 0, z: 0 },
+      rotation: rotationOffset,
+      rotation2D: rotationOffset.y, // Додаємо 2D ротацію для правильного вирівнювання
       obstacleSize: buildingData?.data?.obstacleSize || 1,
       data: { 
         buildingType: typeId,
@@ -302,7 +304,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
         ...(buildingData?.data || {})
       },
       tags: ['on-ground', 'static', 'building', ...(buildingData?.tags || [])],
-      bottomAnchor: -0.75,
+      bottomAnchor: buildingData?.ui?.bottomAnchor || 0,
       terrainAlign: true,
       targetType: ['unload-resource', 'repair', 'upgrade'],
     };

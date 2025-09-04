@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { BuildingsModal } from './BuildingsModal';
+import { useInteractionContext } from '@ui/screens/colony/scene/context/InteractionContext';
 
 interface BuildingsPanelProps {
   game: any; // Game instance
@@ -8,6 +9,7 @@ interface BuildingsPanelProps {
 
 export const BuildingsPanel: React.FC<BuildingsPanelProps> = ({ game, onSelectBuilding }) => {
   const [isBuildingsModalOpen, setIsBuildingsModalOpen] = useState(false);
+  const interactionManager = useInteractionContext();
 
   // Перевіряємо чи досліджено building_constructions
   const isBuildingConstructionsUnlocked = game.upgradesManager.isUnlocked('building_constructions');
@@ -19,6 +21,12 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = ({ game, onSelectBu
   const handleSelectBuilding = (typeId: string) => {
     // Закриваємо модалку після вибору будівлі
     setIsBuildingsModalOpen(false);
+    
+    // Переходимо в режим будівництва
+    if (interactionManager) {
+      interactionManager.setMode('building');
+    }
+    
     // Викликаємо callback з батьківського компонента
     if (onSelectBuilding) {
       onSelectBuilding(typeId);

@@ -3,15 +3,20 @@ import * as THREE from 'three'
 import { CameraController } from '@ui/screens/colony/scene/CameraController'
 import { RendererManager } from './renderers/RendererManager'
 import { SelectionRenderer } from './renderers/SelectionRenderer'
-import { SelectionHandler } from '@ui/screens/colony/scene/ui-handlers'
 import { SceneObject } from './renderers/BaseRenderer'
 import { TerrainRenderer } from './renderers/TerrainRenderer'
 import { AreaSelectionRenderer } from '@ui/screens/colony/scene/AreaSelectionRenderer'
+import { BuildingPreview } from '@ui/screens/colony/scene/renderers/BuildingPreview'
+
+// Нова архітектура інтеракції
+import { useInteractionManager } from '@ui/screens/colony/scene/hooks/useInteractionManager'
+import { InteractionProvider } from '@ui/screens/colony/scene/context/InteractionContext'
 
 import { CommandPanel, UpgradesPanel } from '@ui/screens/colony'
 import { ISaveManager, IMapLogic } from '@interfaces/index';
 import { TSceneObject } from '@logic/systems/scene/scene.types'
 import { BuildingsPanel } from '@ui/screens/colony/buildings/BuildingsPanel'
+import { DragSelection } from '../DragSelection'
 
 /** ===================== core three setup ===================== */
 function useThreeCore() {
@@ -59,9 +64,9 @@ function useThreeCore() {
 function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, appMapLogic: IMapLogic) {
   const rendererManagerRef = useRef<RendererManager|null>(null)
   const selectionRendererRef = useRef<SelectionRenderer|null>(null)
-  const selectionHandlerRef = useRef<SelectionHandler|null>(null)
   const terrainRendererRef   = useRef<TerrainRenderer|null>(null)
   const areaSelectionRendererRef = useRef<AreaSelectionRenderer|null>(null)
+  const buildingPreviewRef = useRef<BuildingPreview|null>(null)
 
   const mapLogicRef          = useRef<IMapLogic|null>(null)
 
@@ -75,13 +80,6 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
       (id) => mapLogicRef.current?.scene.getObjectById(id) || null
     )
 
-    selectionHandlerRef.current = new SelectionHandler(
-      mapLogicRef.current!.selection,
-      selectionRendererRef.current!,
-      rendererManagerRef.current!,
-      camera
-    )
-
     const tm = mapLogicRef.current.scene.getTerrainManager()
     if (tm) {
       terrainRendererRef.current = new TerrainRenderer(scene, tm)
@@ -89,6 +87,9 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
         x: camera.position.x, y: camera.position.y, z: camera.position.z
       }).catch(e => console.error('Failed to render initial terrain:', e))
     }
+
+    // Створюємо BuildingPreview
+    buildingPreviewRef.current = new BuildingPreview(scene)
 
 
 
@@ -106,10 +107,9 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
   return {
     rendererManagerRef,
     selectionRendererRef,
-    selectionHandlerRef,
     terrainRendererRef,
     areaSelectionRendererRef,
-
+    buildingPreviewRef,
     mapLogicRef,
   }
 }
@@ -242,269 +242,24 @@ function useTerrainStreaming(
   return { updateTerrainForCamera, checkAndGenerate }
 }
 
-// 🚀 Окремий компонент для drag selection rectangle
-const DragSelectionRect: React.FC<{
-  isDragging: boolean;
-  dragStart: { x: number; y: number };
-  dragEnd: { x: number; y: number };
-}> = ({ isDragging, dragStart, dragEnd }) => {
-  if (!isDragging) return null;
-  
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        left: Math.min(dragStart.x, dragEnd.x),
-        top: Math.min(dragStart.y, dragEnd.y),
-        width: Math.abs(dragEnd.x - dragStart.x),
-        height: Math.abs(dragEnd.y - dragStart.y),
-        border: '2px solid #00ff00',
-        backgroundColor: 'rgba(0,255,0,0.1)',
-        pointerEvents: 'none',
-        zIndex: 1000
-      }}
-    />
-  );
-};
 
-function useSelectionAndCommands(
-  camera: THREE.PerspectiveCamera,
-  controller: CameraController,
-  mapLogicRef: React.MutableRefObject<IMapLogic|null>,
-  rendererManagerRef: React.MutableRefObject<RendererManager|null>,
-  selectionRendererRef: React.MutableRefObject<SelectionRenderer|null>,
-  selectionHandlerRef: React.MutableRefObject<SelectionHandler|null>,
-  getRay: (x:number,y:number)=>THREE.Raycaster,
-  selectedCommand: any,
-  onCommandUsed?: () => void
-) {
-  const isLeftDown = useRef(false)
-  const isDragging = useRef(false)
-  const dragStart = useRef({ x:0, y:0 })
-  const dragEnd   = useRef({ x:0, y:0 })
 
-  // 🚀 State для координат drag selection
-  const [dragCoords, setDragCoords] = useState({
-    isDragging: false,
-    start: { x: 0, y: 0 },
-    end: { x: 0, y: 0 }
-  });
-
+// Новий хук для отримання вибраних юнітів
+function useSelectedUnits(mapLogicRef: React.MutableRefObject<IMapLogic|null>) {
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
+  
   const updateSelectedUnits = useCallback(() => {
     const ids = mapLogicRef.current?.selection.getSelectedObjects() ?? []
     setSelectedUnits(ids)
   }, [mapLogicRef])
 
-  const hoverInteractive = useCallback((clientX:number, clientY:number) => {
-    const sr = selectionRendererRef.current
-    const rm = rendererManagerRef.current
-    const map = mapLogicRef.current
-    if (!sr || !rm || !map) return
-
-    const ray = getRay(clientX, clientY)
-    const inter = map.selection.findInteractableObjects()
-    let hovered: string|null = null
-
-    for (const obj of inter) {
-      const mesh = rm.getMeshById(obj.id)
-      if (!mesh) continue
-      const sphere = new THREE.Sphere()
-      const { pos, scale } = sr.getCorrectPositionAndScale(obj.id, mesh as THREE.Object3D)
-      sphere.center.copy(pos)
-      sphere.radius = scale.length() * 0.5
-      if (ray.ray.intersectsSphere(sphere)) {
-        hovered = obj.id
-        break
-      }
-    }
-    sr.setHoveredObject(hovered)
-  }, [getRay, mapLogicRef, rendererManagerRef, selectionRendererRef])
-
-  const handleObjectSelection = useCallback((evt: MouseEvent) => {
-    const sh = selectionHandlerRef.current
-    const map = mapLogicRef.current
-    if (!sh || !map) return
-    const all = Object.values<TSceneObject>(map.scene.getObjects())
-    const controlled = all.filter(o => o.tags?.includes('controlled'))
-    sh.handleObjectClick(evt, controlled)
-
-    const inter = map.selection.findInteractableObjects()
-    selectionRendererRef.current?.highlightInteractiveObjects(inter)
-    updateSelectedUnits()
-  }, [mapLogicRef, selectionHandlerRef, selectionRendererRef, updateSelectedUnits])
-
-  const handleDragSelection = useCallback(() => {
-    const sh = selectionHandlerRef.current
-    const map = mapLogicRef.current
-    if (!sh || !map) return
-    const all = Object.values<TSceneObject>(map.scene.getObjects())
-    const controlled = all.filter(o => o.tags?.includes('controlled'))
-
-    const bounds = {
-      left: Math.min(dragStart.current.x, dragEnd.current.x),
-      right: Math.max(dragStart.current.x, dragEnd.current.x),
-      top: Math.min(dragStart.current.y, dragEnd.current.y),
-      bottom: Math.max(dragStart.current.y, dragEnd.current.y),
-    }
-    sh.handleDragSelection(bounds, controlled)
-
-    const inter = map.selection.findInteractableObjects()
-    selectionRendererRef.current?.highlightInteractiveObjects(inter)
-    updateSelectedUnits()
-  }, [mapLogicRef, selectionHandlerRef, selectionRendererRef, updateSelectedUnits])
-
-  const setRoverTarget = useCallback((evt: MouseEvent) => {
-    const map = mapLogicRef.current
-    const rm = rendererManagerRef.current
-    if (!map || !rm) return
-
-    const selected = map.selection.getSelectedObjects()
-    if (!selected.length) return
-
-    const ray = getRay(evt.clientX, evt.clientY)
-    const all = Object.values<TSceneObject>(map.scene.getObjects())
-
-    // ресурси
-    const clickedResource = all.find(o => {
-      if (!o.tags?.includes('resource')) return false
-      const mesh = rm.getMeshById(o.id)
-      if (!mesh) return false
-      const sphere = new THREE.Sphere(
-        new THREE.Vector3(o.coordinates.x, o.coordinates.y, o.coordinates.z),
-        Math.max(o.scale.x, o.scale.y, o.scale.z) * 0.5
-      )
-      return ray.ray.intersectsSphere(sphere)
-    })
-    if (clickedResource) {
-      map.mineResource(clickedResource.id, selected)
-      return
-    }
-
-    // зарядка
-    const clickedCharger = all.find(o => {
-      if (!o.tags?.includes('charge')) return false
-      const mesh = rm.getMeshById(o.id)
-      if (!mesh) return false
-      const sphere = new THREE.Sphere(
-        new THREE.Vector3(o.coordinates.x, o.coordinates.y, o.coordinates.z),
-        Math.max(o.scale.x, o.scale.y, o.scale.z) * 0.5
-      )
-      return ray.ray.intersectsSphere(sphere)
-    })
-    if (clickedCharger) {
-      map.chargeObject(selected)
-      return
-    }
-
-    // точка на терейні
-    const planeAtCam = new THREE.Plane(new THREE.Vector3(0,1,0), -camera.position.y)
-    const p = new THREE.Vector3()
-    ray.ray.intersectPlane(planeAtCam, p)
-
-    const tm = map.scene.getTerrainManager()
-    if (tm) {
-      const rayPoints: THREE.Vector3[] = []
-      const maxDist = 1000
-      const step = 10
-      for (let d = 0; d <= maxDist; d += step) {
-        rayPoints.push(camera.position.clone().add(ray.ray.direction.clone().multiplyScalar(d)))
-      }
-      let best = p.clone()
-      let bestErr = Infinity
-      for (const v of rayPoints) {
-        const th = tm.getHeightAt(v.x, v.z)
-        if (th === undefined) continue
-        const err = Math.abs(v.y - th)
-        if (err < bestErr) { bestErr = err; best.set(v.x, th, v.z) }
-      }
-      p.copy(best)
-    }
-
-    // Використовуємо новий оркестратор замість distributeTargetsForObjects
-    map.handleRightclickCommand(selected, { x:p.x, y:p.y, z:p.z }, selectedCommand)
-    
-    // Якщо використали команду - скидаємо її
-    if (selectedCommand && onCommandUsed) {
-      onCommandUsed()
-    }
-  }, [camera.position, getRay, mapLogicRef, rendererManagerRef, selectedCommand, onCommandUsed])
-
-  // інтеграція з контролером
+  // Оновлюємо вибрані юніти кожні 100мс
   useEffect(() => {
-    controller.setOnSetTarget((evt: MouseEvent) => setRoverTarget(evt))
-    controller.setOnSelection((evt: MouseEvent) => handleObjectSelection(evt))
-    controller.setOnDragStart((start) => {
-      isDragging.current = false
-      dragStart.current = start
-      dragEnd.current = start
-    })
-    controller.setOnDragEnd(() => {
-      if (isDragging.current) handleDragSelection()
-    })
-  }, [controller, handleDragSelection, handleObjectSelection, setRoverTarget])
+    const interval = setInterval(updateSelectedUnits, 100)
+    return () => clearInterval(interval)
+  }, [updateSelectedUnits])
 
-  const onMouseDown = useCallback((evt: MouseEvent) => {
-    if (evt.button === 0) {
-      isLeftDown.current = true
-      dragStart.current = { x: evt.clientX, y: evt.clientY }
-      dragEnd.current   = dragStart.current
-      isDragging.current = false
-
-      // 🚀 Оновлюємо state для drag coordinates
-      setDragCoords({
-        isDragging: false,
-        start: { x: evt.clientX, y: evt.clientY },
-        end: { x: evt.clientX, y: evt.clientY }
-      });
-
-
-
-      if (!evt.shiftKey && selectionHandlerRef.current) {
-        selectionHandlerRef.current.handleEmptyClick()
-        selectionRendererRef.current?.highlightInteractiveObjects([])
-        updateSelectedUnits()
-      }
-    }
-  }, [selectionHandlerRef, selectionRendererRef, updateSelectedUnits])
-
-    const onMouseMove = useCallback((evt: MouseEvent) => {
-    hoverInteractive(evt.clientX, evt.clientY)
-    if (isLeftDown.current) {
-      dragEnd.current = { x: evt.clientX, y: evt.clientY }
-      const dx = dragEnd.current.x - dragStart.current.x
-      const dy = dragEnd.current.y - dragStart.current.y
-      if (Math.hypot(dx,dy) > 5) isDragging.current = true
-
-      // 🚀 Оновлюємо state для drag coordinates
-      setDragCoords(prev => ({
-        ...prev,
-        isDragging: isDragging.current,
-        end: { x: evt.clientX, y: evt.clientY }
-      }));
-    }
-  }, [hoverInteractive])
-
-  const onMouseUp = useCallback((evt: MouseEvent) => {
-    const target = evt.target as HTMLElement
-    if (target && (target.closest('.command-panel') || target.closest('button'))) {
-      isLeftDown.current = false
-      isDragging.current = false
-      // 🚀 Скидаємо drag coordinates
-      setDragCoords(prev => ({ ...prev, isDragging: false }));
-      return
-    }
-    if (evt.button === 0) {
-      if (isDragging.current) handleDragSelection()
-      else handleObjectSelection(evt)
-      isLeftDown.current = false
-      isDragging.current = false
-      // 🚀 Скидаємо drag coordinates
-      setDragCoords(prev => ({ ...prev, isDragging: false }));
-    }
-  }, [handleDragSelection, handleObjectSelection])
-
-  return { onMouseDown, onMouseMove, onMouseUp, isDraggingRef: isDragging, dragStartRef: dragStart, dragEndRef: dragEnd, selectedUnits, dragCoords }
+  return selectedUnits
 }
 
 function useAutoPan(
@@ -595,7 +350,7 @@ function useRenderLoop(
     controller.handleAutoPan()
     maybeUpdateViewportOnMove()
     checkAndGenerateTerrain()
-    autoPanStep()
+    // autoPanStep() // Тимчасово відключено
     
     // Camera pinning logic
     if (controller.isCameraPinned()) {
@@ -680,7 +435,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
 
   const { scene, camera, renderer } = useThreeCore()
-  const { rendererManagerRef, selectionRendererRef, selectionHandlerRef, terrainRendererRef, areaSelectionRendererRef, mapLogicRef } =
+  const { rendererManagerRef, selectionRendererRef, terrainRendererRef, areaSelectionRendererRef, buildingPreviewRef, mapLogicRef } =
     useMapAndManagers(scene, camera, renderer, appMapLogic)
 
   const controller = useCameraController(camera, renderer, mapLogicRef)
@@ -692,17 +447,51 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
   const { setFromClient: getRay } = useRayFromScreen(camera)
 
-  const {
-    onMouseDown, onMouseMove, onMouseUp,
-    isDraggingRef: _isDraggingRef, dragStartRef: _dragStartRef, dragEndRef: _dragEndRef, selectedUnits, dragCoords
-  } = useSelectionAndCommands(
-    camera, controller, mapLogicRef,
-    rendererManagerRef, selectionRendererRef, selectionHandlerRef, getRay, selectedCommand,
-    () => setSelectedCommand(null) // Скидаємо команду після використання
+  // Нова архітектура інтеракції
+  const interactionManager = useInteractionManager(
+    scene, camera, appMapLogic,
+    selectionRendererRef.current,
+    rendererManagerRef.current,
+    areaSelectionRendererRef.current,
+    buildingPreviewRef.current
   )
 
-  const { setMouse, step: autoPanStep } =
+  // Отримуємо вибрані юніти
+  const selectedUnits = useSelectedUnits(mapLogicRef)
+
+  const { step: autoPanStep } =
     useAutoPan(camera, controller, mapLogicRef, updateTerrainForCamera)
+
+  // Оновлюємо обводку вибраних об'єктів
+  useEffect(() => {
+    const updateSelectionHighlights = () => {
+      const map = mapLogicRef.current;
+      const rm = rendererManagerRef.current;
+      const sr = selectionRendererRef.current;
+      
+      if (!map || !rm || !sr) return;
+
+      // Очищаємо всі попередні обводки
+      sr.clearAll();
+
+      // Додаємо обводки для вибраних об'єктів
+      const selectedIds = map.selection.getSelectedObjects();
+      selectedIds.forEach((id: string) => {
+        const mesh = rm.getMeshById(id);
+        if (mesh && mesh instanceof THREE.Mesh) {
+          sr.addSelectionHighlight(id, mesh);
+        }
+      });
+
+      // Оновлюємо інтерактивні об'єкти
+      const interactive = map.selection.findInteractableObjects();
+      sr.highlightInteractiveObjects(interactive);
+    };
+
+    // Оновлюємо кожні 100мс
+    const interval = setInterval(updateSelectionHighlights, 100);
+    return () => clearInterval(interval);
+  }, [mapLogicRef, rendererManagerRef, selectionRendererRef]);
 
 
 
@@ -916,26 +705,18 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
       ensureTargetOnTerrain()
     }
 
-    const move = (e: MouseEvent) => { setMouse(e.clientX, e.clientY); onMouseMove(e) }
-
-    window.addEventListener('mousemove', move)
-         window.addEventListener('mousedown', onMouseDown)
-    window.addEventListener('mouseup', onMouseUp)
     window.addEventListener('wheel', onWheel, { passive: false })
     window.addEventListener('resize', onResize)
     renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 
     return () => {
-      window.removeEventListener('mousemove', move)
-             window.removeEventListener('mousedown', onMouseDown)
-      window.removeEventListener('mouseup', onMouseUp)
       window.removeEventListener('wheel', onWheel)
       window.removeEventListener('resize', onResize)
       if (mountRef.current?.contains(renderer.domElement)) {
         mountRef.current.removeChild(renderer.domElement)
       }
     }
-  }, [camera, controller, ensureTargetOnTerrain, onMouseDown, onMouseMove, onMouseUp, renderer, setMouse, updateViewport])
+  }, [camera, controller, ensureTargetOnTerrain, renderer, updateViewport])
 
   /** --------- debug HUD state --------- */
   const [visibleObjectsCount, setVisibleObjectsCount] = useState(0)
@@ -1010,12 +791,8 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
   return (
     <div ref={mountRef} style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
-      {/* 🚀 Використовуємо новий компонент для drag selection */}
-      <DragSelectionRect
-        isDragging={dragCoords.isDragging}
-        dragStart={dragCoords.start}
-        dragEnd={dragCoords.end}
-      />
+      {interactionManager && (
+        <InteractionProvider value={interactionManager}>
 
       {/* Main Menu Button */}
       <button
@@ -1098,9 +875,14 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
         onSelectBuilding={(typeId: string) => {
           console.log(`Selected building for construction: ${typeId}`);
         }}
-      />
-    </div>
-  )
+             />
+
+       {/* Drag Selection Rectangle */}
+       <DragSelection />
+         </InteractionProvider>
+       )}
+     </div>
+   )
 }
 
 export default Scene3D;

@@ -9,6 +9,7 @@ export interface BuildingUI {
   rotationOffset: Vector3;
   modelName?: string; // Назва моделі для імпорту
   color?: string; // Колір куба, якщо нема моделі
+  bottomAnchor?: number;
 }
 
 // Дані типу будівлі з БД
