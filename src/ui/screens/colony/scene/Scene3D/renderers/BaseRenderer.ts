@@ -19,6 +19,7 @@ export interface SceneObject {
         z: number;
     };
     data: any;
+    bottomAnchor?: number;
     tags?: string[]; // Теги для швидкого доступу та фільтрації
 }
 
@@ -38,7 +39,7 @@ export abstract class BaseRenderer {
         const mesh = this.meshes.get(object.id);
         if (mesh) {
             // Оновлюємо позицію
-            mesh.position.set(object.coordinates.x, object.coordinates.y, object.coordinates.z);
+            mesh.position.set(object.coordinates.x, object.coordinates.y + (object.bottomAnchor ?? 0), object.coordinates.z);
             
             // Оновлюємо масштаб
             mesh.scale.set(object.scale.x, object.scale.y, object.scale.z);

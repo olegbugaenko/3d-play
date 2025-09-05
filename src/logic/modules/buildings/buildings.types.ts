@@ -1,5 +1,5 @@
 import { Vector3 } from '@utils/vector-math';
-import { CostFormula } from '@shared/types';
+import { CostFormula } from '@shared/types/common.types';
 import { BonusSourceModifier } from '@systems/modifiers-system';
 import { Requirement } from '@systems/requirements';
 
@@ -34,6 +34,9 @@ export interface BuildingInstance {
   level: number;
   built: boolean;
   position?: Vector3;
+  // Нові поля для планування будівництва
+  constructionProgress?: number; // Прогрес будівництва (0-1)
+  resourcesCollected?: Record<string, number>; // Зібрані ресурси для будівництва
 }
 
 // Дані для збереження/завантаження

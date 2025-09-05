@@ -1,24 +1,142 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export class BuildingPreview {
   private scene: THREE.Scene;
-  private mesh: THREE.Mesh | null = null;
+  private mesh: THREE.Mesh | THREE.Group | null = null;
   private isVisible: boolean = false;
+  private gltfLoader: GLTFLoader;
+  private loadedModels: Map<string, THREE.Group> = new Map();
+  private loadingModels: Set<string> = new Set();
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
+    this.gltfLoader = new GLTFLoader();
   }
 
   public show(position: { x: number; y: number; z: number }, buildingData: any): void {
     this.hide(); // Приховуємо попередню будівлю
 
+    console.log('BuildingPreview: Showing building preview with data:', buildingData);
+
+    // Перевіряємо чи є модель для цієї будівлі
+    if (buildingData.ui?.modelName) {
+      this.loadAndShowModel(position, buildingData);
+    } else {
+      // Fallback до простої геометрії якщо немає моделі
+      this.showSimpleGeometry(position, buildingData);
+    }
+  }
+
+  public showWithRotation(
+    position: { x: number; y: number; z: number }, 
+    rotation: THREE.Euler, 
+    buildingData: any
+  ): void {
+    // Спочатку показуємо будівлю
+    this.show(position, buildingData);
+    
+    // Потім встановлюємо орієнтацію
+    if (this.mesh && this.isVisible) {
+      if (this.mesh instanceof THREE.Mesh) {
+        this.mesh.rotation.copy(rotation);
+      } else if (this.mesh instanceof THREE.Group) {
+        this.mesh.rotation.copy(rotation);
+      }
+    }
+  }
+
+  private loadAndShowModel(position: { x: number; y: number; z: number }, buildingData: any): void {
+    const modelPath = buildingData.ui.modelName;
+    
+    // Перевіряємо чи модель вже завантажена
+    if (this.loadedModels.has(modelPath)) {
+      this.showLoadedModel(position, buildingData, this.loadedModels.get(modelPath)!);
+      return;
+    }
+
+    // Завантажуємо модель
+    this.gltfLoader.load(
+      modelPath,
+      (gltf) => {
+        console.log('BuildingPreview: Model loaded successfully:', modelPath);
+        this.loadedModels.set(modelPath, gltf.scene);
+        this.showLoadedModel(position, buildingData, gltf.scene);
+      },
+      (progress) => {
+        console.log('BuildingPreview: Loading progress:', (progress.loaded / progress.total * 100) + '%');
+      },
+      (error) => {
+        console.error('BuildingPreview: Error loading model:', error);
+        // Fallback до простої геометрії
+        this.showSimpleGeometry(position, buildingData);
+      }
+    );
+  }
+
+  private showLoadedModel(position: { x: number; y: number; z: number }, buildingData: any, model: THREE.Group): void {
+    // Клонуємо модель щоб не змінювати оригінал
+    const clonedModel = model.clone();
+    
+    // Застосовуємо масштаб та обертання з даних будівлі
+    if (buildingData.ui?.defaultScale) {
+      clonedModel.scale.set(
+        buildingData.ui.defaultScale.x,
+        buildingData.ui.defaultScale.y,
+        buildingData.ui.defaultScale.z
+      );
+    }
+    
+    if (buildingData.ui?.rotationOffset) {
+      clonedModel.rotation.set(
+        buildingData.ui.rotationOffset.x,
+        buildingData.ui.rotationOffset.y,
+        buildingData.ui.rotationOffset.z
+      );
+    }
+
+    // Встановлюємо позицію з урахуванням bottomAnchor
+    let adjustedY = position.y;
+    if (buildingData.ui?.bottomAnchor !== undefined) {
+      adjustedY += buildingData.ui.bottomAnchor;
+    }
+    clonedModel.position.set(position.x, adjustedY, position.z);
+
+    // Застосовуємо прозорість до всіх матеріалів моделі
+    clonedModel.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(mat => this.makeMaterialTransparent(mat));
+        } else {
+          this.makeMaterialTransparent(child.material);
+        }
+      }
+    });
+
+    this.mesh = clonedModel;
+    this.scene.add(clonedModel);
+    this.isVisible = true;
+  }
+
+  private makeMaterialTransparent(material: THREE.Material): void {
+    material.transparent = true;
+    material.opacity = 0.6;
+    material.needsUpdate = true;
+  }
+
+  private showSimpleGeometry(position: { x: number; y: number; z: number }, buildingData: any): void {
     // Створюємо геометрію на основі даних будівлі
     const geometry = this.createGeometry(buildingData);
+    
+    // Використовуємо колір з даних будівлі або за замовчуванням зелений
+    const color = buildingData.ui?.color ? new THREE.Color(buildingData.ui.color) : new THREE.Color(0x00ff00);
+    
     const material = new THREE.MeshBasicMaterial({
-      color: 0x00ff00, // Зелений колір для превью
+      color: color,
       transparent: true,
-      opacity: 0.5,
-      wireframe: false
+      opacity: 0.6,
+      wireframe: false,
+      side: THREE.DoubleSide
     });
 
     this.mesh = new THREE.Mesh(geometry, material);
@@ -45,17 +163,76 @@ export class BuildingPreview {
     this.isVisible = true;
   }
 
-  public updatePosition(position: { x: number; y: number; z: number }): void {
+  public updatePosition(position: { x: number; y: number; z: number }, buildingData?: any): void {
     if (this.mesh && this.isVisible) {
-      this.mesh.position.set(position.x, position.y, position.z);
+      // Встановлюємо позицію з урахуванням bottomAnchor
+      let adjustedY = position.y;
+      if (buildingData?.ui?.bottomAnchor !== undefined) {
+        adjustedY += buildingData.ui.bottomAnchor;
+      }
+      
+      // this.mesh може бути як Mesh, так і Group
+      if (this.mesh instanceof THREE.Mesh) {
+        this.mesh.position.set(position.x, adjustedY, position.z);
+      } else if (this.mesh instanceof THREE.Group) {
+        this.mesh.position.set(position.x, adjustedY, position.z);
+      }
+    }
+  }
+
+  public updatePositionAndRotation(
+    position: { x: number; y: number; z: number }, 
+    rotation: THREE.Euler, 
+    buildingData?: any
+  ): void {
+    if (this.mesh && this.isVisible) {
+      // Встановлюємо позицію з урахуванням bottomAnchor
+      let adjustedY = position.y;
+      if (buildingData?.ui?.bottomAnchor !== undefined) {
+        adjustedY += buildingData.ui.bottomAnchor;
+      }
+      
+      // this.mesh може бути як Mesh, так і Group
+      if (this.mesh instanceof THREE.Mesh) {
+        this.mesh.position.set(position.x, adjustedY, position.z);
+        this.mesh.rotation.copy(rotation);
+      } else if (this.mesh instanceof THREE.Group) {
+        this.mesh.position.set(position.x, adjustedY, position.z);
+        this.mesh.rotation.copy(rotation);
+      }
     }
   }
 
   public hide(): void {
     if (this.mesh) {
       this.scene.remove(this.mesh);
-      this.mesh.geometry.dispose();
-      (this.mesh.material as THREE.Material).dispose();
+      
+      // Очищаємо ресурси в залежності від типу
+      if (this.mesh instanceof THREE.Mesh) {
+        this.mesh.geometry.dispose();
+        if (this.mesh.material) {
+          if (Array.isArray(this.mesh.material)) {
+            this.mesh.material.forEach(mat => mat.dispose());
+          } else {
+            this.mesh.material.dispose();
+          }
+        }
+      } else if (this.mesh instanceof THREE.Group) {
+        // Для Group потрібно очистити всі дочірні об'єкти
+        this.mesh.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(mat => mat.dispose());
+              } else {
+                child.material.dispose();
+              }
+            }
+          }
+        });
+      }
+      
       this.mesh = null;
     }
     this.isVisible = false;
@@ -90,5 +267,37 @@ export class BuildingPreview {
 
   public dispose(): void {
     this.hide();
+    // Очищаємо кеш завантажених моделей
+    this.loadedModels.clear();
+  }
+
+  // Метод для попереднього завантаження моделей
+  public preloadModels(buildingTypes: any[]): void {
+    buildingTypes.forEach(buildingType => {
+      if (buildingType.ui?.modelName && !this.loadedModels.has(buildingType.ui.modelName) && !this.loadingModels.has(buildingType.ui.modelName)) {
+        this.loadingModels.add(buildingType.ui.modelName);
+        this.gltfLoader.load(
+          buildingType.ui.modelName,
+          (gltf) => {
+            console.log('BuildingPreview: Preloaded model:', buildingType.ui.modelName);
+            this.loadedModels.set(buildingType.ui.modelName, gltf.scene);
+            this.loadingModels.delete(buildingType.ui.modelName);
+          },
+          undefined,
+          (error) => {
+            console.error('BuildingPreview: Error preloading model:', buildingType.ui.modelName, error);
+            this.loadingModels.delete(buildingType.ui.modelName);
+          }
+        );
+      }
+    });
+  }
+
+  // Метод для отримання стану завантаження
+  public getLoadingState(): { loaded: number; total: number; loading: string[] } {
+    const total = this.loadedModels.size + this.loadingModels.size;
+    const loaded = this.loadedModels.size;
+    const loading = Array.from(this.loadingModels);
+    return { loaded, total, loading };
   }
 }

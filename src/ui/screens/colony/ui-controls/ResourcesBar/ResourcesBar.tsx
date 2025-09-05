@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ResourceId } from '@resources/index';
 import { ResourceManager } from '@logic/modules/resources/ResourceManager';
 import { formatNumber } from '@logic/utils/formatters';
+import { ResourceIcon } from '@ui/shared/resources/ResourceIcon/ResourceIcon';
 import './ResourcesBar.css';
 
 interface UIResourceData {
@@ -52,13 +53,16 @@ export const ResourcesBar: React.FC<ResourcesBarProps> = ({ resourceManager }) =
     <div className="resources-bar">
       <div className="resources-container">
         {resources.map((resource) => {
-          const { id, name, icon, color, current, max, progress } = resource;
+          const { id, name, color, current, max, progress } = resource;
           
           return (
             <div key={id} className="resource-item">
-              <div className="resource-icon" style={{ color: color }}>
-                {icon}
-              </div>
+              <ResourceIcon 
+                resourceId={id} 
+                color={color} 
+                size={24}
+                className="resource-icon"
+              />
               
               <div className="resource-info">
                 <div className="resource-name">{name}</div>

@@ -15,6 +15,8 @@ import { SaveLoadManager, MapLogicSaveData } from '@save-load/save-load.types';
 import { DroneManager } from '@drones/DroneManager';
 import { BuildingsManager } from '@buildings/BuildingsManager';
 import { UpgradesManager } from '@upgrades/UpgradesManager';
+import { Logger } from '@shared/ErrorService';
+import { Result, success, failure, match } from '@shared/Result';
 
 export class MapLogic implements SaveLoadManager {
     public commandSystem!: CommandSystem;
@@ -25,22 +27,22 @@ export class MapLogic implements SaveLoadManager {
 
     private collectedRocks: Set<string>;
     
+    // Setter-injected dependencies (замість constructor)
+    public resources!: ResourceManager;
+    public upgradesManager!: UpgradesManager;
+    public buildingsManager!: BuildingsManager;
+    public droneManager!: DroneManager;
+    
     // Система детермінованої генерації
     private generationTracker!: MapGenerationTracker;
 
     constructor(
         public scene: SceneLogic, 
-        public dynamics: DynamicsLogic,
-        public resources: ResourceManager,
-        public buildingsManager: BuildingsManager,
-        public upgradesManager: UpgradesManager,
-        public droneManager: DroneManager,
-
+        public dynamics: DynamicsLogic
+        // Всі менеджери тепер використовують setter injection
     ) {
         this.selection = new SelectionLogic(this.scene);
         this.autoGroupMonitor = new AutoGroupMonitor(this);
-        this.droneManager = droneManager;
-        this.buildingsManager = buildingsManager;
         
         // Ініціалізуємо систему генерації
         this.collectedRocks = new Set();
@@ -49,6 +51,52 @@ export class MapLogic implements SaveLoadManager {
     setCommandSystems(commandSystem: CommandSystem, commandGroupSystem: CommandGroupSystem) {
         this.commandSystem = commandSystem;
         this.commandGroupSystem = commandGroupSystem;
+    }
+
+    /**
+     * НОВІ DEPENDENCY INJECTION МЕТОДИ (для поступового рефакторингу)
+     * Дозволяють встановлювати залежності після створення об'єкта
+     */
+    setGameObjectManagers(
+        droneManager: DroneManager,
+        buildingsManager: BuildingsManager
+    ): void {
+        this.droneManager = droneManager;
+        this.buildingsManager = buildingsManager;
+    }
+
+    setUpgradesManager(upgradesManager: UpgradesManager): void {
+        this.upgradesManager = upgradesManager;
+    }
+
+    setResourceManager(resources: ResourceManager): void {
+        this.resources = resources;
+    }
+
+    /**
+     * Валідує що всі залежності встановлені
+     */
+    validateDependencies(): { isValid: boolean; missing: string[] } {
+        const missing: string[] = [];
+        
+        // Core dependencies (constructor)
+        if (!this.scene) missing.push('scene');
+        if (!this.dynamics) missing.push('dynamics');
+        
+        // Setter-injected dependencies
+        if (!this.droneManager) missing.push('droneManager');
+        if (!this.buildingsManager) missing.push('buildingsManager');
+        if (!this.upgradesManager) missing.push('upgradesManager');
+        if (!this.resources) missing.push('resources');
+        
+        // Command systems (set via setCommandSystems)
+        if (!this.commandSystem) missing.push('commandSystem');
+        if (!this.commandGroupSystem) missing.push('commandGroupSystem');
+
+        return {
+            isValid: missing.length === 0,
+            missing
+        };
     }
 
     /**
@@ -149,7 +197,7 @@ export class MapLogic implements SaveLoadManager {
         // Отримуємо TerrainManager з SceneLogic
         const terrainManager = this.scene.getTerrainManager();
         if (!terrainManager) {
-            console.warn('[MapLogic] TerrainManager не знайдено, створюємо новий');
+            Logger.warn('MapLogic', 'TerrainManager не знайдено, створюємо новий');
             return;
         }
 
@@ -689,7 +737,7 @@ export class MapLogic implements SaveLoadManager {
             );
             
             if (!success) {
-                console.error(`Failed to start command ${commandGroup.id} for ${unitId}`);
+                Logger.error('MapLogic', `Failed to start command ${commandGroup.id} for ${unitId}`, { unitId, commandGroup });
             }
         });
     }
@@ -839,13 +887,13 @@ export class MapLogic implements SaveLoadManager {
       */
      mineResource(resourceId: string, selectedObjectIds: string[]): void {
          if (selectedObjectIds.length === 0) {
-             console.warn('No objects selected for mining');
+             Logger.warn('MapLogic', 'No objects selected for mining');
              return;
          }
 
          const resource = this.scene.getObjectById(resourceId);
          if (!resource) {
-             console.error(`Resource ${resourceId} not found`);
+             Logger.error('MapLogic', `Resource ${resourceId} not found`, { resourceId });
              return;
          }
 
@@ -856,7 +904,7 @@ export class MapLogic implements SaveLoadManager {
          });
 
          if (miners.length === 0) {
-             console.warn('No valid miners selected');
+             Logger.warn('MapLogic', 'No valid miners selected');
              return;
          }
 
@@ -883,7 +931,7 @@ export class MapLogic implements SaveLoadManager {
              if (success) {
                  // Група команд видобутку запущена
              } else {
-                 console.error(`Failed to start mining command group for ${minerId}`);
+                 Logger.error('MapLogic', `Failed to start mining command group for ${minerId}`, { minerId });
              }
          });
      }
@@ -893,7 +941,7 @@ export class MapLogic implements SaveLoadManager {
       */
      chargeObject(selectedObjectIds: string[]): void {
          if (selectedObjectIds.length === 0) {
-             console.warn('No objects selected for charging');
+             Logger.warn('MapLogic', 'No objects selected for charging');
              return;
          }
 
@@ -904,7 +952,7 @@ export class MapLogic implements SaveLoadManager {
          });
 
          if (chargeableObjects.length === 0) {
-             console.warn('No valid chargeable objects selected');
+             Logger.warn('MapLogic', 'No valid chargeable objects selected');
              return;
          }
 
@@ -927,7 +975,7 @@ export class MapLogic implements SaveLoadManager {
              if (success) {
                  // Група команд зарядки запущена
              } else {
-                 console.error(`Failed to start charging command group for ${objectId}`);
+                 Logger.error('MapLogic', `Failed to start charging command group for ${objectId}`, { objectId });
              }
          });
      }
@@ -1015,6 +1063,52 @@ export class MapLogic implements SaveLoadManager {
         buildings.forEach(building => {
             this.scene.removeObject(building.id);
         });
+    }
+
+    // ==================== Result Pattern Examples ====================
+    
+    /**
+     * Отримує об'єкт за ID з Result pattern
+     */
+    getObjectByIdResult(id: string): Result<TSceneObject<any>, string> {
+        const object = this.scene.getObjectById(id);
+        if (!object) {
+            return failure(`Object with id '${id}' not found`);
+        }
+        return success(object);
+    }
+
+    /**
+     * Запускає команду з Result pattern
+     */
+    startCommandResult(commandId: string, unitId: string): Result<boolean, string> {
+        const unitResult = this.getObjectByIdResult(unitId);
+        
+        return unitResult.flatMap(unit => {
+            if (!unit.tags.includes('drone')) {
+                return failure(`Unit ${unitId} is not a drone`);
+            }
+            
+            // Приклад - в реальності тут була б логіка команди
+            const commandSuccess = true; // this.commandSystem.addCommand(commandId, unitId);
+            if (!commandSuccess) {
+                return failure(`Failed to start command ${commandId} for ${unitId}`);
+            }
+            
+            return success(true);
+        });
+    }
+
+    /**
+     * Приклад використання pattern matching
+     */
+    processCommandWithMatch(commandId: string, unitId: string): string {
+        const result = this.startCommandResult(commandId, unitId);
+        
+        return match(result,
+            (success) => `Command ${commandId} started successfully for ${unitId}`,
+            (error) => `Failed to start command: ${error}`
+        );
     }
     
 }

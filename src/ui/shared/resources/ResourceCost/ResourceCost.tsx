@@ -1,6 +1,7 @@
 import React from 'react';
 import { ResourceCheckResult } from '@logic/modules/resources/resource-types';
 import { formatNumber } from '@utils/formatters';
+import { ResourceIcon } from '@ui/shared/resources/ResourceIcon/ResourceIcon';
 import './ResourceCost.css';
 
 interface ResourceCostProps {
@@ -19,10 +20,7 @@ export const ResourceCost: React.FC<ResourceCostProps> = ({
     return status.color || '#ffffff';
   };
 
-  const getResourceIcon = (status: any): string => {
-    // Використовуємо іконку з БД, якщо є, інакше fallback
-    return status.icon || '📦';
-  };
+  // Видаляємо старий метод getResourceIcon, тепер використовуємо ResourceIcon компонент
 
 
 
@@ -32,16 +30,18 @@ export const ResourceCost: React.FC<ResourceCostProps> = ({
                  {Object.entries(costCheck.resources).map(([resourceId, status]) => {
            const { required, own, isAffordable } = status;
            const color = getResourceColor(status);
-           const icon = getResourceIcon(status);
           
           return (
             <div 
               key={resourceId} 
               className={`cost-item ${isAffordable ? 'affordable' : 'unaffordable'}`}
             >
-              <span className="cost-icon" style={{ color }}>
-                {icon}
-              </span>
+              <ResourceIcon 
+                resourceId={resourceId} 
+                color={color} 
+                size={compact ? 16 : 20}
+                className="cost-icon"
+              />
               
               <span className="cost-amount">
                 {formatNumber(own)} / {formatNumber(required)}

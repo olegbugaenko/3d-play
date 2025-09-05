@@ -1,5 +1,5 @@
 import { BuildingTypeData } from './buildings.types';
-import { CostFormula } from '@shared/types';
+import { CostFormula } from '@shared/types/common.types';
 
 // Формули вартості для різних типів будівель
 const storageCostFormula: CostFormula = (level: number) => ({
@@ -51,7 +51,7 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
       defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
       rotationOffset: { x: 0, y: 0, z: 0 },
       modelName: 'models/buildings/simple_storage.glb',
-      color: '#8B4513' // Коричневий для складу
+      hudOffsetY: 1,
     },
     cost: storageCostFormula
   }],
@@ -90,7 +90,8 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
       defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
       rotationOffset: { x: 0, y: 0, z: 0 }, // Поворот на 45 градусів
       modelName: 'models/buildings/simple_charging_station.glb',
-      bottomAnchor: -0.15
+      bottomAnchor: -0.15,
+      hudOffsetY: 1,
     },
     data: {
         chargeRate: 0.5,
@@ -123,7 +124,8 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
       defaultScale: { x: 1.2, y: 1.0, z: 1.2 },
       rotationOffset: { x: 0, y: Math.PI / 4, z: 0 }, // Поворот на 45 градусів
       modelName: 'charging-station.glb',
-      color: '#4169E1' // Синій для зарядки
+      color: '#4169E1', // Синій для зарядки
+      hudOffsetY: 1,
     },
     data: {
         obstacleSize: 1.5,

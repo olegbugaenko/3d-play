@@ -7,6 +7,7 @@ interface UpgradesPanelProps {
 
 export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({ game }) => {
   const [isUpgradesModalOpen, setIsUpgradesModalOpen] = useState(false);
+  const [upgradesVersion, setUpgradesVersion] = useState(0); // Для force re-render
 
   const handleUpgradesClick = () => {
     setIsUpgradesModalOpen(true);
@@ -15,8 +16,8 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({ game }) => {
   const handlePurchaseUpgrade = (typeId: string) => {
     const success = game.upgradesManager.purchaseUpgrade(typeId);
     if (success) {
-      // НЕ закриваємо модалку при кожному кліку!
-      // setIsUpgradesModalOpen(false);
+      // Force re-render після успішної покупки
+      setUpgradesVersion(prev => prev + 1);
     }
   };
 
@@ -46,6 +47,7 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({ game }) => {
         onClose={() => setIsUpgradesModalOpen(false)}
         upgrades={game.upgradesManager.listUpgradesForUI()}
         onPurchaseUpgrade={handlePurchaseUpgrade}
+        key={upgradesVersion} // Force re-render коли змінюється версія
       />
     </>
   );

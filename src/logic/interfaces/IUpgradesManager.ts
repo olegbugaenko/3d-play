@@ -1,4 +1,6 @@
 import { SaveLoadManager } from '@save-load/save-load.types';
+import { UpgradeTypeData, UpgradeState, UpgradeDataUI } from '@modules/upgrades/upgrades.types';
+import { ResourceRequest } from '@resources/resource-types';
 
 export interface IUpgradesManager extends SaveLoadManager {
   // Основні методи
@@ -7,17 +9,17 @@ export interface IUpgradesManager extends SaveLoadManager {
   unlockUpgrade(typeId: string): boolean;
   
   // Отримання даних
-  getUpgrade(typeId: string): any | null;
-  getAllUpgrades(): Map<string, any>;
-  getUpgradeCost(typeId: string, level: number): any | undefined;
-  getUpgradeState(typeId: string): any | undefined;
+  getUpgrade(typeId: string): UpgradeDataUI | null;
+  getAllUpgrades(): Map<string, UpgradeState>;
+  getUpgradeCost(typeId: string, level: number): ResourceRequest | undefined;
+  getUpgradeState(typeId: string): UpgradeState | undefined;
   
   // Методи для реквайрментів
   isUnlocked(upgradeId: string): boolean;
-  getAvailableUpgrades(): any[];
+  getAvailableUpgrades(): UpgradeTypeData[];
   
   // Додаткові методи
-  registerUpgradeType(id: string, data: any): void;
+  registerUpgradeType(id: string, data: UpgradeTypeData): void;
   setInitialState(typeId: string, level?: number, unlocked?: boolean): void;
   
   // Системні методи

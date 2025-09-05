@@ -5,6 +5,7 @@ export class SaveManager implements SaveLoadManager, ISaveManager {
     public managers: Map<string, SaveLoadManager> = new Map();
     public readonly SAVE_KEY_PREFIX = 'game_save_';
     public readonly VERSION = '1.0.0';
+    private currentSlot: number | null = null; // Поточний активний слот
     
     constructor(public mapLogic: IMapLogic) {
         // MapLogic передається як залежність при створенні
@@ -13,6 +14,26 @@ export class SaveManager implements SaveLoadManager, ISaveManager {
     // Реєструємо менеджер
     registerManager(name: string, manager: SaveLoadManager): void {
         this.managers.set(name, manager);
+    }
+    
+    // Встановлюємо поточний слот
+    setCurrentSlot(slot: number): void {
+        this.currentSlot = slot;
+        console.log(`[SaveManager] Current slot set to: ${slot}`);
+    }
+    
+    // Отримуємо поточний слот
+    getCurrentSlot(): number | null {
+        return this.currentSlot;
+    }
+    
+    // Зберігаємо в поточний слот (якщо він встановлений)
+    saveToCurrentSlot(): boolean {
+        if (this.currentSlot === null) {
+            console.error('[SaveManager] No current slot set for saving');
+            return false;
+        }
+        return this.saveGame(this.currentSlot);
     }
     
     // Зберігаємо гру в слот
@@ -62,6 +83,9 @@ export class SaveManager implements SaveLoadManager, ISaveManager {
                 console.warn('Версія збереження не співпадає:', saveData.version);
             }
             
+            // Встановлюємо поточний слот
+            this.setCurrentSlot(slot);
+            
             // Завантажуємо дані в менеджери з урахуванням залежностей
             const loadOrder = this.getLoadOrder();
             
@@ -82,9 +106,14 @@ export class SaveManager implements SaveLoadManager, ISaveManager {
     }
     
     // Починаємо нову гру
-    newGame(): void {
+    newGame(slot?: number): void {
         // Скидаємо всі менеджери
         this.managers.forEach(manager => manager.reset());
+        
+        // Встановлюємо поточний слот якщо передано
+        if (slot !== undefined) {
+            this.setCurrentSlot(slot);
+        }
     }
 
 

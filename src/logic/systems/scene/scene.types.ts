@@ -16,7 +16,6 @@ export interface TSceneObject<T = any> {
     terrainAlign?: boolean; // Автоматично нахиляти об'єкт по нормалі terrain
     targetType?: string[];
     commandType?: string[]; // Доступні типи команд для об'єкта
-
       // 🚀 НОВА СИСТЕМА DIRTY FLAGS
   _dirtyFlags?: {
     position: boolean;    // Змінилася позиція

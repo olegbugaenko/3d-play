@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CommandGroup } from '@systems/commands';
 import { Game } from '@core/game/game';
 import { CameraController } from '@ui/screens/colony/scene/CameraController';
@@ -11,7 +11,7 @@ interface CommandPanelProps {
   cameraController: CameraController;
 }
 
-export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCommandChange, game, cameraController }) => {
+export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedUnits, onCommandChange, game, cameraController }) => {
   const interactionManager = useInteractionContext();
   
   const [selectedScope, setSelectedScope] = useState<'gather' | 'build' | null>(null);
@@ -20,9 +20,22 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
   const [selectedCommand, setSelectedCommand] = useState<CommandGroup | null>(null);
   const [interpolationSpeed, setInterpolationSpeed] = useState(0.1);
 
+  // Мемоізація: Обчислюємо тільки коли змінилася кількість юнітів
+  const selectedUnitsCount = selectedUnits.length;
+  
+  const memoizedScopes = useMemo(() => {
+    if (selectedUnitsCount === 0) return [];
+    
+    const scopes = ['gather', 'build'];
+    return scopes.filter(scope => {
+      const groups = game.commandGroupSystem.getAvailableGroupsByScope(scope as 'gather' | 'build');
+      return groups.length > 0;
+    });
+  }, [selectedUnitsCount, game.commandGroupSystem]);
+  
   // Отримуємо доступні scope для вибраних юнітів
   useEffect(() => {
-    if (selectedUnits.length === 0) {
+    if (selectedUnitsCount === 0) {
       setAvailableScopes([]);
       setSelectedScope(null);
       setSelectedCommand(null);
@@ -30,22 +43,15 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
       return;
     }
 
-    // Отримуємо всі доступні scope через CommandGroupSystem
-    const scopes = ['gather', 'build'];
-    const availableScopes = scopes.filter(scope => {
-      const groups = game.commandGroupSystem.getAvailableGroupsByScope(scope as 'gather' | 'build');
-      return groups.length > 0;
-    });
-
-    setAvailableScopes(availableScopes);
+    setAvailableScopes(memoizedScopes);
     
     // Якщо немає доступних scope, скидаємо вибір
-    if (availableScopes.length === 0) {
+    if (memoizedScopes.length === 0) {
       setSelectedScope(null);
       setSelectedCommand(null);
       onCommandChange(null);
     }
-  }, [selectedUnits, game.commandGroupSystem, onCommandChange]);
+  }, [selectedUnitsCount, memoizedScopes, onCommandChange]);
 
   // Отримуємо доступні категорії для обраного scope
   useEffect(() => {
@@ -282,4 +288,4 @@ export const CommandPanel: React.FC<CommandPanelProps> = ({ selectedUnits, onCom
       </div>
     </div>
   );
-};
+});

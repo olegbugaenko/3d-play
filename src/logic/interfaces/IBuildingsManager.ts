@@ -6,6 +6,7 @@ export interface IBuildingsManager extends SaveLoadManager {
   buildOrUpgrade(instanceId: string, typeId: string, position?: Vector3): boolean;
   destroyBuilding(instanceId: string): boolean;
   moveBuilding(instanceId: string, newPosition: Vector3): boolean;
+  planBuilding(instanceId: string, typeId: string, position: Vector3): boolean;
   
   // Отримання даних
   getBuildingInstance(instanceId: string): any | undefined;
@@ -26,4 +27,10 @@ export interface IBuildingsManager extends SaveLoadManager {
   // Системні методи
   reset(): void;
   beforeInit?(): void;
+  
+  // Синхронізація isBuilt статусу
+  syncBuildingIsBuiltStatus(instanceId: string): void;
+  syncAllBuildingsIsBuiltStatus(): void;
+  updateBuildingStatus(instanceId: string, built: boolean, level: number): void;
+  updateConstructionProgress(instanceId: string, progress: number, resourcesCollected: Record<string, number>): void;
 }

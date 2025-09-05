@@ -20,8 +20,12 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStartGame, game }) => {
     };
     
     const handleNewGame = () => {
-        game.newGame();
-        onStartGame();
+        if (selectedSlot) {
+            game.newGame(selectedSlot);
+            onStartGame();
+        } else {
+            alert('Будь ласка, виберіть слот для нової гри');
+        }
     };
     
     const handleLoadGame = () => {
@@ -59,6 +63,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStartGame, game }) => {
                     <button 
                         className="new-game-btn"
                         onClick={handleNewGame}
+                        disabled={!selectedSlot}
                     >
                         Нова гра
                     </button>

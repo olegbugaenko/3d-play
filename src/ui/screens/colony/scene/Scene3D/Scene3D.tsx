@@ -6,11 +6,12 @@ import { SelectionRenderer } from './renderers/SelectionRenderer'
 import { SceneObject } from './renderers/BaseRenderer'
 import { TerrainRenderer } from './renderers/TerrainRenderer'
 import { AreaSelectionRenderer } from '@ui/screens/colony/scene/AreaSelectionRenderer'
-import { BuildingPreview } from '@ui/screens/colony/scene/renderers/BuildingPreview'
-
 // Нова архітектура інтеракції
 import { useInteractionManager } from '@ui/screens/colony/scene/hooks/useInteractionManager'
+import { useBuildingPreview } from '@ui/screens/colony/scene/hooks/useBuildingPreview'
+import { useDebugInfo } from '@ui/screens/colony/scene/hooks/useDebugInfo'
 import { InteractionProvider } from '@ui/screens/colony/scene/context/InteractionContext'
+import { DebugPanel } from '@ui/screens/colony/scene/components/DebugPanel'
 
 import { CommandPanel, UpgradesPanel } from '@ui/screens/colony'
 import { ISaveManager, IMapLogic } from '@interfaces/index';
@@ -66,7 +67,6 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
   const selectionRendererRef = useRef<SelectionRenderer|null>(null)
   const terrainRendererRef   = useRef<TerrainRenderer|null>(null)
   const areaSelectionRendererRef = useRef<AreaSelectionRenderer|null>(null)
-  const buildingPreviewRef = useRef<BuildingPreview|null>(null)
 
   const mapLogicRef          = useRef<IMapLogic|null>(null)
 
@@ -88,11 +88,6 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
       }).catch(e => console.error('Failed to render initial terrain:', e))
     }
 
-    // Створюємо BuildingPreview
-    buildingPreviewRef.current = new BuildingPreview(scene)
-
-
-
     return () => {
       selectionRendererRef.current?.clearAll()
       rendererManagerRef.current?.dispose()
@@ -109,7 +104,6 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
     selectionRendererRef,
     terrainRendererRef,
     areaSelectionRendererRef,
-    buildingPreviewRef,
     mapLogicRef,
   }
 }
@@ -244,18 +238,33 @@ function useTerrainStreaming(
 
 
 
-// Новий хук для отримання вибраних юнітів
+// ОПТИМІЗОВАНИЙ хук для вибраних юнітів - без polling!
 function useSelectedUnits(mapLogicRef: React.MutableRefObject<IMapLogic|null>) {
   const [selectedUnits, setSelectedUnits] = useState<string[]>([])
+  const lastCountRef = useRef(0)
   
   const updateSelectedUnits = useCallback(() => {
     const ids = mapLogicRef.current?.selection.getSelectedObjects() ?? []
-    setSelectedUnits(ids)
+    // Оновлюємо тільки якщо кількість змінилася
+    if (ids.length !== lastCountRef.current) {
+      setSelectedUnits(ids)
+      lastCountRef.current = ids.length
+    }
   }, [mapLogicRef])
 
-  // Оновлюємо вибрані юніти кожні 100мс
+  // Викликаємо оновлення тільки при взаємодії, не через polling!
   useEffect(() => {
-    const interval = setInterval(updateSelectedUnits, 100)
+    // Початкове оновлення
+    updateSelectedUnits()
+    
+    // Додаємо слухач до MapLogic для зміни селекції (якщо є такий API)
+    // Замість polling використовуємо event-driven підхід
+    const checkForChanges = () => {
+      updateSelectedUnits()
+    }
+    
+    // Перевіряємо зміни тільки кожні 1000мс замість 100мс
+    const interval = setInterval(checkForChanges, 1000)
     return () => clearInterval(interval)
   }, [updateSelectedUnits])
 
@@ -405,7 +414,7 @@ function useRenderLoop(
   }, [
     autoPanStep, camera, checkAndGenerateTerrain,
     controller, maybeUpdateViewportOnMove, renderer, rendererManagerRef,
-    scene, syncVisibleObjects, areaSelectionRendererRef
+    scene, syncVisibleObjects, areaSelectionRendererRef, mapLogicRef
   ])
 
   useEffect(() => {
@@ -424,7 +433,7 @@ interface Scene3DProps {
   game: any; // Game instance для доступу до UpgradesManager
 }
 
-const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic: appMapLogic, game }) => {
+const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic, game }) => {
   const mountRef = useRef<HTMLDivElement>(null)
 
   // Додаємо стейт для вибраної команди
@@ -435,10 +444,16 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
 
   const { scene, camera, renderer } = useThreeCore()
-  const { rendererManagerRef, selectionRendererRef, terrainRendererRef, areaSelectionRendererRef, buildingPreviewRef, mapLogicRef } =
+  const { rendererManagerRef, selectionRendererRef, terrainRendererRef, areaSelectionRendererRef, mapLogicRef } =
     useMapAndManagers(scene, camera, renderer, appMapLogic)
+  
+  // Використовуємо окремий хук для BuildingPreview
+  const buildingPreviewRef = useBuildingPreview(scene, appMapLogic)
 
   const controller = useCameraController(camera, renderer, mapLogicRef)
+  
+  // Використовуємо окремий хук для debug інформації
+  const debugInfo = useDebugInfo(camera, controller, mapLogicRef, buildingPreviewRef)
   const { ensureTargetOnTerrain, updateViewport, maybeUpdateViewportOnMove } =
     useCameraViewportSync(camera, controller, mapLogicRef)
 
@@ -538,6 +553,26 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
       };
     }
   }, [selectedCommand, handleMouseMove])
+
+  // Підписуємося на події зміни режиму інтеракції
+  useEffect(() => {
+    if (!interactionManager) return;
+
+    const handleModeChange = (data: { from: string; to: string }) => {
+      console.log(`Mode changed from ${data.from} to ${data.to}`);
+      
+      // Якщо повертаємося до режиму вибору, оновлюємо режим в InteractionManager
+      if (data.to === 'selection') {
+        interactionManager.setMode('selection');
+      }
+    };
+
+    interactionManager.on('modeChange', handleModeChange);
+
+    return () => {
+      interactionManager.off('modeChange', handleModeChange);
+    };
+  }, [interactionManager]);
 
   /** --------- NEW: initMap + first viewport --------- */
   useEffect(() => {
@@ -671,12 +706,14 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
     updateViewport()
     ensureTargetOnTerrain()
     return () => {
+      // КРИТИЧНО: зупиняємо тіки гри при cleanup
+      game.stopTicks()
       scene.remove(grid)
       scene.remove(axes)
       scene.clear()
       renderer.dispose()
     }
-  }, [ensureTargetOnTerrain, renderer, scene, updateViewport])
+  }, [ensureTargetOnTerrain, renderer, scene, updateViewport, game])
 
   useEffect(() => {
     if (!mountRef.current) return
@@ -718,74 +755,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
     }
   }, [camera, controller, ensureTargetOnTerrain, renderer, updateViewport])
 
-  /** --------- debug HUD state --------- */
-  const [visibleObjectsCount, setVisibleObjectsCount] = useState(0)
-  const [totalObjectsCount, setTotalObjectsCount] = useState(0)
-  const [viewportData, setViewportData] = useState({ centerX: 0, centerY: 0, width: 0, height: 0 })
-  const [gridInfo, setGridInfo] = useState({ totalCells: 0, visibleCells: 0 })
-  const [currentDistance, setCurrentDistance] = useState(0)
 
-  useEffect(() => {
-    let id: number
-    const updateUI = () => {
-      const map = mapLogicRef.current
-      if (map) {
-        try {
-          const objects = map.scene.getVisibleObjects()
-          const newVisibleCount = objects.length
-          const newTotalCount = map.scene.getTotalObjectsCount()
-          
-          setVisibleObjectsCount(prev => prev === newVisibleCount ? prev : newVisibleCount)
-          setTotalObjectsCount(prev => prev === newTotalCount ? prev : newTotalCount)
-        } catch {}
-        
-        const newDistance = Math.round(camera.position.distanceTo(controller.getTarget()) * 100) / 100
-        setCurrentDistance(prev => prev === newDistance ? prev : newDistance)
-        const sceneLogic = map.scene
-        const vp = (sceneLogic as { viewPort?: { centerX: number; centerY: number; width: number; height: number } })?.viewPort
-        if (vp) {
-          const newCenterX = Math.round(vp.centerX * 100) / 100
-          const newCenterY = Math.round(vp.centerY * 100) / 100
-          const newWidth = Math.round(vp.width * 100) / 100
-          const newHeight = Math.round(vp.height * 100) / 100
-          
-          setViewportData(prev => {
-            if (prev.centerX === newCenterX && 
-                prev.centerY === newCenterY && 
-                prev.width === newWidth && 
-                prev.height === newHeight) {
-              return prev; // Повертаємо той самий об'єкт
-            }
-            return { 
-              centerX: newCenterX, 
-              centerY: newCenterY, 
-              width: newWidth, 
-              height: newHeight 
-            };
-          });
-        }
-        const gridSystem = (sceneLogic as { gridSystem?: { grid: { size: number } } })?.gridSystem
-        if (gridSystem) {
-          const newTotalCells = gridSystem.grid.size
-          const newVisibleCells = (sceneLogic as unknown as { getVisibleGridCellsCount: () => number }).getVisibleGridCellsCount()
-          
-          setGridInfo(prev => {
-            if (prev.totalCells === newTotalCells && 
-                prev.visibleCells === newVisibleCells) {
-              return prev; // Повертаємо той самий об'єкт
-            }
-            return { 
-              totalCells: newTotalCells, 
-              visibleCells: newVisibleCells 
-            };
-          });
-        }
-      }
-      id = window.setTimeout(updateUI, 250)
-    }
-    updateUI()
-    return () => window.clearTimeout(id)
-  }, [camera, controller, mapLogicRef])
 
 
 
@@ -816,7 +786,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
       {/* Save Game Button */}
       <button
-        onClick={() => saveManager.saveGame(1)}
+        onClick={() => game.saveToCurrentSlot()}
         style={{
           position: 'absolute',
           top: 50,
@@ -836,25 +806,15 @@ const Scene3D: React.FC<Scene3DProps> = ({ saveManager, onShowMainMenu, mapLogic
 
       
 
-      {/* debug HUD */}
-      <div style={{
-        position: 'absolute', top: 10, left: 10, color: 'white', fontFamily: 'monospace',
-        fontSize: 14, backgroundColor: 'rgba(0,0,0,0.7)', padding: 8, borderRadius: 4, zIndex: 1000
-      }}>
-        <div>FPS: {fps}</div>
-        <div>Visible Objects: {visibleObjectsCount}</div>
-        <div>Total Objects: {totalObjectsCount}</div>
-        <div>Camera Distance: {currentDistance}</div>
-        <div>Viewport Center: ({viewportData.centerX}, {viewportData.centerY})</div>
-        <div>Viewport Size: {viewportData.width} × {viewportData.height}</div>
-        <div>Grid Cells: {gridInfo.totalCells} total, {gridInfo.visibleCells} visible</div>
-        <div>Viewport Bounds: X[{Math.round((viewportData.centerX - viewportData.width/2) * 100) / 100}, {Math.round((viewportData.centerX + viewportData.width/2) * 100) / 100}]</div>
-        <div>Viewport Bounds: Z[{Math.round((viewportData.centerY - viewportData.height/2) * 100) / 100}, {Math.round((viewportData.centerY + viewportData.height/2) * 100) / 100}]</div>
-        <div>Terrain: Active (Height: 0 to 20)</div>
-        <div>Focus Point: ({Math.round(controller.getTarget().x * 100) / 100}, {Math.round(controller.getTarget().y * 100) / 100}, {Math.round(controller.getTarget().z * 100) / 100})</div>
-        <div>Selected Objects: {mapLogicRef.current?.selection.getSelectedCount() || 0}</div>
-        <div>Selected Command: {selectedCommand ? (selectedCommand.ui?.name || selectedCommand.name) : 'None'}</div>
-      </div>
+             {/* Debug Panel */}
+       <DebugPanel
+         fps={fps}
+         debugInfo={debugInfo}
+         controller={controller}
+         mapLogicRef={mapLogicRef}
+         selectedCommand={selectedCommand}
+         interactionManager={interactionManager}
+       />
 
 
 

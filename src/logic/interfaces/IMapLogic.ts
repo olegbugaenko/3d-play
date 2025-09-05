@@ -46,4 +46,7 @@ export interface IMapLogic extends SaveLoadManager {
   mineResource(resourceId: string, selectedObjects: string[]): void;
   chargeObject(selectedObjects: string[]): void;
   handleRightclickCommand(selectedObjects: string[], targetPosition: { x: number; y: number; z: number }, selectedCommand?: any): void;
+  
+  // Dependency validation (новий метод для рефакторингу)
+  validateDependencies(): { isValid: boolean; missing: string[] };
 }

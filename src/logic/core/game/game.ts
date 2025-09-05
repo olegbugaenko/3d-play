@@ -12,19 +12,21 @@ import { DynamicsLogic } from '@scene/dynamics-logic';
 import { RequirementsSystem } from '@systems/requirements';
 import { initEffects } from '@shared/effects';
 import { GameContainer } from './GameContainer';
-import { ISceneLogic, IResourceManager, IBonusSystem, IBuildingsManager, IUpgradesManager, IDroneManager, ICommandSystem, IMapLogic, ICommandGroupSystem, ISaveManager } from '../../interfaces/index';
+import { ISceneLogic, IResourceManager, IBonusSystem, IBuildingsManager, IUpgradesManager, IDroneManager, ISaveManager } from '../../interfaces/index';
+import { Logger } from '@shared/ErrorService';
+import { Result, isSuccess, match } from '@shared/Result';
 
 
 export class Game {
   private static instance: Game;
   private container: GameContainer;
   
-  // Основні менеджери
-  public readonly mapLogic: IMapLogic;
+  // Основні менеджери  
+  public readonly mapLogic: MapLogic;  // Тимчасово використовуємо конкретний клас
   public readonly resourceManager: IResourceManager;
   public readonly droneManager: IDroneManager;
-  public readonly commandSystem: ICommandSystem;
-  public readonly commandGroupSystem: ICommandGroupSystem;
+  public readonly commandSystem: CommandSystem;  // Конкретний клас для сумісності
+  public readonly commandGroupSystem: CommandGroupSystem;  // Конкретний клас для сумісності
   public readonly saveManager: ISaveManager;
   
   // Система бонусів та модифікаторів
@@ -35,6 +37,9 @@ export class Game {
   // Логіка сцени
   public readonly sceneLogic: ISceneLogic;
   public readonly dynamicsLogic: DynamicsLogic;
+  
+  // Інтервал для тіків
+  private tickIntervalId: number | null = null;
 
   /**
    * Реєструє всі сервіси в контейнері
@@ -72,30 +77,39 @@ export class Game {
       this.container.get('sceneLogic')
     ));
     
-    // Реєструємо MapLogic (потребує всі попередні сервіси)
-    this.container.register('mapLogic', () => new MapLogic(
-      this.container.get('sceneLogic'),
-      this.container.get('dynamicsLogic'),
-      this.container.get('resourceManager'),
-      this.container.get('buildingsManager'),
-      this.container.get('upgradesManager'),
-      this.container.get('droneManager')
-    ));
+    // Реєструємо MapLogic з МІНІМАЛЬНИМИ залежностями (УСПІХ!)
+    this.container.register('mapLogic', () => {
+      const mapLogic = new MapLogic(
+        this.container.get('sceneLogic'),
+        this.container.get('dynamicsLogic')
+        // Тепер тільки 2 core залежності!
+      );
+      
+      // ✅ ВСІ МЕНЕДЖЕРИ ЧЕРЕЗ SETTER INJECTION:
+      mapLogic.setGameObjectManagers(
+        this.container.get('droneManager') as DroneManager,
+        this.container.get('buildingsManager') as BuildingsManager
+      );
+      mapLogic.setUpgradesManager(this.container.get('upgradesManager') as UpgradesManager);
+      mapLogic.setResourceManager(this.container.get('resourceManager') as ResourceManager);
+      
+      return mapLogic;
+    });
     
-    // Реєструємо командні системи
+    // Реєструємо командні системи (з кастами через циркулярну залежність)
     this.container.register('commandSystem', () => new CommandSystem(
-      this.container.get('mapLogic')
+      this.container.get('mapLogic') as any  // Тимчасовий cast
     ));
     
     this.container.register('commandGroupSystem', () => new CommandGroupSystem(
-      this.container.get('commandSystem'),
-      this.container.get('mapLogic'),
+      this.container.get('commandSystem') as any,  // Тимчасовий cast
+      this.container.get('mapLogic') as any,       // Тимчасовий cast
       this.container
     ));
     
     // Реєструємо SaveManager останнім
     this.container.register('saveManager', () => new SaveManager(
-      this.container.get('mapLogic')
+      this.container.get('mapLogic') as any  // Тимчасовий cast
     ));
   }
 
@@ -115,18 +129,29 @@ export class Game {
     this.buildingsManager = this.container.get('buildingsManager');
     this.droneManager = this.container.get('droneManager');
     this.mapLogic = this.container.get('mapLogic');
-    this.commandSystem = this.container.get('commandSystem');
-    this.commandGroupSystem = this.container.get('commandGroupSystem');
+    this.commandSystem = this.container.get('commandSystem') as CommandSystem;
+    this.commandGroupSystem = this.container.get('commandGroupSystem') as CommandGroupSystem;
     this.saveManager = this.container.get('saveManager');
 
     this.mapLogic.setCommandSystems(this.commandSystem, this.commandGroupSystem);
     
-    // Реєструємо менеджери в SaveManager
-    this.saveManager.registerManager('mapLogic', this.mapLogic);
+    // ВАЛІДАЦІЯ ЗАЛЕЖНОСТЕЙ (новий механізм)
+    const containerValidation = this.container.validateServices();
+    if (!containerValidation.isValid) {
+      Logger.warn('Game', 'Missing services in container', { missing: containerValidation.missing });
+    }
+    
+    const mapLogicValidation = this.mapLogic.validateDependencies();
+    if (!mapLogicValidation.isValid) {
+      Logger.warn('Game', 'MapLogic missing dependencies', { missing: mapLogicValidation.missing });
+    }
+    
+    // Реєструємо менеджери в SaveManager (з кастами для сумісності)
+    this.saveManager.registerManager('mapLogic', this.mapLogic as any);
     this.saveManager.registerManager('resourceManager', this.resourceManager);
     this.saveManager.registerManager('droneManager', this.droneManager);
-    this.saveManager.registerManager('commandSystem', this.commandSystem);
-    this.saveManager.registerManager('commandGroupSystem', this.commandGroupSystem);
+    this.saveManager.registerManager('commandSystem', this.commandSystem as any);
+    this.saveManager.registerManager('commandGroupSystem', this.commandGroupSystem as any);
     this.saveManager.registerManager('upgradesManager', this.upgradesManager);
     this.saveManager.registerManager('buildingsManager', this.buildingsManager);
 
@@ -170,9 +195,8 @@ export class Game {
     return this.container;
   }
 
-  public newGame(): void {
+  public newGame(slot?: number): void {
     // Ініціалізуємо нову гру
-
     this.resourceManager.reset();
     this.droneManager.reset();
     this.commandSystem.reset();
@@ -180,6 +204,11 @@ export class Game {
     this.upgradesManager.reset();
     this.buildingsManager.reset();
     this.mapLogic.newGame();
+    
+    // Встановлюємо слот в SaveManager якщо передано
+    if (slot !== undefined) {
+      this.saveManager.setCurrentSlot(slot);
+    }
     
     // Запускаємо тіки після ініціалізації
     this.startTicks();
@@ -206,6 +235,11 @@ export class Game {
     // Зберігаємо гру
     this.saveManager.saveGame(slotId);
   }
+  
+  public saveToCurrentSlot(): boolean {
+    // Зберігаємо в поточний слот
+    return this.saveManager.saveToCurrentSlot();
+  }
 
   public getSaveSlots(): Array<{ slot: number; timestamp: number; hasData: boolean }> {
     return this.saveManager.getSaveSlots();
@@ -214,7 +248,7 @@ export class Game {
   public deleteSlot(slotId: number): boolean {
     const success = this.saveManager.deleteSlot(slotId);
     if (!success) {
-      console.error(`[Game] Failed to delete save slot ${slotId}`);
+      Logger.error('Game', `Failed to delete save slot ${slotId}`, { slotId });
     }
     return success;
   }
@@ -242,10 +276,26 @@ export class Game {
    * Запускає автоматичні тіки гри
    */
   public startTicks(): void {
+    // Зупиняємо попередній інтервал якщо є
+    if (this.tickIntervalId !== null) {
+      clearInterval(this.tickIntervalId);
+    }
+    
     this.dynamicsLogic.setEnabled(true);
-    // Запускаємо тік кожні 1000мс (1 секунда)
-    setInterval(() => {
+    // Запускаємо тік кожні 100мс
+    this.tickIntervalId = setInterval(() => {
       this.tick(0.1);
     }, 100);
+  }
+  
+  /**
+   * Зупиняє автоматичні тіки гри
+   */
+  public stopTicks(): void {
+    if (this.tickIntervalId !== null) {
+      clearInterval(this.tickIntervalId);
+      this.tickIntervalId = null;
+    }
+    this.dynamicsLogic.setEnabled(false);
   }
 }

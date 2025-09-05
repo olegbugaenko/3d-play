@@ -112,6 +112,9 @@ export interface BuildingsManagerSaveData {
       y: number;
       z: number;
     };
+    // Нові поля для планування будівництва
+    constructionProgress?: number;
+    resourcesCollected?: Record<string, number>;
   }>;
 }
 

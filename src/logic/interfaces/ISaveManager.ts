@@ -12,12 +12,17 @@ export interface ISaveManager extends SaveLoadManager {
   // Реєстрація менеджерів
   registerManager(name: string, manager: SaveLoadManager): void;
   
+  // Управління поточним слотом
+  setCurrentSlot(slot: number): void;
+  getCurrentSlot(): number | null;
+  saveToCurrentSlot(): boolean;
+  
   // Додаткові властивості для Scene3D
   managers: Map<string, SaveLoadManager>;
   SAVE_KEY_PREFIX: string;
   VERSION: string;
   mapLogic: any;
-  newGame(): void;
+  newGame(slot?: number): void;
   getLoadOrder(): string[];
   
   // Системні методи

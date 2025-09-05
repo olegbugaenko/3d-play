@@ -29,12 +29,22 @@ export class ParameterResolvers {
   /**
    * Знаходить найближчий об'єкт з вказаним тегом
    */
-  getClosestObjectByTag(tag: string, fromPosition: Vector3, maxDistance: number = 1000): any {
+  getClosestObjectByTag(
+    tag: string, 
+    fromPosition: Vector3, 
+    maxDistance: number = 1000,
+    filter?: (obj: TSceneObject) => boolean
+  ): any {
     const objects = this.mapLogic.scene.getObjectsByTag(tag);
     let closestObject = null;
     let closestDistance = maxDistance;
 
     for (const obj of Object.values<TSceneObject>(objects)) {
+        // Застосовуємо фільтр якщо він переданий
+        if (filter && !filter(obj)) {
+          continue;
+        }
+
         const objPos = new Vector3(obj.coordinates.x, obj.coordinates.y, obj.coordinates.z);
         const distance = fromPosition.distanceTo(objPos);
         
@@ -92,7 +102,7 @@ export class ParameterResolvers {
    * Знаходить найближчий склад (об'єкт з тегом 'storage')
    */
   getClosestStorage(fromPosition: Vector3, maxDistance: number = 1000): any {
-    return this.getClosestObjectByTag('storage', fromPosition, maxDistance);
+    return this.getClosestObjectByTag('storage', fromPosition, maxDistance, (obj) => obj.data?.isBuilt !== false);
   }
 
   /**
@@ -106,7 +116,7 @@ export class ParameterResolvers {
    * Знаходить найближчу зарядну станцію
    */
   getClosestChargingStation(fromPosition: Vector3, maxDistance: number = 1000): any {
-    return this.getClosestObjectByTag('charge', fromPosition, maxDistance);
+    return this.getClosestObjectByTag('charge', fromPosition, maxDistance, (obj) => obj.data?.isBuilt !== false);
   }
 
   /**

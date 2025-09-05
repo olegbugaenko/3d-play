@@ -2,7 +2,8 @@ import { BonusRegistry } from './BonusRegistry';
 import { DependencyGraph } from './DependencyGraph';
 import { FormulaEngine } from './FormulaEngine';
 import { IBonusSystem } from '@interfaces/index';
-import { BonusDetail, BonusModifier } from './bonus-system.types';
+import { BonusDetail, BonusModifier, BonusSourceData, BonusEffectData } from './bonus-system.types';
+import { CacheStats, CacheSizes } from '@shared/types';
 
 export interface BonusSourceState {
   id: string;
@@ -52,14 +53,14 @@ export class BonusSystem implements IBonusSystem {
   /**
    * Реєструє джерело бонусів
    */
-  public registerSource(id: string, data: any): void {
+  public registerSource(id: string, data: BonusSourceData): void {
     this.registry.registerSource(id, data);
   }
   
   /**
    * Реєструє ефект з початковим значенням
    */
-  public registerEffect(id: string, data: any): void {
+  public registerEffect(id: string, data: BonusEffectData): void {
     this.registry.registerEffect(id, data);
   }
   
@@ -170,8 +171,12 @@ export class BonusSystem implements IBonusSystem {
   /**
    * Отримує статистику кешу
    */
-  public getCacheStats(): any {
-    return { ...this.cacheStats };
+  public getCacheStats(): CacheStats {
+    return {
+      hits: this.cacheStats.formulaHits + this.cacheStats.effectsHits + this.cacheStats.resourcesHits,
+      misses: this.cacheStats.formulaMisses + this.cacheStats.effectsMisses + this.cacheStats.resourcesMisses,
+      size: this.formulaResultsCache.size + this.effectsCache.size + this.resourcesCache.size
+    };
   }
   
   /**
@@ -191,11 +196,11 @@ export class BonusSystem implements IBonusSystem {
   /**
    * Отримує розмір кешів
    */
-  public getCacheSizes(): any {
+  public getCacheSizes(): CacheSizes {
     return {
-      formulaResults: this.formulaResultsCache.size,
+      sources: this.formulaResultsCache.size,
       effects: this.effectsCache.size,
-      resources: this.resourcesCache.size
+      formulas: this.resourcesCache.size
     };
   }
   

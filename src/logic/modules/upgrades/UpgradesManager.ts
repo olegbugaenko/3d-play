@@ -1,8 +1,10 @@
 import { SaveLoadManager, UpgradesManagerSaveData } from '@save-load/save-load.types';
-import { UpgradeTypeData, UpgradeState } from './upgrades.types';
+import { UpgradeTypeData, UpgradeState, UpgradeDataUI } from './upgrades.types';
 import { UPGRADES_DB } from './upgrades-db';
 import { IUpgradesManager, IBonusSystem, IResourceManager, IRequirementsSystem } from '@interfaces/index';
 import { ResourceRequest } from '@resources/resource-types';
+import { BonusDetail } from '@modifiers/bonus-system.types';
+import { TSceneObject } from '@scene/scene.types';
 
 export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
   private upgradesDB: Map<string, UpgradeTypeData> = new Map();
@@ -177,8 +179,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
 
       // Розраховуємо вартість наступного рівня
       const nextLevel = state.level + 1;
-      const buildingCost = upgradeType.cost(nextLevel);
-      const cost = this.convertBuildingCostToResourceRequest(buildingCost);
+      const cost = upgradeType.cost(nextLevel);
 
       // Перевіряємо чи достатньо ресурсів
       const checkResult = this.resourceManager.checkResources(cost);
@@ -222,8 +223,26 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
   /**
    * Отримує апгрейд (реалізація інтерфейсу)
    */
-  public getUpgrade(typeId: string): any | null {
-    return this.getUpgradeState(typeId) || null;
+  public getUpgrade(typeId: string): UpgradeDataUI | null {
+    const state = this.getUpgradeState(typeId);
+    if (!state) {
+      return null;
+    }
+
+    const upgradeType = this.upgradesDB.get(typeId);
+    if (!upgradeType) {
+      return null;
+    }
+
+    return {
+      id: typeId,
+      name: upgradeType.name,
+      description: upgradeType.description,
+      maxLevel: upgradeType.maxLevel,
+      currentLevel: state.level,
+      cost: upgradeType.cost(state.level + 1),
+      effects: []
+    };
   }
 
   /**
@@ -236,9 +255,11 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
   /**
    * Отримує вартість апгрейду (реалізація інтерфейсу)
    */
-  public getUpgradeCost(typeId: string, level: number): any | undefined {
+  public getUpgradeCost(typeId: string, level: number): ResourceRequest | undefined {
     const upgradeType = this.upgradesDB.get(typeId);
-    return upgradeType ? upgradeType.cost(level) : undefined;
+    if (!upgradeType) return undefined;
+    
+    return upgradeType.cost(level);
   }
 
   /**
@@ -252,10 +273,10 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
     maxLevel: number;
     unlocked: boolean;
     canUpgrade: boolean;
-    nextLevelCost: any;
+    nextLevelCost: ResourceRequest;
     canAfford: boolean;
-    costCheck: any;
-    bonusDetails: any[];
+    costCheck: any; // TODO: Replace with proper type
+    bonusDetails: BonusDetail[];
   }> {
     const result = [];
     
@@ -274,8 +295,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
 
       // Розраховуємо вартість наступного рівня
       const nextLevel = state.level + 1;
-      const buildingCost = upgradeType.cost(nextLevel);
-      const nextLevelCost = this.convertBuildingCostToResourceRequest(buildingCost);
+      const nextLevelCost = upgradeType.cost(nextLevel);
       const costCheck = this.resourceManager.checkResources(nextLevelCost);
       
       // Отримуємо деталі бонусів для цього апгрейду
@@ -407,14 +427,5 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
     );
   }
 
-  /**
-   * Конвертує вартість будівлі в запит ресурсів
-   */
-  private convertBuildingCostToResourceRequest(buildingCost: any): ResourceRequest {
-    const result: ResourceRequest = {};
-    if (buildingCost.energy) result.energy = buildingCost.energy;
-    if (buildingCost.stone) result.stone = buildingCost.stone;
-    if (buildingCost.ore) result.ore = buildingCost.ore;
-    return result;
-  }
+
 }

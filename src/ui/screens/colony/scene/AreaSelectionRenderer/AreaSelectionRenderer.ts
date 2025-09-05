@@ -113,7 +113,7 @@ export class AreaSelectionRenderer {
     }
 
     // Шукаємо t таке, що y(t) = height(x(t), z(t))
-    const tHit = this.solveRayVsHeight(this._origin, this._dir, this.terrainManager);
+    const tHit = this.solveRayVsHeightImproved(this._origin, this._dir, this.terrainManager);
     this._p.copy(this._origin).addScaledVector(this._dir, tHit);
     const h = this.terrainManager.getHeightAt(this._p.x, this._p.z) ?? 0;
 
@@ -178,6 +178,110 @@ export class AreaSelectionRenderer {
       else lo = mid;
     }
     return 0.5 * (lo + hi);
+  }
+
+  /**
+   * Покращений алгоритм рейкастингу для низьких кутів камери
+   * Використовує адаптивне семплювання та додаткові перевірки
+   */
+  private solveRayVsHeightImproved(origin: THREE.Vector3, dir: THREE.Vector3, tm: any): number {
+    const maxDist = 1000;
+    
+    // Перевіряємо кут променя до горизонту
+    const angleToHorizon = Math.abs(dir.y);
+    const isLowAngle = angleToHorizon < 0.3; // Низький кут (менше 17 градусів)
+    
+    if (isLowAngle) {
+      // Для низьких кутів використовуємо більше семплів та менший крок
+      return this.solveRayVsHeightLowAngle(origin, dir, tm, maxDist);
+    } else {
+      // Для високих кутів використовуємо стандартний алгоритм
+      return this.solveRayVsHeight(origin, dir, tm);
+    }
+  }
+
+  /**
+   * Спеціалізований алгоритм для низьких кутів камери
+   */
+  private solveRayVsHeightLowAngle(origin: THREE.Vector3, dir: THREE.Vector3, tm: any, maxDist: number): number {
+    const steps = 64; // Більше семплів для низьких кутів
+    let tPrev = 0;
+    let fPrev = this.fHeight(0, origin, dir, tm);
+    let bestT = 0;
+    let bestAbs = Math.abs(fPrev);
+
+    // Спочатку шукаємо в ближній зоні (0-200)
+    const nearSteps = Math.floor(steps * 0.4);
+    for (let i = 1; i <= nearSteps; i++) {
+      const t = (i / nearSteps) * 200;
+      const f = this.fHeight(t, origin, dir, tm);
+
+      const abs = Math.abs(f);
+      if (abs < bestAbs) { 
+        bestAbs = abs; 
+        bestT = t; 
+      }
+
+      // Знайшли зміну знаку — робимо бісекцію
+      if (fPrev * f <= 0) {
+        return this.bisectRoot(tPrev, t, origin, dir, tm);
+      }
+      tPrev = t;
+      fPrev = f;
+    }
+
+    // Якщо не знайшли в ближній зоні, шукаємо в дальній
+    for (let i = nearSteps + 1; i <= steps; i++) {
+      const t = 200 + ((i - nearSteps) / (steps - nearSteps)) * (maxDist - 200);
+      const f = this.fHeight(t, origin, dir, tm);
+
+      const abs = Math.abs(f);
+      if (abs < bestAbs) { 
+        bestAbs = abs; 
+        bestT = t; 
+      }
+
+      if (fPrev * f <= 0) {
+        return this.bisectRoot(tPrev, t, origin, dir, tm);
+      }
+      tPrev = t;
+      fPrev = f;
+    }
+
+    // Додаткова перевірка: якщо промінь йде дуже низько, використовуємо проекцію на землю
+    if (Math.abs(dir.y) < 0.1) {
+      const groundProjection = this.projectToGround(origin, dir, tm);
+      if (groundProjection !== null) {
+        return groundProjection;
+      }
+    }
+
+    return bestT;
+  }
+
+  /**
+   * Проекція точки на землю для дуже низьких кутів
+   */
+  private projectToGround(origin: THREE.Vector3, dir: THREE.Vector3, tm: any): number | null {
+    // Знаходимо точку на землі найближчу до променя
+    const searchRadius = 50;
+    const searchSteps = 20;
+    let bestT = 0;
+    let bestDistance = Infinity;
+
+    for (let i = 0; i < searchSteps; i++) {
+      const t = (i / searchSteps) * 200;
+      const point = origin.clone().add(dir.clone().multiplyScalar(t));
+      const height = tm.getHeightAt(point.x, point.z) ?? 0;
+      
+      const distance = Math.abs(point.y - height);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestT = t;
+      }
+    }
+
+    return bestDistance < 5 ? bestT : null; // Повертаємо тільки якщо знайшли досить близьку точку
   }
 
   /** Оновлює геометрію кільця (товщина стала, радіус — новий) */

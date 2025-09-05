@@ -1,4 +1,5 @@
-import { CostFormula } from '@shared/types';
+import { ResourceRequest } from '@resources/resource-types';
+import { CostFormula } from '@shared/types/common.types';
 import { BonusSourceModifier } from '@systems/modifiers-system';
 import { Requirement } from '@systems/requirements';
 
@@ -33,4 +34,22 @@ export interface UpgradeResourceRequest {
     stone?: number;
     ore?: number;
   };
+}
+
+// UI дані для відображення апгрейду
+export interface UpgradeDataUI {
+  id: string;
+  name: string;
+  description: string;
+  maxLevel: number;
+  currentLevel: number;
+  cost: ResourceRequest;
+  effects: UpgradeEffectUI[];
+}
+
+// UI дані для ефектів апгрейду
+export interface UpgradeEffectUI {
+  type: string;
+  value: number;
+  formula?: string;
 }

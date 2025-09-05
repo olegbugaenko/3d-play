@@ -47,7 +47,6 @@ export class InteractionManager {
     }
 
     this.mousePosition = { x: event.clientX, y: event.clientY };
-    
     // Делегуємо до активного хендлера
     const activeHandler = this.handlers.get(this.currentMode);
     if (activeHandler) {
@@ -101,6 +100,7 @@ export class InteractionManager {
       previousHandler.onExit();
     }
 
+    const previousMode = this.currentMode;
     this.currentMode = mode;
 
     // Входимо в новий режим
@@ -110,7 +110,7 @@ export class InteractionManager {
     }
 
     // Емітимо подію зміни режиму
-    this.emit('modeChange', { from: this.currentMode, to: mode });
+    this.emit('modeChange', { from: previousMode, to: mode });
   }
 
   setSelectedCommand(command: any): void {
@@ -119,6 +119,22 @@ export class InteractionManager {
     if (currentHandler && 'setSelectedCommand' in currentHandler) {
       (currentHandler as any).setSelectedCommand(command);
     }
+  }
+
+  setSelectedBuilding(buildingData: any): void {
+    // Встановлюємо будівлю для поточного хендлера
+    const currentHandler = this.handlers.get(this.currentMode);
+    if (currentHandler && 'setSelectedBuilding' in currentHandler) {
+      (currentHandler as any).setSelectedBuilding(buildingData);
+    }
+  }
+
+  getBuildingState(): { isInBuildingMode: boolean; selectedBuilding: any } {
+    const buildingHandler = this.handlers.get('building');
+    if (buildingHandler && 'getBuildingState' in buildingHandler) {
+      return (buildingHandler as any).getBuildingState();
+    }
+    return { isInBuildingMode: false, selectedBuilding: null };
   }
 
   getCurrentMode(): InteractionMode {
