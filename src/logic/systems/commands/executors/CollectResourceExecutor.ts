@@ -1,5 +1,6 @@
 import { CommandExecutor } from '../CommandExecutor';
 import { CommandResult, CommandFailureCode } from '../command.types';
+import { RESOURCES_DB } from '@resources/resources-db';
 
 export class CollectResourceExecutor extends CommandExecutor {
     private resourceType: string | null = null;
@@ -73,15 +74,20 @@ export class CollectResourceExecutor extends CommandExecutor {
         
         const currentAmount = object.data.storage[this.resourceType] || 0;
         const maxCapacity = object.data.maxCapacity || 5;
-        const collectionSpeed = object.data.collectionSpeed || 0.5;
+        const baseCollectionSpeed = object.data.collectionSpeed || 0.5;
+        
+        // Застосовуємо множник складності добування з БД ресурсів
+        const resourceData = RESOURCES_DB[this.resourceType as keyof typeof RESOURCES_DB];
+        const difficultyMultiplier = resourceData?.miningDifficulty || 1.0;
+        const effectiveCollectionSpeed = baseCollectionSpeed * difficultyMultiplier;
 
         // Перевіряємо чи бак не повний
         if (currentAmount >= maxCapacity) {
             return { success: true, message: 'Storage is full' };
         }
 
-        // Додаємо ресурс
-        const amountToAdd = Math.min(collectionSpeed * this.context.deltaTime, maxCapacity - currentAmount);
+        // Додаємо ресурс з урахуванням складності
+        const amountToAdd = Math.min(effectiveCollectionSpeed * this.context.deltaTime, maxCapacity - currentAmount);
         object.data.storage[this.resourceType] = currentAmount + amountToAdd;
 
         // Зменшуємо кількість ресурсу в цілі
@@ -94,9 +100,13 @@ export class CollectResourceExecutor extends CommandExecutor {
                 object.data.target = undefined;
             }
             
-            // Додаємо каменюк до списку зібраних в MapLogic
+            // Додаємо ресурс до списку зібраних в MapLogic
             if (this.context.mapLogic) {
-                this.context.mapLogic.collectRock(this.command.targetId!);
+                if (targetResource.type === 'rock') {
+                    this.context.mapLogic.collectRock(this.command.targetId!);
+                } else if (targetResource.type === 'biomass') {
+                    this.context.mapLogic.collectBiomass(this.command.targetId!);
+                }
             }
             
             // Видаляємо ресурс з карти

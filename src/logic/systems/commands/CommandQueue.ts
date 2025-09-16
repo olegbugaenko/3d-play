@@ -175,4 +175,52 @@ export class CommandQueue implements ICommandQueue {
             // Інакше індекс залишається на тій же позиції (наступна команда)
         }
     }
+
+    /**
+     * Вставляє команди перед вказаною командою
+     */
+    insertCommandsBefore(beforeCommandId: string, commands: Command[]): void {
+        if (!commands || commands.length === 0) {
+            return;
+        }
+
+        // Знаходимо індекс команди перед якою потрібно вставити
+        const beforeIndex = this.commands.findIndex(cmd => cmd.id === beforeCommandId);
+        
+        if (beforeIndex === -1) {
+            console.warn(`[CommandQueue] Command with ID ${beforeCommandId} not found, adding commands to end`);
+            // Якщо команда не знайдена, додаємо в кінець
+            this.commands.push(...commands);
+            return;
+        }
+
+        // Вставляємо команди перед знайденою командою
+        this.commands.splice(beforeIndex, 0, ...commands);
+
+        console.log(`[CommandQueue] Inserted ${commands.length} commands before ${beforeCommandId} at index ${beforeIndex}`);
+    }
+
+    /**
+     * Вставляє команди після вказаної команди
+     */
+    insertCommandsAfter(afterCommandId: string, commands: Command[]): void {
+        if (!commands || commands.length === 0) {
+            return;
+        }
+
+        // Знаходимо індекс команди після якої потрібно вставити
+        const afterIndex = this.commands.findIndex(cmd => cmd.id === afterCommandId);
+        
+        if (afterIndex === -1) {
+            console.warn(`[CommandQueue] Command with ID ${afterCommandId} not found, adding commands to end`);
+            // Якщо команда не знайдена, додаємо в кінець
+            this.commands.push(...commands);
+            return;
+        }
+
+        // Вставляємо команди після знайденої команди (afterIndex + 1)
+        this.commands.splice(afterIndex + 1, 0, ...commands);
+
+        console.log(`[CommandQueue] Inserted ${commands.length} commands after ${afterCommandId} at index ${afterIndex + 1}`);
+    }
 }

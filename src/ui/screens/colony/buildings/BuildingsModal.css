@@ -7,7 +7,7 @@
 .no-buildings {
   text-align: center;
   padding: 40px;
-  color: #666;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .buildings-grid {
@@ -17,22 +17,23 @@
 }
 
 .building-card {
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
   padding: 20px;
   transition: all 0.2s ease;
   cursor: pointer;
+  backdrop-filter: blur(4px);
 }
 
 .building-card:hover {
-  border-color: #666;
+  border-color: rgba(255, 255, 255, 0.2);
   transform: translateY(-2px);
 }
 
 .building-card.can-build:hover {
-  border-color: #4CAF50;
-  box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
+  border-color: rgba(76, 175, 80, 0.5);
+  box-shadow: 0 4px 16px rgba(76, 175, 80, 0.2);
 }
 
 .building-card.cannot-build {
@@ -59,11 +60,12 @@
 }
 
 .building-count {
-  background: #444;
+  background: rgba(255, 255, 255, 0.1);
   color: #fff;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: 8px;
   font-size: 0.9em;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .building-description {
@@ -89,11 +91,12 @@
 }
 
 .cost-item {
-  background: #333;
+  background: rgba(255, 255, 255, 0.1);
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 0.9em;
   font-weight: 500;
+  color: white;
 }
 
 .building-effects {
@@ -123,19 +126,23 @@
 }
 
 .status-available {
-  background: #4CAF50;
+  background: rgba(76, 175, 80, 0.8);
   color: white;
   padding: 6px 12px;
-  border-radius: 4px;
+  border-radius: 8px;
   font-size: 0.9em;
   font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(4px);
 }
 
 .status-unavailable {
-  background: #f44336;
+  background: rgba(244, 67, 54, 0.8);
   color: white;
   padding: 6px 12px;
-  border-radius: 4px;
+  border-radius: 8px;
   font-size: 0.9em;
   font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(4px);
 }

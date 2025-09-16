@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { BaseRenderer } from './BaseRenderer';
+import { TSceneObject } from '@logic/systems/scene/scene.types';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export interface BoulderData {
@@ -10,7 +11,7 @@ export interface BoulderData {
 }
 
 export class BoulderRenderer extends BaseRenderer {
-    render(object: SceneObject): THREE.Mesh {
+    render(object: TSceneObject): THREE.Mesh {
         const existingMesh = this.meshes.get(object.id);
         if (existingMesh) {
             this.scene.remove(existingMesh);
@@ -25,7 +26,7 @@ export class BoulderRenderer extends BaseRenderer {
         return mesh;
     }
 
-    private createBoulderMesh(data: BoulderData, object: SceneObject): THREE.Mesh {
+    private createBoulderMesh(data: BoulderData, object: TSceneObject): THREE.Mesh {
         const {
             color = 0x8B7355, // Кольор каменю
             size = 1.0,

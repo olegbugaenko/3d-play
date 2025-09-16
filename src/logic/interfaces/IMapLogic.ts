@@ -47,6 +47,10 @@ export interface IMapLogic extends SaveLoadManager {
   chargeObject(selectedObjects: string[]): void;
   handleRightclickCommand(selectedObjects: string[], targetPosition: { x: number; y: number; z: number }, selectedCommand?: any): void;
   
+  // Методи для збору ресурсів
+  collectRock(rockId: string): void;
+  collectBiomass(biomassId: string): void;
+  
   // Dependency validation (новий метод для рефакторингу)
   validateDependencies(): { isValid: boolean; missing: string[] };
 }

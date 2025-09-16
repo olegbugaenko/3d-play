@@ -1,6 +1,7 @@
 // FireRenderer_GPU_MWE_FlameTongues_primeSpawn.ts
 import * as THREE from 'three';
-import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { BaseRenderer } from './BaseRenderer';
+import { TSceneObject } from '@logic/systems/scene/scene.types';
 import { GPUComputationRenderer } from 'three/examples/jsm/misc/GPUComputationRenderer.js';
 
 type Vec3 = { x:number; y:number; z:number };
@@ -616,8 +617,8 @@ export class FireRenderer extends BaseRenderer {
     if (!active) this.emitAcc[index] = 0;
   }
 
-  // інтеграція з твоїм SceneObject
-  render(object: SceneObject): THREE.Object3D {
+  // інтеграція з твоїм TSceneObject
+  render(object: TSceneObject): THREE.Object3D {
             // Emitter додано
     const idx = this.addEmitter(
       object.coordinates,
@@ -637,7 +638,7 @@ export class FireRenderer extends BaseRenderer {
     return this.points;
   }
 
-  update(object: SceneObject): void {
+  update(object: TSceneObject): void {
     const map: Map<string, number> = (this.points as any).__emitterIndexMap;
     const idx = map?.get(object.id);
     if (idx !== undefined && idx >= 0) {

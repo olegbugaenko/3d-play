@@ -40,6 +40,7 @@ export enum CommandFailureCode {
   RESOURCE_NOT_FOUND = 'RESOURCE_NOT_FOUND',
   STORAGE_FULL = 'STORAGE_FULL',
   INSUFFICIENT_POWER = 'INSUFFICIENT_POWER',
+  INSUFFICIENT_RESOURCES = 'INSUFFICIENT_RESOURCES',
   TARGET_UNREACHABLE = 'TARGET_UNREACHABLE',
   TARGET_INACCESSIBLE = 'TARGET_INACCESSIBLE',
   OBJECT_NOT_FOUND = 'OBJECT_NOT_FOUND',
@@ -58,11 +59,13 @@ export interface CommandResult {
     data?: Record<string, any>; // Додаткові дані результату
 }
 
+import { IMapLogic } from '@interfaces/index';
+
 export interface CommandContext {
     objectId: string;
     scene: any;
     deltaTime: number;
-    mapLogic?: any; // MapLogic instance for executors to access resources and other logic
+    mapLogic?: IMapLogic; // MapLogic instance for executors to access resources and other logic
 }
 
-export type CommandType = 'move-to' | 'collect-resource' | 'unload-resources' | 'wait' | 'attack' | 'build' | 'charge';
+export type CommandType = 'move-to' | 'collect-resource' | 'unload-resources' | 'load-resources' | 'wait' | 'attack' | 'build' | 'charge' | 'conditional-loop';

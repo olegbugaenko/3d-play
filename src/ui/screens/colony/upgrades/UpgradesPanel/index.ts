@@ -1,1 +1,1 @@
-export { UpgradesPanel } from './UpgradesPanel';
+export { UpgradesPanel, useUpgradesMenuButton } from './UpgradesPanel';

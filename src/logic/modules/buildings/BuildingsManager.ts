@@ -77,6 +77,15 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     this.bonusSystem.updateBonusSourceLevel(this.getBonusSourceId(typeId), level);
   }
 
+  /**
+   * Перераховує та оновлює рівень бонусу для типу будівлі на основі сумарного рівня всіх побудованих інстансів
+   */
+  public updateBonusLevelForBuildingType(buildingTypeId: string): void {
+    const totalLevel = this.getTotalLevelForBuildingType(buildingTypeId);
+    this.setBonusLevel(buildingTypeId, totalLevel);
+    console.log(`[BuildingsManager] Updated bonus level for ${buildingTypeId}: ${totalLevel}`);
+  }
+
   private syncSceneFromInstance(instance: BuildingInstance): void {
     const obj = this.sceneLogic.getObjectById(instance.id);
     if (!obj) {
@@ -84,10 +93,22 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       return;
     }
     // Single projection point -> scene/UI always mirrors the instance
-    obj.data.isBuilt = this.isBuiltComputed(instance);
+    const computedBuilt = this.isBuiltComputed(instance);
+    obj.data.isBuilt = computedBuilt;
+    obj.data.built = computedBuilt; // Додаємо також built для сумісності з BuildingRenderer
     obj.data.level = instance.level;
     obj.data.constructionProgress = instance.constructionProgress ?? 0;
     obj.data.resourcesCollected = instance.resourcesCollected ?? {};
+    
+    console.log(`[BuildingsManager] Synced ${instance.id}: obj.data.built=${obj.data.built}, obj.data.isBuilt=${obj.data.isBuilt}, obj.data.level=${obj.data.level}`);
+    
+    // Встановлюємо dirty flag для оновлення рендерера
+    if (obj._dirtyFlags) {
+      obj._dirtyFlags.data = true;
+      obj._lastUpdate = Date.now();
+    }
+    this.sceneLogic.markObjectDirty(obj.id);
+    console.log('Invalidating');
   }
 
   private upsertNewInstance(
@@ -122,7 +143,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     this.ensureType(typeId);
     const inst = this.upsertNewInstance(instanceId, typeId, level, built, position);
 
-    if (built) this.setBonusLevel(typeId, level);
+    if (built) this.updateBonusLevelForBuildingType(typeId);
   }
 
   public planBuilding(
@@ -170,7 +191,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Create new instance built at level 1
     if (!existing) {
       const inst = this.upsertNewInstance(instanceId, typeId, 1, true, position);
-      this.setBonusLevel(typeId, 1);
+      this.updateBonusLevelForBuildingType(typeId);
       this.syncSceneFromInstance(inst);
       return true;
     }
@@ -180,7 +201,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       existing.built = true;
       existing.level = 1;
       if (position) existing.position = position;
-      this.setBonusLevel(typeId, 1);
+      this.updateBonusLevelForBuildingType(typeId);
       this.syncSceneFromInstance(existing);
       return true;
     }
@@ -192,7 +213,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     }
 
     existing.level += 1;
-    this.setBonusLevel(typeId, existing.level);
+    this.updateBonusLevelForBuildingType(typeId);
     this.syncSceneFromInstance(existing);
     return true;
   }
@@ -207,7 +228,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     inst.built = false;
     inst.level = 0;
 
-    this.setBonusLevel(inst.typeId, 0);
+    this.updateBonusLevelForBuildingType(inst.typeId);
     this.syncSceneFromInstance(inst);
     return true;
   }
@@ -276,7 +297,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     if (!instanceId) {
       instanceId = `${typeId}_${Date.now()}_${Math.random().toString(36)}`;
       const inst = this.upsertNewInstance(instanceId, typeId, level, true, position);
-      this.setBonusLevel(typeId, level);
+      this.updateBonusLevelForBuildingType(typeId);
     }
 
     const inst = this.getInstance(instanceId);
@@ -301,7 +322,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       tags: ['on-ground', 'static', 'building', ...(buildingData.tags || [])],
       bottomAnchor: buildingData.ui?.bottomAnchor || 0,
       terrainAlign: true,
-      targetType: ['unload-resource', 'repair', 'upgrade'],
+      targetType: ['unload-resource', 'repair', 'upgrade', 'build'],
     };
 
     const success = this.sceneLogic.pushObjectWithTerrainConstraint(buildingObject);
@@ -318,8 +339,39 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   }
 
   public newGameBuildings(): void {
-    this.generateBuilding('storage', { x: 3, y: 30, z: 3 }, 1);
-    this.generateBuilding('chargingStation', { x: -3, y: 30, z: -3 }, 1);
+    this.generateBuilding('spaceship', { x: 2, y: 30, z: 2 }, 1);
+    for(let i = 0; i < 2; i++) {
+      const smoke = {
+      id: `smoke_source_start_${i}`,
+      type: 'smoke',
+      coordinates: { x: 1.2 + 1.8*i, y: 0, z: 1.5 }, // Y буде встановлено terrain системою
+      scale: { x: 1, y: 1, z: 1 },
+      rotation: { x: 0, y: 0, z: 0 },
+      data: { 
+          intensity: 0.5 + Math.random() * 1.5, // 0.5-2.0 інтенсивність
+          color: 0x84B4543, // темно сірий дим
+          particleCount: 150 + Math.floor(Math.random() * 100), // 150-250 частинок
+          riseSpeed: 3.3*(0.5 + Math.random() * 0.5), // 1.0-2.5 швидкість підйому
+          spreadRadius: 0.015*(1.0 + Math.random() * 1.0), // 2.0-4.0 радіус розсіювання
+          lifetime: 5.0 + Math.random() * 3.0, // 5.0-8.0 час життя
+          baseSize: 24,
+          flow: 0.2,
+          noiseScale: 0.5,
+          spreadGrow: 0.05,
+          riseHeight: 5,
+          emitRate: 16,
+          alphaMult: 0.25,
+          alphaDiminish: 0.9,
+      },
+      tags: ['on-ground', 'static', 'smoke'],
+      bottomAnchor: 0,
+      terrainAlign: false
+    };
+    // Додаємо джерело диму
+    this.sceneLogic.pushObjectWithTerrainConstraint(smoke);
+    }
+    this.generateBuilding('charging_station_small', { x: -2, y: 30, z: -2 }, 1);
+    this.generateBuilding('minimal_storage', { x: -2, y: 30, z: 2 }, 1);
   }
 
   // ---------- Save/Load ----------
@@ -337,21 +389,35 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       if (inst.position) {
         this.generateBuilding(inst.typeId, inst.position, inst.level, inst.id);
       }
-      if (inst.built) this.setBonusLevel(inst.typeId, inst.level);
     });
 
+    // Після завантаження всіх будівель - перераховуємо бонуси для кожного типу
+    const buildingTypes = new Set(this.buildingInstances.values()).forEach(inst => inst.typeId);
+    for (const typeId of new Set([...this.buildingInstances.values()].map(inst => inst.typeId))) {
+      this.updateBonusLevelForBuildingType(typeId);
+    }
+
     this.syncAllBuildingsIsBuiltStatus();
+
+    console.log('this.buildingInstances', this.buildingInstances);
   }
 
   public reset(): void {
+    const typesToUpdate = new Set<string>();
+    
     this.buildingInstances.forEach(inst => {
       inst.level = 0;
       inst.built = false;
       inst.position = undefined;
       inst.constructionProgress = 0;
       inst.resourcesCollected = {};
-      this.setBonusLevel(inst.typeId, 0);
+      typesToUpdate.add(inst.typeId);
     });
+
+    // Оновлюємо бонуси для всіх типів що були змінені (всі будуть 0)
+    for (const typeId of typesToUpdate) {
+      this.updateBonusLevelForBuildingType(typeId);
+    }
   }
 
   // ---------- Stats & availability ----------
@@ -387,6 +453,45 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       if (inst.typeId === buildingTypeId && inst.built) total += inst.level;
     }
     return total;
+  }
+
+  /**
+   * Перевіряє чи можна розмістити будівлю в заданій позиції
+   */
+  public canPlaceBuildingAt(
+    position: { x: number; y: number; z: number }, 
+    buildingTypeId: string
+  ): boolean {
+    const buildingType = this.buildingsDB.get(buildingTypeId);
+    if (!buildingType) {
+      console.warn(`[BuildingsManager] Building type ${buildingTypeId} not found`);
+      return false;
+    }
+    
+    const obstacleSize = buildingType.data?.obstacleSize || 1.0;
+    
+    // Створюємо тимчасовий об'єкт для перевірки колізій
+    const tempObject = {
+      id: 'temp_placement_check',
+      type: 'building',
+      coordinates: position,
+      obstacleSize: obstacleSize,
+      scale: { x: 1, y: 1, z: 1 },
+      rotation: { x: 0, y: 0, z: 0 },
+      data: {},
+      tags: ['static', 'building'],
+      bottomAnchor: 0,
+      terrainAlign: false,
+      targetType: []
+    };
+    
+    // Використовуємо існуючу систему перешкод для перевірки
+    return this.sceneLogic.pathfinder.canStandAtWorld(
+      position.x, 
+      position.z, 
+      tempObject, 
+      0.1 // safety margin
+    );
   }
 
   public getMaxLevelForBuildingType(buildingTypeId: string): number {
@@ -461,6 +566,34 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
   // ---------- Mutations that also project ----------
 
+  /**
+   * Завершує будівництво - встановлює built=true, level=1, очищає флаги будівництва, оновлює бонуси
+   */
+  public completeBuildingConstruction(instanceId: string): void {
+    const inst = this.getInstance(instanceId);
+    if (!inst) {
+      console.warn(`[BuildingsManager] Building instance ${instanceId} not found for completion`);
+      return;
+    }
+
+    // Встановлюємо як побудовану з рівнем 1
+    inst.built = true;
+    inst.level = 1;
+    
+    // Очищаємо флаги будівництва
+    inst.constructionProgress = 1.0;
+    inst.resourcesCollected = {};
+
+    // Оновлюємо бонуси для цього типу будівлі
+    this.updateBonusLevelForBuildingType(inst.typeId);
+
+    // Синхронізуємо з 3D сценою (це встановить dirty flag)
+    this.syncSceneFromInstance(inst);
+    
+    console.log(`[BuildingsManager] Building ${instanceId} (${inst.typeId}) construction completed!`);
+    console.log(`[BuildingsManager] Instance state: built=${inst.built}, level=${inst.level}, isBuiltComputed=${this.isBuiltComputed(inst)}`);
+  }
+
   public updateBuildingStatus(instanceId: string, built: boolean, level: number): void {
     const inst = this.getInstance(instanceId);
     if (!inst) {
@@ -470,8 +603,8 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     inst.built = built;
     inst.level = level;
 
-    // Preserve original behavior: only built affects bonus level directly
-    this.setBonusLevel(inst.typeId, built ? level : 0);
+    // Оновлюємо бонуси правильно - сумарний рівень всіх побудованих будівель цього типу
+    this.updateBonusLevelForBuildingType(inst.typeId);
 
     this.syncSceneFromInstance(inst);
     console.log(`[BuildingsManager] Updated building ${instanceId}: built=${built}, level=${level}`);
@@ -480,7 +613,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   public updateConstructionProgress(
     instanceId: string,
     progress: number,
-    resourcesCollected: Record<string, number>
+    resourcesCollected?: Record<string, number>
   ): void {
     const inst = this.getInstance(instanceId);
     if (!inst) {
@@ -489,7 +622,13 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     }
 
     inst.constructionProgress = progress;
-    inst.resourcesCollected = resourcesCollected;
+    
+    // Тільки якщо передано - оновлюємо ресурси
+    if (resourcesCollected !== undefined) {
+      inst.resourcesCollected = resourcesCollected;
+    }
+
+    console.log('updateConstructionProgress');
 
     this.syncSceneFromInstance(inst);
     console.log(`[BuildingsManager] Updated construction progress for ${instanceId}: progress=${progress}`);

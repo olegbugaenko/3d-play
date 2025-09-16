@@ -18,10 +18,6 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = ({ game, onSelectBu
   const buildingConstructionsState = game.upgradesManager.getUpgradeState('building_constructions');
   const isBuildingConstructionsPurchased = buildingConstructionsState?.level > 0;
 
-  const handleBuildingsClick = () => {
-    setIsBuildingsModalOpen(true);
-  };
-
   const handleSelectBuilding = (typeId: string) => {
     // Виводимо ID будівлі в дебаг панель
     console.log('Selected building for construction:', typeId);
@@ -57,33 +53,69 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = ({ game, onSelectBu
   const buildings = game.buildingsManager.listBuildingsForUI();
 
   return (
-    <>
-      <button
-        onClick={handleBuildingsClick}
-        style={{
-          position: 'absolute',
-          top: 170, // Під кнопкою Upgrades
-          right: 10,
-          padding: '8px 16px',
-          backgroundColor: '#FF9800',
-          color: 'white',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '14px',
-          zIndex: 1000,
-          fontWeight: 'bold'
-        }}
-      >
-        Build
-      </button>
+    <BuildingsModal
+      isOpen={isBuildingsModalOpen}
+      onClose={() => setIsBuildingsModalOpen(false)}
+      buildings={buildings}
+      onSelectBuilding={handleSelectBuilding}
+    />
+  );
+};
 
+// Хук для отримання даних кнопки меню
+export const useBuildingsMenuButton = (game: any, onSelectBuilding?: (typeId: string) => void) => {
+  const [isBuildingsModalOpen, setIsBuildingsModalOpen] = useState(false);
+  const interactionManager = useInteractionContext();
+
+  // Перевіряємо чи досліджено building_constructions
+  const isBuildingConstructionsUnlocked = game.upgradesManager.isUnlocked('building_constructions');
+  
+  // Перевіряємо чи апгрейд фактично куплений (рівень > 0)
+  const buildingConstructionsState = game.upgradesManager.getUpgradeState('building_constructions');
+  const isBuildingConstructionsPurchased = buildingConstructionsState?.level > 0;
+
+  const handleBuildingsClick = () => {
+    setIsBuildingsModalOpen(true);
+  };
+
+  const handleSelectBuilding = (typeId: string) => {
+    console.log('Selected building for construction:', typeId);
+    
+    const buildingData = game.buildingsManager.getBuildingType(typeId);
+    console.log('Building data:', buildingData);
+    
+    setIsBuildingsModalOpen(false);
+    
+    if (interactionManager) {
+      interactionManager.setMode('building');
+      if (interactionManager.setSelectedBuilding) {
+        interactionManager.setSelectedBuilding(buildingData);
+      }
+    }
+    
+    if (onSelectBuilding) {
+      onSelectBuilding(typeId);
+    }
+  };
+
+  const buildings = game.buildingsManager.listBuildingsForUI();
+
+  return {
+    button: {
+      id: 'buildings',
+      iconId: 'interface/build.png',
+      variant: 'primary' as const,
+      onClick: handleBuildingsClick,
+      title: 'Build',
+      visible: isBuildingConstructionsUnlocked && isBuildingConstructionsPurchased
+    },
+    modal: (
       <BuildingsModal
         isOpen={isBuildingsModalOpen}
         onClose={() => setIsBuildingsModalOpen(false)}
         buildings={buildings}
         onSelectBuilding={handleSelectBuilding}
       />
-    </>
-  );
+    )
+  };
 };

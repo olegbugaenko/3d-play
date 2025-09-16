@@ -83,7 +83,7 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
       {
         scope: 'upgrade',
         id: 'miningEfficiency1',
-        level: 4,
+        level: 5,
       }
     ],
     ui: {
@@ -98,16 +98,54 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
     })
   }],
 
+  ['repairGenerator', {
+    id: 'repairGenerator',
+    name: 'Repair Generator',
+    description: 'Збільшує генерацію енергії',
+    maxLevel: 5,
+    requirements: [
+      {
+        scope: 'upgrade',
+        id: 'miningEfficiency1',
+        level: 2,
+      }
+    ],
+    modifier: {
+      resource: {
+        income: {
+          energy: {
+            formula: (_data: any) => ({
+              type: 'linear',
+              A: 0.05,
+              B: 0
+            }),
+            deps: [] as string[]
+          }
+        }
+      }
+    },
+    ui: {
+      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
+      rotationOffset: { x: 0, y: 0, z: 0 },
+      iconName: 'battery-upgrade.png',
+      color: '#32CD32' // Зелений для батареї
+    },
+    cost: (level: number) => ({
+      energy: 5 * (1.2 ** (level - 1)),
+      ore: 5 * (1.2 ** (level - 1)),
+    })
+  }],
+
   ['repairBattery', {
     id: 'repairBattery',
     name: 'Repair Battery',
-    description: 'Збільшує ємність батареї головної батареї на 25 на рівень',
+    description: 'Збільшує ємність батареї головної батареї на 10 на рівень',
     maxLevel: 10,
     requirements: [
       {
         scope: 'upgrade',
         id: 'miningEfficiency1',
-        level: 1,
+        level: 3,
       }
     ],
     modifier: {
@@ -116,7 +154,7 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
           energy: {
             formula: (_data: any) => ({
               type: 'linear',
-              A: 25, // +25 на рівень
+              A: 10, // +25 на рівень
               B: 0
             }),
             deps: [] as string[]
@@ -159,16 +197,24 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
           stone: {
             formula: (_data: any) => ({
               type: 'linear',
-              A: 50, // +50 на рівень
-              B: 100
+              A: 10, // +50 на рівень
+              B: 0
             }),
             deps: [] as string[]
           },
           ore: {
             formula: (_data: any) => ({
               type: 'linear',
-              A: 50, // +50 на рівень
-              B: 100
+              A: 10, // +50 на рівень
+              B: 0
+            }),
+            deps: [] as string[]
+          },
+          biomass: {
+            formula: (_data: any) => ({
+              type: 'linear',
+              A: 10, // +50 на рівень
+              B: 0
             }),
             deps: [] as string[]
           }

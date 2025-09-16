@@ -6,6 +6,8 @@ export interface DroneTypeData {
     baseCollectionSpeed: number;
     baseInventoryCapacity: number;
     baseUnloadSpeed: number;
+    baseLoadSpeed: number;        // Швидкість завантаження ресурсів зі складу
+    baseBuildSpeed: number;       // Швидкість будівництва
     baseBatteryCapacity: number;
     baseEfficiencyMultiplier: number;
     ui: {
@@ -27,6 +29,8 @@ export const DRONE_TYPES_DB: Map<string, DroneTypeData> = new Map([
         baseCollectionSpeed: 0.1,
         baseInventoryCapacity: 5,
         baseUnloadSpeed: 1.0,
+        baseLoadSpeed: 1.0,
+        baseBuildSpeed: 0.5,
         baseBatteryCapacity: 15,
         baseEfficiencyMultiplier: 1.0,
         ui: {
@@ -46,6 +50,8 @@ export const DRONE_TYPES_DB: Map<string, DroneTypeData> = new Map([
         baseCollectionSpeed: 1.5,
         baseInventoryCapacity: 75,
         baseUnloadSpeed: 2.5,
+        baseLoadSpeed: 2.0,
+        baseBuildSpeed: 1.0,
         baseBatteryCapacity: 150,
         baseEfficiencyMultiplier: 1.2,
         ui: {
@@ -64,6 +70,8 @@ export const DRONE_TYPES_DB: Map<string, DroneTypeData> = new Map([
         baseCollectionSpeed: 2.0,
         baseInventoryCapacity: 120,
         baseUnloadSpeed: 1.5,
+        baseLoadSpeed: 1.5,
+        baseBuildSpeed: 0.8,
         baseBatteryCapacity: 200,
         baseEfficiencyMultiplier: 1.5,
         ui: {

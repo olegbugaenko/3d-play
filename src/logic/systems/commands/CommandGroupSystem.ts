@@ -39,16 +39,21 @@ export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem 
     // Розв'язуємо параметри на початку групи
     let resolvedParameters: Record<string, any> = {};
     if (group.resolveParametersPipeline) {
-      resolvedParameters = this.parameterResolutionService.resolveParameters(
-        group.resolveParametersPipeline,
-        context,
-        'all'
-      );
-      
-      // Перевіряємо валідації
-      const validationFailed = this.checkValidations(resolvedParameters);
-      if (validationFailed) {
-        console.warn(`Validation failed for group ${groupId}, cancelling group`);
+      try {
+        resolvedParameters = this.parameterResolutionService.resolveParameters(
+          group.resolveParametersPipeline,
+          context,
+          'all'
+        );
+        
+        // Перевіряємо валідації
+        const validationFailed = this.checkValidations(resolvedParameters);
+        if (validationFailed) {
+          console.warn(`Validation failed for group ${groupId}, cancelling group`);
+          return false;
+        }
+      } catch (error) {
+        console.error(`Parameter resolution failed for group ${groupId}:`, error);
         return false;
       }
     }

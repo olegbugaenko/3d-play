@@ -1,8 +1,9 @@
 import * as THREE from 'three'
-import { BaseRenderer, SceneObject } from './BaseRenderer'
+import { BaseRenderer } from './BaseRenderer'
+import { TSceneObject } from '@logic/systems/scene/scene.types'
 
 export class SphereRenderer extends BaseRenderer {
-    render(object: SceneObject): THREE.Object3D {
+    render(object: TSceneObject): THREE.Object3D {
         // Перевіряємо чи вже існує меш для цього об'єкта
         const existingMesh = this.meshes.get(object.id);
         if (existingMesh) {

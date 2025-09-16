@@ -98,6 +98,10 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
     });
   }
 
+  public getResources() {
+    return this.resources;
+  }
+
   /**
    * Оновлює ресурси на основі доходів та витрат
    */
@@ -571,11 +575,12 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
     this.clearHistory();
     
     // Додаємо початкові ресурси для нової гри
-    this.addResources([
+    /* this.addResources([
       { resourceId: 'stone', amount: 30, reason: 'Starting resources' },
       { resourceId: 'ore', amount: 50, reason: 'Starting resources' },
-      { resourceId: 'energy', amount: 200, reason: 'Starting resources' }
-    ]);
+      { resourceId: 'energy', amount: 200, reason: 'Starting resources' },
+      { resourceId: 'biomass', amount: 20, reason: 'Starting resources' }
+    ]); */
   }
 
   /**

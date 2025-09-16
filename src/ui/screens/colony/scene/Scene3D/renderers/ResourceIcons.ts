@@ -43,6 +43,20 @@ export class ResourceIcons {
   }
 
   /**
+   * Генерує SVG іконку для біомаси (листок)
+   */
+  static getBiomassIcon(color: string = '#228B22'): string {
+    return `
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2c-2 0-4 1-5 3-1 2-1 4 0 6l5 9 5-9c1-2 1-4 0-6-1-2-3-3-5-3z" fill="${color}" stroke="#000" stroke-width="1" stroke-linejoin="round"/>
+        <path d="M12 2l-2 4 2 2 2-2-2-4z" fill="none" stroke="#000" stroke-width="1"/>
+        <path d="M8 8l4 2 4-2" fill="none" stroke="#000" stroke-width="1"/>
+        <path d="M10 12l2 2 2-2" fill="none" stroke="#000" stroke-width="1"/>
+      </svg>
+    `;
+  }
+
+  /**
    * Отримує SVG іконку для ресурсу за його ID
    */
   static getIconForResource(resourceId: string, color?: string): string {
@@ -53,6 +67,8 @@ export class ResourceIcons {
         return this.getStoneIcon(color);
       case 'ore':
         return this.getOreIcon(color);
+      case 'biomass':
+        return this.getBiomassIcon(color);
       default:
         // Fallback - простий квадрат
         return `

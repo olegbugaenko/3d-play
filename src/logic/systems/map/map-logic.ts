@@ -18,1097 +18,893 @@ import { UpgradesManager } from '@upgrades/UpgradesManager';
 import { Logger } from '@shared/ErrorService';
 import { Result, success, failure, match } from '@shared/Result';
 
-export class MapLogic implements SaveLoadManager {
-    public commandSystem!: CommandSystem;
-    public selection: SelectionLogic;
-    public commandGroupSystem!: CommandGroupSystem;
-    public autoGroupMonitor: AutoGroupMonitor;
-    private generatedSeed!: number;
-
-    private collectedRocks: Set<string>;
-    
-    // Setter-injected dependencies (замість constructor)
-    public resources!: ResourceManager;
-    public upgradesManager!: UpgradesManager;
-    public buildingsManager!: BuildingsManager;
-    public droneManager!: DroneManager;
-    
-    // Система детермінованої генерації
-    private generationTracker!: MapGenerationTracker;
-
-    constructor(
-        public scene: SceneLogic, 
-        public dynamics: DynamicsLogic
-        // Всі менеджери тепер використовують setter injection
-    ) {
-        this.selection = new SelectionLogic(this.scene);
-        this.autoGroupMonitor = new AutoGroupMonitor(this);
-        
-        // Ініціалізуємо систему генерації
-        this.collectedRocks = new Set();
-    }
-
-    setCommandSystems(commandSystem: CommandSystem, commandGroupSystem: CommandGroupSystem) {
-        this.commandSystem = commandSystem;
-        this.commandGroupSystem = commandGroupSystem;
-    }
-
-    /**
-     * НОВІ DEPENDENCY INJECTION МЕТОДИ (для поступового рефакторингу)
-     * Дозволяють встановлювати залежності після створення об'єкта
-     */
-    setGameObjectManagers(
-        droneManager: DroneManager,
-        buildingsManager: BuildingsManager
-    ): void {
-        this.droneManager = droneManager;
-        this.buildingsManager = buildingsManager;
-    }
-
-    setUpgradesManager(upgradesManager: UpgradesManager): void {
-        this.upgradesManager = upgradesManager;
-    }
-
-    setResourceManager(resources: ResourceManager): void {
-        this.resources = resources;
-    }
-
-    /**
-     * Валідує що всі залежності встановлені
-     */
-    validateDependencies(): { isValid: boolean; missing: string[] } {
-        const missing: string[] = [];
-        
-        // Core dependencies (constructor)
-        if (!this.scene) missing.push('scene');
-        if (!this.dynamics) missing.push('dynamics');
-        
-        // Setter-injected dependencies
-        if (!this.droneManager) missing.push('droneManager');
-        if (!this.buildingsManager) missing.push('buildingsManager');
-        if (!this.upgradesManager) missing.push('upgradesManager');
-        if (!this.resources) missing.push('resources');
-        
-        // Command systems (set via setCommandSystems)
-        if (!this.commandSystem) missing.push('commandSystem');
-        if (!this.commandGroupSystem) missing.push('commandGroupSystem');
-
-        return {
-            isValid: missing.length === 0,
-            missing
-        };
-    }
-
-    /**
-     * Додає каменюк до списку зібраних
-     */
-    public collectRock(rockId: string): void {
-        this.collectedRocks.add(rockId);
-        this.scene.removeObject(rockId);
-    }
-
-    /**
-     * Ініціалізує карту (terrain, болдери, каменюки - все що залежить від seed)
-     * Будівлі тут тимчасово - згодом для них буде окремий менеджер
-     */
-    initializeSeeded(cameraProps?: TCameraProps): void {
-        // Якщо передано cameraProps - ініціалізуємо viewport
-        if (cameraProps) {
-            this.scene.initializeViewport(cameraProps, { 
-                x: MAP_CONFIG.width, 
-                y: MAP_CONFIG.height, 
-                z: MAP_CONFIG.depth 
-            });
+/**
+ * Lightweight 2D spatial hash for circle queries (cluster separation)
+ */
+class SpatialHash2D {
+  private cellSize: number;
+  private map = new Map<string, Array<{ x: number; z: number; r: number; tag: string }>>();
+  constructor(cellSize: number) { this.cellSize = Math.max(0.001, cellSize); }
+  private key(i: number, j: number) { return `${i},${j}`; }
+  private cell(x: number, z: number) {
+    return { i: Math.floor(x / this.cellSize), j: Math.floor(z / this.cellSize) };
+  }
+  insert(x: number, z: number, r: number, tag: string) {
+    const { i, j } = this.cell(x, z);
+    const k = this.key(i, j);
+    if (!this.map.has(k)) this.map.set(k, []);
+    this.map.get(k)!.push({ x, z, r, tag });
+  }
+  overlaps(x: number, z: number, r: number, allowTags: string[], extraMargin = 0): boolean {
+    const { i, j } = this.cell(x, z);
+    for (let di = -1; di <= 1; di++) {
+      for (let dj = -1; dj <= 1; dj++) {
+        const list = this.map.get(this.key(i + di, j + dj));
+        if (!list) continue;
+        for (const c of list) {
+          if (allowTags.length && !allowTags.includes(c.tag)) continue;
+          const dx = x - c.x, dz = z - c.z;
+          const rr = r + c.r + extraMargin;
+          if (dx * dx + dz * dz < rr * rr) return true;
         }
-
-        // Генеруємо карту висот (terrain) з seed
-        this.generateTerrain();
-
-        this.scene.postponedRegeneration = true;
-        
-        // Генеруємо болдери з seed
-        this.generateBoulders();
-        
-        // Генеруємо каменюки з seed
-        this.generateRocks();
-
-        this.scene.rebuildObstacles(true);
-        
-    }
-
-    /**
-     * Ініціалізує тільки базову карту (viewport) без генерації об'єктів
-     * Використовується при завантаженні гри
-     */
-    initializeBaseMap(cameraProps?: TCameraProps): void {
-        // Якщо передано cameraProps - ініціалізуємо viewport
-        if (cameraProps) {
-            this.scene.initializeViewport(cameraProps, { 
-                x: MAP_CONFIG.width, 
-                y: MAP_CONFIG.height, 
-                z: MAP_CONFIG.depth 
-            });
-        }
-        
-        // НЕ генеруємо terrain, boulders, rocks - це буде зроблено в load()
-    }
-
-    /**
-     * Створює початкових дронів для нової гри
-     */
-    newGame(): void {
-        const seed = Date.now();
-        this.updateGenerationSeed(seed);
-        this.initializeSeeded();
-        // Генеруємо rover об'єкти через DroneManager
-        this.droneManager.newGameDrones();
-
-        // Генеруємо будівлі через BuildingsManager
-        this.buildingsManager.newGameBuildings();
-
-
-        // test obstacles
-        const rover = this.scene.getObjectsByTag('rover');
-        if(rover) {
-            // Path finding tests (commented out to avoid unused variables)
-            // this.scene.findOptimalPathWithTerrain(
-            //     rover[0].coordinates,
-            //     {x: -4, y:0, z: -10},
-            //     rover[0]
-            // )
-    
-            // this.scene.findOptimalPathWithTerrain(
-            //     rover[0].coordinates,
-            //     {x: 0, y:0, z: -10},
-            //     rover[0]
-            // )
-        }
-        
-    }
-
-
-
-    /**
-     * Генерує карту висот (terrain) з seed
-     */
-    private generateTerrain() {
-        const seed = this.generationTracker.getSeed();
-        
-        // Отримуємо TerrainManager з SceneLogic
-        const terrainManager = this.scene.getTerrainManager();
-        if (!terrainManager) {
-            Logger.warn('MapLogic', 'TerrainManager не знайдено, створюємо новий');
-            return;
-        }
-
-        // Регенеруємо terrain з новим seed
-        terrainManager.regenerateTerrainWithSeed(seed);
-    }
-
-    /**
-     * Генерує процедурні каменюки на карті
-     */
-    private generateBoulders() {
-        const boulderCount = MAP_CONFIG.generation.boulders.count;
-        const mapBounds = {
-            minX: -MAP_CONFIG.width / 2,
-            maxX: MAP_CONFIG.width / 2,
-            minZ: -MAP_CONFIG.depth / 2,
-            maxZ: MAP_CONFIG.depth / 2
-        };
-
-
-
-        const boulderRng = new SeededRandom(this.generationTracker.getSeed() + 1000); // Різний seed для болдерів
-        
-        for (let i = 0; i < boulderCount; i++) {
-            // Використовуємо seed для детермінованої позиції
-            const x = mapBounds.minX + boulderRng.nextFloat(0, mapBounds.maxX - mapBounds.minX);
-            const z = mapBounds.minZ + boulderRng.nextFloat(0, mapBounds.maxZ - mapBounds.minZ);
-            
-            // Перевіряємо мінімальну відстань від інших болдерів
-            if (this.isPositionTooCloseToBoulders(x, z)) {
-                continue; // Пропускаємо цю позицію
-            }
-            
-            // Використовуємо seed для детермінованого розміру
-            const size = MAP_CONFIG.generation.boulders.sizeRange.min + 
-                        boulderRng.nextFloat(0, MAP_CONFIG.generation.boulders.sizeRange.max - MAP_CONFIG.generation.boulders.sizeRange.min);
-            
-            // Використовуємо seed для детермінованого кольору
-            const colors = [0x8B7355, 0x696969, 0x808080, 0xA0522D, 0x8B4513];
-            const color = boulderRng.nextColor(colors);
-            
-            // Використовуємо seed для детермінованої шорсткості
-            const roughness = 0.2 + boulderRng.nextFloat(0, 0.4);
-            
-            const boulder: TSceneObject = {
-                id: `boulder_${i}`,
-                type: 'boulder',
-                coordinates: { x, y: 0, z }, // Y буде автоматично встановлено terrain системою
-                scale: { x: size, y: size, z: size },
-                rotation: { 
-                    x: boulderRng.nextFloat(0, Math.PI), 
-                    y: boulderRng.nextFloat(0, Math.PI), 
-                    z: boulderRng.nextFloat(0, Math.PI) 
-                },
-                data: { 
-                    color,
-                    size,
-                    roughness,
-                    modelPath: this.getRandomModelPath(boulderRng)
-                },
-                obstacleSize: size,
-                tags: ['on-ground', 'static', 'boulder'], // Автоматично розміститься на terrain
-                bottomAnchor: -0.2, // Каменюк стоїть на своєму низу
-                terrainAlign: false // Вимкаємо terrainAlign щоб болдери стояли вертикально
-            };
-            
-            // Додаємо з terrain constraint
-            this.scene.pushObjectWithTerrainConstraint(boulder);
-        }
-    }
-
-    /**
-     * Перевіряє чи позиція занадто близько до інших болдерів
-     */
-    private isPositionTooCloseToBoulders(x: number, z: number): boolean {
-        const minDistance = MAP_CONFIG.generation.boulders.minDistance;
-        const allObjects = Object.values(this.scene.getObjects());
-        const boulderObjects = allObjects.filter((obj: TSceneObject) => obj.type === 'boulder');
-        
-        for (const boulder of boulderObjects) {
-            const distance = Math.sqrt(
-                Math.pow(x - boulder.coordinates.x, 2) + 
-                Math.pow(z - boulder.coordinates.z, 2)
-            );
-            if (distance < minDistance) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Отримує випадковий шлях до моделі на основі seed
-     */
-    private getRandomModelPath(rng: SeededRandom): string {
-        const rand = rng.next();
-        if (rand < 0.33) return '/models/stone2.glb';
-        if (rand < 0.66) return '/models/stone3.glb';
-        return '/models/stone4.glb';
-    }
-
-    /**
-     * Оновлює seed для генерації мапи
-     */
-    public updateGenerationSeed(newSeed: number): void {
-        this.generationTracker = new MapGenerationTracker(newSeed);
-        this.generatedSeed = newSeed;
-        
-
-    }
-
-    /**
-     * Отримує поточний seed генерації
-     */
-    public getGenerationSeed(): number {
-        return this.generationTracker.getSeed();
-    }
-
-    /**
-     * Генерує процедурні каменюки типу rock на карті
-     */
-    private generateRocks() {
-        const mapBounds = {
-          minX: -MAP_CONFIG.width / 2,
-          maxX:  MAP_CONFIG.width / 2,
-          minZ: -MAP_CONFIG.depth / 2,
-          maxZ:  MAP_CONFIG.depth / 2,
-        };
-      
-        // --- налаштування обмежень ---
-        const clusterCount       = MAP_CONFIG.generation.rocks.clusterCount;
-        const rocksPerCluster    = MAP_CONFIG.generation.rocks.rocksPerCluster;
-        const minOriginR         = 15;     // усі кластери й камені НЕ ближче 10 до (0,0)
-        const requiredInBand     = Math.min(2, clusterCount); // мін. 2 кластери в [10..20]
-        const bandMax            = 25;
-        const minInterClusterDist = 12;    // анти-клампінг між центрами кластерів
-        const maxTriesPerPoint    = 200;   // спроби вибору точки
-      
-        // --- RNG для каменів ---
-        const rockRng = new SeededRandom(this.generationTracker.getSeed() + 2000);
-      
-        // --- хелпери всередині методу (без залежностей назовні) ---
-        const dist2 = (x:number, z:number) => x*x + z*z;
-        const withinBounds = (x:number, z:number) =>
-          x >= mapBounds.minX && x <= mapBounds.maxX && z >= mapBounds.minZ && z <= mapBounds.maxZ;
-      
-        // універсальний семплер з анти-клампінгом і обмеженням по радіусу
-        const sampleWithConstraints = (
-          existing: Array<{x:number; z:number}>,
-          minR: number,
-          maxR?: number,
-          localMinInterClusterDist = minInterClusterDist
-        ): {x:number; z:number} | null => {
-          // кілька фаз: якщо впритик — поступово послаблюємо анти-клампінг
-          let inter = localMinInterClusterDist;
-          for (let phase = 0; phase < 3; phase++) {
-            for (let t = 0; t < maxTriesPerPoint; t++) {
-              const x = mapBounds.minX + rockRng.nextFloat(0, mapBounds.maxX - mapBounds.minX);
-              const z = mapBounds.minZ + rockRng.nextFloat(0, mapBounds.maxZ - mapBounds.minZ);
-              const d2 = dist2(x, z);
-              if (d2 < minR*minR) continue;
-              if (maxR !== undefined && d2 > maxR*maxR) continue;
-              // анти-клампінг щодо вже вибраних центрів
-              let ok = true;
-              for (let i = 0; i < existing.length; i++) {
-                const dx = x - existing[i].x, dz = z - existing[i].z;
-                if (dx*dx + dz*dz < inter*inter) { ok = false; break; }
-              }
-              if (!ok) continue;
-              if (!withinBounds(x, z)) continue;
-              return { x, z };
-            }
-            inter *= 0.85; // послаблюємо вимогу на 15% і пробуємо ще
-          }
-      
-          // Фолбек: візьмемо випадковий кут і поставимо на колі r = clamp
-          const a = rockRng.nextFloat(0, Math.PI * 2);
-          const r = maxR !== undefined ? Math.min(maxR, Math.max(minR, inter)) : Math.max(minR, inter);
-          let x = Math.cos(a) * r;
-          let z = Math.sin(a) * r;
-          if (!withinBounds(x, z)) {
-            x = Math.min(Math.max(x, mapBounds.minX), mapBounds.maxX);
-            z = Math.min(Math.max(z, mapBounds.minZ), mapBounds.maxZ);
-          }
-          // перевіримо анти-клампінг хоч якось
-          for (let i = 0; i < existing.length; i++) {
-            const dx = x - existing[i].x, dz = z - existing[i].z;
-            if (dx*dx + dz*dz < (inter*inter)*0.8) {
-              // трохи зсунемо по нормалі від центру карти
-              const len = Math.hypot(x, z) || 1;
-              const s = (r + inter*0.2) / len;
-              x = x * s; z = z * s;
-              break;
-            }
-          }
-          return { x, z };
-        };
-      
-        // --- вибір центрів кластерів із гарантіями ---
-        const centers: Array<{ x:number; z:number; resourceType:'stone'|'ore' }> = [];
-      
-        // 1) Спершу requiredInBand у кільці [10..20]
-        for (let i = 0; i < requiredInBand; i++) {
-          const p = sampleWithConstraints(centers, minOriginR, bandMax) || { x: 0, z: bandMax };
-          const resourceType: 'stone'|'ore' =
-            MAP_CONFIG.generation.rocks.resourceTypes[i % MAP_CONFIG.generation.rocks.resourceTypes.length];
-          centers.push({ ...p, resourceType });
-        }
-      
-        // 2) Решта — будь-де, але r >= 10 з анти-клампінгом
-        for (let i = requiredInBand; i < clusterCount; i++) {
-          const p = sampleWithConstraints(centers, minOriginR) || { x: minOriginR, z: 0 };
-          const resourceType: 'stone'|'ore' =
-            MAP_CONFIG.generation.rocks.resourceTypes[i % MAP_CONFIG.generation.rocks.resourceTypes.length];
-          centers.push({ ...p, resourceType });
-        }
-      
-        // --- генеруємо камені в кожному кластері ---
-        for (let cluster = 0; cluster < clusterCount; cluster++) {
-          const { x: clusterCenterX, z: clusterCenterZ, resourceType } = centers[cluster];
-      
-          const clusterRadius =
-            MAP_CONFIG.generation.rocks.clusterRadius.min +
-            rockRng.nextFloat(0, MAP_CONFIG.generation.rocks.clusterRadius.max - MAP_CONFIG.generation.rocks.clusterRadius.min);
-      
-          // палітри
-          const resourceColors = resourceType === 'stone'
-            ? [0x8B8355, 0x696969, 0x808080, 0xA0A29D, 0x8B7593] // камінь
-            : [0x8B4513, 0x654321, 0x8B6914, 0x6B4423, 0x654321]; // руда
-      
-          for (let j = 0; j < rocksPerCluster; j++) {
-            if (this.generationTracker.isResourceCollected(cluster, j)) continue;
-      
-            // позиція в межах кластера; не ближче r=10 до (0,0)
-            let x = 0, z = 0, placed = false;
-            for (let t = 0; t < 20; t++) {
-              const a = rockRng.nextFloat(0, Math.PI * 2);
-              const d = rockRng.nextFloat(0, clusterRadius);
-              x = clusterCenterX + Math.cos(a) * d;
-              z = clusterCenterZ + Math.sin(a) * d;
-              if (dist2(x, z) >= minOriginR * minOriginR) { placed = true; break; }
-            }
-            if (!placed) {
-              // фолбек: проєкція точки на коло r=10 вздовж напрямку від центру карти
-              const len = Math.hypot(clusterCenterX, clusterCenterZ) || 1;
-              const s = minOriginR / len;
-              x = clusterCenterX * s;
-              z = clusterCenterZ * s;
-            }
-      
-            // випадкові параметри каменю
-            const baseSize = 0.3 + rockRng.nextFloat(0, 0.2);
-            const color = rockRng.nextColor(resourceColors);
-            const smoothness = 0.6 + rockRng.nextFloat(0, 0.3);
-      
-            const rock: TSceneObject = {
-              id: `rock_${cluster}_${j}`,
-              type: 'rock',
-              coordinates: { x, y: 0, z },
-              scale: { x: baseSize, y: baseSize, z: baseSize },
-              rotation: {
-                x: rockRng.nextFloat(0, Math.PI),
-                y: rockRng.nextFloat(0, Math.PI),
-                z: rockRng.nextFloat(0, Math.PI),
-              },
-              obstacleSize: baseSize*0.5,
-              data: {
-                color,
-                size: baseSize,
-                smoothness,
-                resourceId: resourceType,
-                resourceAmount: 14 + rockRng.nextInt(0, 16),
-                modelPath: this.getRandomModelPath(rockRng),
-              },
-              tags: ['on-ground', 'static', 'rock', 'resource'],
-              bottomAnchor: -baseSize * 0.3,
-              terrainAlign: true,
-              targetType: ['collect-resource'],
-            };
-      
-            const success = this.scene.pushObjectWithTerrainConstraint(rock);
-            if (success) {
-              // лог/телеметрія — за бажанням
-            }
-          }
-        }
-      
-        // ресурси згенеровано
       }
-      
-/*
-    private generateArcs() {
-        const arcCount = 5;
-
-        for(let i = 0; i < arcCount; i++) {
-
-            const x = (Math.random() - 0.5) * 200; // X: -200 до 200
-            const z = (Math.random() - 0.5) * 200; // Z: -200 до 200
-
-            const arc: TSceneObject = {
-                id: `bolt-${i}`,
-                type: 'electric-arc',
-                coordinates: { x, y: 50, z },     // A
-                scale: { x: 1, y: 1, z: 1},
-                rotation: {x: 0, y: 0, z: 0},
-                tags: ['effect', 'dynamic'],
-                data: {
-                  target: { x: x + Math.random()*150, y: 0, z: z + Math.random()*150 },       // B
-                  kinks: 14,           // більше зламів = «дрібніша» блискавка
-                  amplitude: 5,     // ширина кривулі у world units
-                  thicknessPx: 0.03,    // ядро
-                  glowPx: 0.1,         // ореол
-                  color: 0xAEE6FF,
-                  glowColor: 0xAEE6FF,
-                  coreOpacity: 1.0,
-                  glowOpacity: 0.02,
-                  glowIntensity: 0.5,
-                  jitterAmp: 2,
-                  seed: i
-                }
-              }
-
-              this.scene.pushObject(arc);
-        }
     }
-*/
-    /**
-     * Генерує джерела диму на карті
-     */
-    /*
-    private generateSmoke() {
-        const smokeCount = 20; // Кількість джерел диму
-        
-        for (let i = 0; i < smokeCount; i++) {
-            // Випадкова позиція на карті
-            const x = (Math.random() - 0.5) * 150; // X: -200 до 200
-            const z = (Math.random() - 0.5) * 150; // Z: -200 до 200
-            
-            const smoke: TSceneObject = {
-                id: `smoke_source_${i}`,
-                type: 'smoke',
-                coordinates: { x, y: 0, z }, // Y буде встановлено terrain системою
-                scale: { x: 1, y: 1, z: 1 },
-                rotation: { x: 0, y: 0, z: 0 },
-                data: { 
-                    intensity: 0.5 + Math.random() * 1.5, // 0.5-2.0 інтенсивність
-                    color: 0x84B4543, // темно сірий дим
-                    particleCount: 150 + Math.floor(Math.random() * 100), // 150-250 частинок
-                    riseSpeed: 3.3*(0.5 + Math.random() * 0.5), // 1.0-2.5 швидкість підйому
-                    spreadRadius: 0.025*(1.0 + Math.random() * 1.0), // 2.0-4.0 радіус розсіювання
-                    lifetime: 5.0 + Math.random() * 3.0, // 5.0-8.0 час життя
-                    baseSize: 28,
-                    flow: 0.2,
-                    noiseScale: 0.5,
-                    spreadGrow: 0.05,
-                    riseHeight: 5,
-                    emitRate: 20,
-                    alphaMult: 0.25,
-                    alphaDiminish: 0.9,
-                },
-                tags: ['on-ground', 'static', 'smoke'],
-                bottomAnchor: 0,
-                terrainAlign: false
-            };
-            
-            // Додаємо джерело диму
-            this.scene.pushObjectWithTerrainConstraint(smoke);
-        }
-    }
-*/
-    /**
-     * Генерує джерела вогню на карті
-     */
-    /*
-    private generateFire() {
-        const fireCount = 10; // Кількість джерел вогню
-        
-        for (let i = 0; i < fireCount; i++) {
-            // Випадкова позиція на карті
-            const x = (Math.random() - 0.5) * 120; // X: -100 до 100
-            const z = (Math.random() - 0.5) * 120; // Z: -100 до 100
-            
-            const fire: TSceneObject = {
-                id: `fire_source_${i}`,
-                type: 'fire',
-                coordinates: { x, y: 0, z }, // Y буде встановлено terrain системою
-                scale: { x: 0.1, y: 0.1, z: 0.1 },
-                rotation: { x: 0, y: 0, z: 0 },
-                data: { 
-                    emitRate: 30 + Math.floor(Math.random() * 26), // 20-36 частинок/сек
-                    life: 2.0 + Math.random() * 1.5, // 2.0-3.5 сек
-                    riseSpeed: 2.0 + Math.random() * 2.0, // 3.0-5.0 висота підйому (riseSpeed для FireRenderer)
-                    baseSize: 65 + Math.random() * 48, // 5-13 розмір спрайта
-                    flow: 0.8 + Math.random() * 0.8, // 0.8-1.6 сила завихрення
-                    noiseScale: 0.6 + Math.random() * 0.4, // 0.6-1.0 масштаб шуму
-                    timeScale: 1.0 + Math.random() * 0.4, // 1.0-1.4 швидкість течії
-                    riseHeight: 1,
-                    spreadRadius: 1.5 + 2.2*Math.random(),
-                    color: (() => {
-                        const colors = [0xFF6600, 0xFF4400, 0xFF8800, 0xFF5500]; // Відтінки помаранчевого
-                        return colors[Math.floor(Math.random() * colors.length)];
-                    })(),
-                    spreadGrow: 0,
-                    tongueBoost: 1.8,
-                    tongueSharpness: 2,
-                },
-                tags: ['on-ground', 'static', 'fire'],
-                bottomAnchor: 0,
-                terrainAlign: false
-            };
-            
-            // Додаємо джерело вогню
-            this.scene.pushObjectWithTerrainConstraint(fire);
-        }
-    }
-
-*/
-
-
-
-    private lastExplosionTime = 0;
-    private explosionInterval = 3000; // 5 секунд в мілісекундах
-
-    tick(dT: number) {
-        this.droneManager.tick(dT);
-        
-        // Оновлюємо систему команд
-        this.commandSystem.update(dT);
-        
-        // Оновлюємо групи команд
-        this.commandGroupSystem.update(dT);
-        
-        // Оновлюємо монітор автоматичних груп
-        this.autoGroupMonitor.update(dT);
-        
-        // Переміщуємо об'єкти (швидкість встановлюється командами)
-        this.dynamics.moveObjects(dT);
-        
-        // Генеруємо нові вибухи кожні 5 секунд
-        const currentTime = performance.now();
-        if (currentTime - this.lastExplosionTime >= this.explosionInterval) {
-            //this.generateRandomExplosion();
-            this.lastExplosionTime = currentTime;
-        }
-    }
-    
-    /**
-     * Розподіляє цілі для групи динамічних об'єктів, щоб вони не злипалися
-     */
-    public distributeTargetsForObjects(objectIds: string[], centerPoint: { x: number; y: number; z: number }) {
-        const dynamicObjects = objectIds
-            .map(id => this.scene.getObjectById(id))
-            .filter(obj => obj && obj.tags?.includes('dynamic')) as TSceneObject[];
-        
-        if (dynamicObjects.length === 0) return;
-        
-        // Якщо тільки один об'єкт - просто додаємо команду руху
-        if (dynamicObjects.length === 1) {
-            const obj = dynamicObjects[0];
-            this.addMoveCommand(obj.id, { x: centerPoint.x, y: centerPoint.y, z: centerPoint.z });
-            return;
-        }
-        
-        // Для кількох об'єктів - розподіляємо по колу навколо центру
-        const radius = Math.min(dynamicObjects.length * 0.8, 10); // Радіус залежить від кількості об'єктів
-        const angleStep = (2 * Math.PI) / dynamicObjects.length;
-        
-        dynamicObjects.forEach((obj, index) => {
-            // Розраховуємо позицію на колі
-            const angle = index * angleStep;
-            const targetX = centerPoint.x + Math.cos(angle) * radius;
-            const targetZ = centerPoint.z + Math.sin(angle) * radius;
-            
-            this.addMoveCommand(obj.id, { x: targetX, y: centerPoint.y, z: targetZ });
-        });
-    }
-
-    /**
-     * Оркестратор для обробки правий-клік з командою або без неї
-     */
-    public handleRightclickCommand(
-        objectIds: string[], 
-        centerPoint: { x: number; y: number; z: number },
-        commandGroup?: any
-    ) {
-        // Очищаємо поточні команди та групи для всіх вибраних об'єктів
-        objectIds.forEach((unitId: string) => {
-            // Очищаємо всі команди
-            this.commandSystem.clearCommands(unitId);
-            
-            // Очищаємо всі активні групи команд
-            const activeGroups = this.commandGroupSystem.getActiveGroupsForObject(unitId);
-            if (activeGroups && activeGroups.length > 0) {
-                activeGroups.forEach((groupState: any) => {
-                    this.commandGroupSystem.cancelCommandGroup(unitId, groupState.groupId);
-                });
-            }
-        });
-
-        // Якщо команда не передана - використовуємо звичайну логіку руху
-        if (!commandGroup) {
-            this.distributeTargetsForObjects(objectIds, centerPoint);
-            return;
-        }
-
-        // Якщо передана команда - запускаємо відповідну групу тасків
-        // Виконуємо групу команд
-        
-        // Визначаємо тип ресурсу для gather команд
-        let resourceType = 'resource'; // за замовчуванням
-        if (commandGroup.id === 'gather-stone-radius' || commandGroup.ui?.category === 'stone') {
-            resourceType = 'stone';
-        } else if (commandGroup.id === 'gather-ore-radius' || commandGroup.ui?.category === 'ore') {
-            resourceType = 'ore';
-        } else if (commandGroup.ui?.category === 'all') {
-            resourceType = 'resource';
-        }
-        
-        // Запускаємо команду для кожного вибраного юніта
-        objectIds.forEach((unitId: string) => {
-            const context = {
-                objectId: unitId,
-                targets: { 
-                    center: centerPoint, // Для gather команд
-                    resource: undefined,  // Для інших команд
-                    base: undefined       // Для інших команд
-                },
-                parameters: {
-                    resourceType: resourceType // Передаємо тип ресурсу для gather команд
-                }
-            };
-            
-            const success = this.commandGroupSystem.addCommandGroup(
-                unitId,
-                commandGroup.id,
-                context
-            );
-            
-            if (!success) {
-                Logger.error('MapLogic', `Failed to start command ${commandGroup.id} for ${unitId}`, { unitId, commandGroup });
-            }
-        });
-    }
-
-    /**
-     * Додає команду руху для об'єкта
-     */
-    private addMoveCommand(objectId: string, target: { x: number; y: number; z: number }) {
-        const command = {
-            id: `move_${objectId}_${Date.now()}`,
-            type: 'move-to' as const,
-            position: target,
-            parameters: {},
-            status: 'pending' as const,
-            priority: 1,
-            createdAt: Date.now()
-        };
-
-        this.commandSystem.addCommand(objectId, command);
-    }
-
-
-
-    /**
-     * Генерує пилові хмари на землі
-     */
-    /*
-    private generateClouds() {
-        const cloudCount = 5; // ЗБІЛЬШУЄМО кількість хмар
-        
-        for (let i = 0; i < cloudCount; i++) {
-            // ГЕНЕРУЄМО ВИПАДКОВІ КООРДИНАТИ для кожної хмари
-            const x = (Math.random() - 0.5) * 400; // X: -200 до 200
-            const z = (Math.random() - 0.5) * 400; // Z: -200 до 200
-            
-            const cloud: TSceneObject = {
-                id: `dust_cloud_${i}`,
-                type: 'cloud',
-                coordinates: { x, y: 0, z }, // Y буде встановлено terrain системою
-                scale: { x: 1, y: 1, z: 1 },
-                rotation: { x: 0, y: 0, z: 0 },
-                data: { 
-                    size: 21 + Math.random() * 22, // 8-20 одиниць радіус (більші хмари)
-                    color: 0xD2B46C, // Пісочний колір
-                    particleCount: 200, //13200 + Math.floor(Math.random() * 18000), // 1200-2000 частинок на хмару (ЗБІЛЬШУЄМО!)
-                    windSpeed: 0.3 + Math.random() * 0.7, // 0.3-1.0 швидкість вітру
-                    height: 4 + Math.random() * 8 // 4-12 одиниць висоти
-                },
-                tags: ['on-ground', 'static', 'dust'], // Пилові хмари на землі
-                bottomAnchor: -1, // Не важливо для хмар
-                terrainAlign: false // Хмари не вирівнюються по terrain
-            };
-            
-            // Додаємо пилову хмару
-            this.scene.pushObject(cloud);
-        }
-    
+    return false;
+  }
 }
 
-*/
+export class MapLogic implements SaveLoadManager {
+  public commandSystem!: CommandSystem;
+  public selection: SelectionLogic;
+  public commandGroupSystem!: CommandGroupSystem;
+  public autoGroupMonitor: AutoGroupMonitor;
+  private generatedSeed!: number;
 
-         /**
-      * Генерує процедурні вибухи на карті
-      */
-     /*
-     private generateExplosions() {
-         const explosionCount = 8; // Кількість вибухів на карті
+  private collectedRocks: Set<string>;
+  private collectedBiomass: Set<string>;
 
-         for (let i = 0; i < explosionCount; i++) {
-             // Випадкова позиція на карті
-             const x = (Math.random() - 0.5) * 100; // X: -150 до 150
-             const z = (Math.random() - 0.5) * 100; // Z: -150 до 150
-             const y = 2 + Math.random() * 8; // Y: 2-10 (вибухи в повітрі)
-             
-             const explosion: TSceneObject = {
-                 id: `explosion_${i}`,
-                 type: 'explosion',
-                 coordinates: { x, y, z },
-                 scale: { x: 1, y: 1, z: 1 },
-                 rotation: { x: 0, y: 0, z: 0 },
-                 data: { 
-                     particleSize: 24 + Math.random() * 32, // 24-56 px розмір частинок
-                     velocity: 12 + Math.random() * 18, // 12-30 м/с швидкість розльоту
-                     particleCount: 800 + Math.floor(Math.random() * 1200), // 800-2000 частинок
-                     hue: 15 + Math.random() * 45, // 15-60 (відтінки оранжевого/червоного)
-                     alpha: 0.7 + Math.random() * 0.3 // 0.7-1.0 прозорість
-                 },
-                 tags: ['static', 'explosion'],
-                 bottomAnchor: 0,
-                 terrainAlign: false
-             };
-             
-             // Додаємо вибух
-             this.scene.pushObject(explosion);
-         }
-     }
-*/
-     /**
-      * Генерує один випадковий вибух з TTL 3 секунди
-      */
-     /*
-     private generateRandomExplosion() {
-         // Випадкова позиція на карті
-         const x = (Math.random() - 0.5) * 100; // X: -100 до 100
-         const z = (Math.random() - 0.5) * 100; // Z: -100 до 100
-         const y = 13 + Math.random() * 12; // Y: 3-15 (вибухи в повітрі)
-         
-         // Унікальний ID для динамічного вибуху
-         const explosionId = `dynamic_explosion_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-         
-         const explosion: TSceneObject = {
-             id: explosionId,
-             type: 'explosion',
-             coordinates: { x, y, z },
-             scale: { x: 1, y: 1, z: 1 },
-             rotation: { x: 0, y: 0, z: 0 },
-             data: { 
-                 particleSize: 28 + Math.random() * 40, // 28-68 px розмір частинок
-                 velocity: 3 + Math.random() * 4, // 15-35 м/с швидкість розльоту
-                 particleCount: 500 + Math.floor(Math.random() * 500), // 1000-2500 частинок
-                 hue: 10 + Math.random() * 40, // 20-70 (відтінки оранжевого/червоного/жовтого)
-                 alpha: 0.8 + Math.random() * 0.2, // 0.8-1.0 прозорість
-                 ttl: 2.0, // TTL 3 секунди
-                 life: 1.5, // Життя частинки 2.5 секунди
-                 spreadRadius: 1.0 + Math.random() * 1.0, // 3-7 м радіус розльоту
-                 gravity: 5.0, // Без гравітації (радіальний розліт)
-                 drag: 0.3 + Math.random() * 0.3, // 0.3-0.6 опір повітря
-                 turbulence: 0.4 + Math.random() * 0.4, // 0.4-0.8 турбулентність
-                 sparkFrac: 0.2 + Math.random() * 0.3, // 0.2-0.5 доля іскорок
-                 flashLife: 2, // 0.2-0.5 сек тривалість спалаху
-                 flashSizePx: 60 + Math.random() * 40, // 120-200 px розмір спалаху
-                 flashIntensity: 3.2 + Math.random() * 4.8 // 1.2-2.0 інтенсивність спалаху
-             },
-             tags: ['dynamic', 'explosion'],
-             bottomAnchor: 0,
-             terrainAlign: false
-         };
-         
-         // Додаємо динамічний вибух
-         this.scene.pushObject(explosion);
-         
-         // Динамічний вибух згенеровано
-     }
-*/
-     /**
-      * Добування ресурсів з каменюки
-      */
-     mineResource(resourceId: string, selectedObjectIds: string[]): void {
-         if (selectedObjectIds.length === 0) {
-             Logger.warn('MapLogic', 'No objects selected for mining');
-             return;
-         }
+  // Setter-injected dependencies (замість constructor)
+  public resources!: ResourceManager;
+  public upgradesManager!: UpgradesManager;
+  public buildingsManager!: BuildingsManager;
+  public droneManager!: DroneManager;
 
-         const resource = this.scene.getObjectById(resourceId);
-         if (!resource) {
-             Logger.error('MapLogic', `Resource ${resourceId} not found`, { resourceId });
-             return;
-         }
+  // Система детермінованої генерації
+  private generationTracker!: MapGenerationTracker;
 
-         // Перевіряємо чи можуть вибрані об'єкти добувати ресурси
-         const miners = selectedObjectIds.filter(id => {
-             const obj = this.scene.getObjectById(id);
-             return obj && obj.commandType && obj.commandType.includes('collect-resource');
-         });
+  // NEW: index for non-overlapping cluster placement (rocks/biomass)
+  private clusterIndex: SpatialHash2D | null = null;
 
-         if (miners.length === 0) {
-             Logger.warn('MapLogic', 'No valid miners selected');
-             return;
-         }
+  // Система автоматичної генерації хмар
+  private cloudGenerationTimer: number = 0;
+  private cloudGenerationInterval: number = 60000; // 60 секунд
+  private activeClouds: Map<string, { createdAt: number; ttl: number }> = new Map();
 
-         // Починаємо операцію видобутку
+  // Config for minimal edge-to-edge gap between clusters
+  private static readonly CLUSTER_MARGIN = 1.0; // meters
 
-         // Запускаємо групу команд для кожного майнера
-         miners.forEach(minerId => {
-             const context: CommandGroupContext = {
-                 objectId: minerId,
-                 targets: {
-                     resource: resourceId,
-                 },
-                 parameters: {
-                     amount: 100
-                 }
-             };
+  constructor(
+    public scene: SceneLogic,
+    public dynamics: DynamicsLogic
+  ) {
+    this.selection = new SelectionLogic(this.scene);
+    this.autoGroupMonitor = new AutoGroupMonitor(this);
+    this.collectedRocks = new Set();
+    this.collectedBiomass = new Set();
+  }
 
-             const success = this.commandGroupSystem.addCommandGroup(
-                 minerId,
-                 'collect-resource',
-                 context
-             );
+  setCommandSystems(commandSystem: CommandSystem, commandGroupSystem: CommandGroupSystem) {
+    this.commandSystem = commandSystem;
+    this.commandGroupSystem = commandGroupSystem;
+  }
 
-             if (success) {
-                 // Група команд видобутку запущена
-             } else {
-                 Logger.error('MapLogic', `Failed to start mining command group for ${minerId}`, { minerId });
-             }
-         });
-     }
+  setGameObjectManagers(
+    droneManager: DroneManager,
+    buildingsManager: BuildingsManager
+  ): void {
+    this.droneManager = droneManager;
+    this.buildingsManager = buildingsManager;
+  }
 
-     /**
-      * Зарядка об'єктів
-      */
-     chargeObject(selectedObjectIds: string[]): void {
-         if (selectedObjectIds.length === 0) {
-             Logger.warn('MapLogic', 'No objects selected for charging');
-             return;
-         }
+  setUpgradesManager(upgradesManager: UpgradesManager): void {
+    this.upgradesManager = upgradesManager;
+  }
 
-         // Перевіряємо чи можуть вибрані об'єкти заряджатися
-         const chargeableObjects = selectedObjectIds.filter(id => {
-             const obj = this.scene.getObjectById(id);
-             return obj && obj.commandType && obj.commandType.includes('charge');
-         });
+  setResourceManager(resources: ResourceManager): void {
+    this.resources = resources;
+  }
 
-         if (chargeableObjects.length === 0) {
-             Logger.warn('MapLogic', 'No valid chargeable objects selected');
-             return;
-         }
+  validateDependencies(): { isValid: boolean; missing: string[] } {
+    const missing: string[] = [];
+    if (!this.scene) missing.push('scene');
+    if (!this.dynamics) missing.push('dynamics');
+    if (!this.droneManager) missing.push('droneManager');
+    if (!this.buildingsManager) missing.push('buildingsManager');
+    if (!this.upgradesManager) missing.push('upgradesManager');
+    if (!this.resources) missing.push('resources');
+    if (!this.commandSystem) missing.push('commandSystem');
+    if (!this.commandGroupSystem) missing.push('commandGroupSystem');
+    return { isValid: missing.length === 0, missing };
+  }
 
-         // Починаємо операцію зарядки
+  public collectRock(rockId: string): void {
+    this.collectedRocks.add(rockId);
+    this.scene.removeObject(rockId);
+  }
+  public collectBiomass(biomassId: string): void {
+    this.collectedBiomass.add(biomassId);
+    this.scene.removeObject(biomassId);
+  }
 
-         // Запускаємо групу команд для кожного об'єкта
-         chargeableObjects.forEach(objectId => {
-             const context: CommandGroupContext = {
-                 objectId: objectId,
-                 targets: {},
-                 parameters: {}
-             };
-
-             const success = this.commandGroupSystem.addCommandGroup(
-                 objectId,
-                 'charge-group',
-                 context
-             );
-
-             if (success) {
-                 // Група команд зарядки запущена
-             } else {
-                 Logger.error('MapLogic', `Failed to start charging command group for ${objectId}`, { objectId });
-             }
-         });
-     }
-
-    // ==================== SaveLoadManager Implementation ====================
-    
-    /**
-     * Зберігає стан MapLogic
-     */
-    save(): MapLogicSaveData {
-        // Отримуємо зібрані ресурси як масив ID каменюків
-        const collectedRocks: string[] = Array.from(this.collectedRocks);
-        
-        return {
-            seed: this.generatedSeed, // Зберігаємо seed
-            collectedRocks,
-            // buildingPositions тепер зберігаються в BuildingsManager
-        };
-    }
-    
-    /**
-     * Завантажує стан MapLogic
-     */
-    load(data: MapLogicSaveData): void {
-        // Завантажуємо seed та генеруємо карту
-        if (data.seed) {
-            // Встановлюємо seed
-            this.generatedSeed = data.seed;
-            this.generationTracker = new MapGenerationTracker(data.seed);
-            
-            this.initializeSeeded();
-        }
-        
-        // Завантажуємо зібрані ресурси
-        if (data.collectedRocks) {
-            // Перевіряємо тип - може бути масив або Set (старі збереження)
-            let rockIds: string[];
-            if (Array.isArray(data.collectedRocks)) {
-                rockIds = data.collectedRocks;
-            } else if (data.collectedRocks && typeof data.collectedRocks === 'object' && 'add' in data.collectedRocks) {
-                // Це Set - конвертуємо в масив
-                rockIds = Array.from(data.collectedRocks as Set<string>);
-            } else {
-                // Якщо щось інше - конвертуємо в масив
-                rockIds = Object.values(data.collectedRocks as Record<string, string>);
-            }
-            
-            rockIds.forEach(rockId => {
-                this.collectRock(rockId); // Використовуємо новий метод
-            });
-        }
-
-        // Будівлі тепер завантажуються автоматично через BuildingsManager.load()
-        // Нічого не робимо тут
-        
-    }
-    
-    /**
-     * Скидає стан MapLogic
-     */
-    reset(): void {
-        // Скидаємо зібрані ресурси
-        this.generationTracker.reset();
-        this.collectedRocks.clear(); // Очищаємо Set при скиданні
-        
-        // Видаляємо всі будівлі
-        this.clearBuildings();
-        
-        // Скидаємо дронів через DroneManager
-        this.droneManager.reset();
-        
-
-    }
-    // Метод getRoverPositions видалено - дрони тепер керуються DroneManager
-    
-    // Метод repositionRovers видалено - дрони тепер керуються DroneManager
-    
-    /**
-     * Видаляє всі будівлі
-     */
-    private clearBuildings(): void {
-        const buildings = Object.values(this.scene.getObjects())
-            .filter(obj => obj.tags.includes('building'));
-        
-        buildings.forEach(building => {
-            this.scene.removeObject(building.id);
-        });
+  initializeSeeded(cameraProps?: TCameraProps): void {
+    if (cameraProps) {
+      this.scene.initializeViewport(cameraProps, {
+        x: MAP_CONFIG.width,
+        y: MAP_CONFIG.height,
+        z: MAP_CONFIG.depth,
+      });
     }
 
-    // ==================== Result Pattern Examples ====================
-    
-    /**
-     * Отримує об'єкт за ID з Result pattern
-     */
-    getObjectByIdResult(id: string): Result<TSceneObject<any>, string> {
-        const object = this.scene.getObjectById(id);
-        if (!object) {
-            return failure(`Object with id '${id}' not found`);
-        }
-        return success(object);
-    }
+    this.generateTerrain();
+    this.scene.postponedRegeneration = true;
 
-    /**
-     * Запускає команду з Result pattern
-     */
-    startCommandResult(commandId: string, unitId: string): Result<boolean, string> {
-        const unitResult = this.getObjectByIdResult(unitId);
-        
-        return unitResult.flatMap(unit => {
-            if (!unit.tags.includes('drone')) {
-                return failure(`Unit ${unitId} is not a drone`);
-            }
-            
-            // Приклад - в реальності тут була б логіка команди
-            const commandSuccess = true; // this.commandSystem.addCommand(commandId, unitId);
-            if (!commandSuccess) {
-                return failure(`Failed to start command ${commandId} for ${unitId}`);
-            }
-            
-            return success(true);
-        });
-    }
+    this.generateBoulders();
 
-    /**
-     * Приклад використання pattern matching
-     */
-    processCommandWithMatch(commandId: string, unitId: string): string {
-        const result = this.startCommandResult(commandId, unitId);
-        
-        return match(result,
-            (success) => `Command ${commandId} started successfully for ${unitId}`,
-            (error) => `Failed to start command: ${error}`
+    // Build spatial index for cluster separation BEFORE generating clusters
+    const maxClusterR = Math.max(
+      MAP_CONFIG.generation.rocks.clusterRadius.max,
+      MAP_CONFIG.generation.biomass.clusterRadius.max
+    );
+    this.clusterIndex = new SpatialHash2D(maxClusterR + MapLogic.CLUSTER_MARGIN);
+
+    // Generate rock clusters first, record their circles into index
+    this.generateRocks();
+    // Then biomass clusters that avoid rock circles with a 1 m margin
+    this.generateBiomass();
+
+    this.generateClouds();
+    this.scene.rebuildObstacles(true);
+  }
+
+  initializeBaseMap(cameraProps?: TCameraProps): void {
+    if (cameraProps) {
+      this.scene.initializeViewport(cameraProps, {
+        x: MAP_CONFIG.width,
+        y: MAP_CONFIG.height,
+        z: MAP_CONFIG.depth,
+      });
+    }
+  }
+
+  newGame(): void {
+    const seed = Date.now();
+    this.updateGenerationSeed(seed);
+    this.initializeSeeded();
+    this.droneManager.newGameDrones();
+    this.buildingsManager.newGameBuildings();
+  }
+
+  private generateTerrain() {
+    const seed = this.generationTracker.getSeed();
+    const terrainManager = this.scene.getTerrainManager();
+    if (!terrainManager) {
+      Logger.warn('MapLogic', 'TerrainManager не знайдено, створюємо новий');
+      return;
+    }
+    terrainManager.regenerateTerrainWithSeed(seed);
+  }
+
+  private generateBoulders() {
+    const boulderCount = MAP_CONFIG.generation.boulders.count;
+    const mapBounds = {
+      minX: -MAP_CONFIG.width / 2,
+      maxX: MAP_CONFIG.width / 2,
+      minZ: -MAP_CONFIG.depth / 2,
+      maxZ: MAP_CONFIG.depth / 2,
+    };
+    const boulderRng = new SeededRandom(this.generationTracker.getSeed() + 1000);
+    for (let i = 0; i < boulderCount; i++) {
+      const x = mapBounds.minX + boulderRng.nextFloat(0, mapBounds.maxX - mapBounds.minX);
+      const z = mapBounds.minZ + boulderRng.nextFloat(0, mapBounds.maxZ - mapBounds.minZ);
+      if (this.isPositionTooCloseToBoulders(x, z)) continue;
+      const size =
+        MAP_CONFIG.generation.boulders.sizeRange.min +
+        boulderRng.nextFloat(
+          0,
+          MAP_CONFIG.generation.boulders.sizeRange.max -
+            MAP_CONFIG.generation.boulders.sizeRange.min
         );
+      const colors = [0x8b7355, 0x696969, 0x808080, 0xa0522d, 0x8b4513];
+      const color = boulderRng.nextColor(colors);
+      const roughness = 0.2 + boulderRng.nextFloat(0, 0.4);
+      const boulder: TSceneObject = {
+        id: `boulder_${i}`,
+        type: 'boulder',
+        coordinates: { x, y: 0, z },
+        scale: { x: size, y: size, z: size },
+        rotation: {
+          x: boulderRng.nextFloat(0, Math.PI),
+          y: boulderRng.nextFloat(0, Math.PI),
+          z: boulderRng.nextFloat(0, Math.PI),
+        },
+        data: { color, size, roughness, modelPath: this.getRandomModelPath(boulderRng) },
+        obstacleSize: size,
+        tags: ['on-ground', 'static', 'boulder'],
+        bottomAnchor: -0.2,
+        terrainAlign: false,
+      };
+      this.scene.pushObjectWithTerrainConstraint(boulder);
     }
+  }
+
+  private isPositionTooCloseToBoulders(x: number, z: number): boolean {
+    const minDistance = MAP_CONFIG.generation.boulders.minDistance;
+    const allObjects = Object.values(this.scene.getObjects());
+    const boulderObjects = allObjects.filter((obj: TSceneObject) => obj.type === 'boulder');
+    for (const boulder of boulderObjects) {
+      const distance = Math.hypot(x - boulder.coordinates.x, z - boulder.coordinates.z);
+      if (distance < minDistance) return true;
+    }
+    return false;
+  }
+
+  private getRandomModelPath(rng: SeededRandom): string {
+    const rand = rng.next();
+    if (rand < 0.33) return '/models/stone2.glb';
+    if (rand < 0.66) return '/models/stone3.glb';
+    return '/models/stone4.glb';
+  }
+
+  public updateGenerationSeed(newSeed: number): void {
+    this.generationTracker = new MapGenerationTracker(newSeed);
+    this.generatedSeed = newSeed;
+  }
+
+  public getGenerationSeed(): number { return this.generationTracker.getSeed(); }
+
+  /**
+   * ROCK CLUSTERS with spatial-hash registration
+   */
+  private generateRocks() {
+    const mapBounds = {
+      minX: -MAP_CONFIG.width / 2,
+      maxX: MAP_CONFIG.width / 2,
+      minZ: -MAP_CONFIG.depth / 2,
+      maxZ: MAP_CONFIG.depth / 2,
+    };
+    const clusterCount = MAP_CONFIG.generation.rocks.clusterCount;
+    const rocksPerCluster = MAP_CONFIG.generation.rocks.rocksPerCluster;
+    const minOriginR = 15;
+    const requiredInBand = Math.min(2, clusterCount);
+    const bandMax = 25;
+    const minInterClusterDist = 12;
+    const maxTriesPerPoint = 200;
+    const rockRng = new SeededRandom(this.generationTracker.getSeed() + 2000);
+    const dist2 = (x: number, z: number) => x * x + z * z;
+    const withinBounds = (x: number, z: number) =>
+      x >= mapBounds.minX && x <= mapBounds.maxX && z >= mapBounds.minZ && z <= mapBounds.maxZ;
+
+    const sampleWithConstraints = (
+      existing: Array<{ x: number; z: number }>,
+      minR: number,
+      maxR?: number,
+      localMinInterClusterDist = minInterClusterDist
+    ): { x: number; z: number } | null => {
+      let inter = localMinInterClusterDist;
+      for (let phase = 0; phase < 3; phase++) {
+        for (let t = 0; t < maxTriesPerPoint; t++) {
+          const x = mapBounds.minX + rockRng.nextFloat(0, mapBounds.maxX - mapBounds.minX);
+          const z = mapBounds.minZ + rockRng.nextFloat(0, mapBounds.maxZ - mapBounds.minZ);
+          const d2 = dist2(x, z);
+          if (d2 < minR * minR) continue;
+          if (maxR !== undefined && d2 > maxR * maxR) continue;
+          let ok = true;
+          for (let i = 0; i < existing.length; i++) {
+            const dx = x - existing[i].x,
+              dz = z - existing[i].z;
+            if (dx * dx + dz * dz < inter * inter) { ok = false; break; }
+          }
+          if (!ok) continue;
+          if (!withinBounds(x, z)) continue;
+          return { x, z };
+        }
+        inter *= 0.85;
+      }
+      const a = rockRng.nextFloat(0, Math.PI * 2);
+      const r = maxR !== undefined ? Math.min(maxR, Math.max(minR, inter)) : Math.max(minR, inter);
+      let x = Math.cos(a) * r;
+      let z = Math.sin(a) * r;
+      if (!withinBounds(x, z)) {
+        x = Math.min(Math.max(x, mapBounds.minX), mapBounds.maxX);
+        z = Math.min(Math.max(z, mapBounds.minZ), mapBounds.maxZ);
+      }
+      for (let i = 0; i < existing.length; i++) {
+        const dx = x - existing[i].x,
+          dz = z - existing[i].z;
+        if (dx * dx + dz * dz < inter * inter * 0.8) {
+          const len = Math.hypot(x, z) || 1;
+          const s = (r + inter * 0.2) / len;
+          x = x * s;
+          z = z * s;
+          break;
+        }
+      }
+      return { x, z };
+    };
+
+    const centers: Array<{ x: number; z: number; resourceType: 'stone' | 'ore'; r: number }> = [];
+
+    // first guarantee band centers
+    for (let i = 0; i < requiredInBand; i++) {
+      const p = sampleWithConstraints(centers, minOriginR, bandMax) || { x: 0, z: bandMax };
+      const r =
+        MAP_CONFIG.generation.rocks.clusterRadius.min +
+        rockRng.nextFloat(
+          0,
+          MAP_CONFIG.generation.rocks.clusterRadius.max -
+            MAP_CONFIG.generation.rocks.clusterRadius.min
+        );
+      const resourceType: 'stone' | 'ore' =
+        MAP_CONFIG.generation.rocks.resourceTypes[i % MAP_CONFIG.generation.rocks.resourceTypes.length];
+      centers.push({ x: p.x, z: p.z, resourceType, r });
+      // register circle into index (rock)
+      if (this.clusterIndex) this.clusterIndex.insert(p.x, p.z, r, 'rock');
+    }
+
+    // rest anywhere with r>=minOriginR
+    for (let i = requiredInBand; i < clusterCount; i++) {
+      const p = sampleWithConstraints(centers, minOriginR) || { x: minOriginR, z: 0 };
+      const r =
+        MAP_CONFIG.generation.rocks.clusterRadius.min +
+        rockRng.nextFloat(
+          0,
+          MAP_CONFIG.generation.rocks.clusterRadius.max -
+            MAP_CONFIG.generation.rocks.clusterRadius.min
+        );
+      const resourceType: 'stone' | 'ore' =
+        MAP_CONFIG.generation.rocks.resourceTypes[i % MAP_CONFIG.generation.rocks.resourceTypes.length];
+      centers.push({ x: p.x, z: p.z, resourceType, r });
+      if (this.clusterIndex) this.clusterIndex.insert(p.x, p.z, r, 'rock');
+    }
+
+    // spawn rocks in clusters
+    for (let cluster = 0; cluster < clusterCount; cluster++) {
+      const { x: clusterCenterX, z: clusterCenterZ, resourceType, r: clusterRadius } = centers[cluster];
+      const resourceColors =
+        resourceType === 'stone'
+          ? [0x8b8355, 0x696969, 0x808080, 0xa0a29d, 0x8b7563]
+          : [0x8b4513, 0x654321, 0x8b6914, 0x6b4423, 0x654321];
+      const rockRngLocal = rockRng; // reuse
+      const dist2local = dist2;
+      for (let j = 0; j < rocksPerCluster; j++) {
+        if (this.generationTracker.isResourceCollected(cluster, j)) continue;
+        let x = 0,
+          z = 0,
+          placed = false;
+        for (let t = 0; t < 20; t++) {
+          const a = rockRngLocal.nextFloat(0, Math.PI * 2);
+          const d = rockRngLocal.nextFloat(0, clusterRadius);
+          x = clusterCenterX + Math.cos(a) * d;
+          z = clusterCenterZ + Math.sin(a) * d;
+          if (dist2local(x, z) >= minOriginR * minOriginR) { placed = true; break; }
+        }
+        if (!placed) {
+          const len = Math.hypot(clusterCenterX, clusterCenterZ) || 1;
+          const s = minOriginR / len;
+          x = clusterCenterX * s;
+          z = clusterCenterZ * s;
+        }
+        const baseSize = 0.3 + rockRngLocal.nextFloat(0, 0.2);
+        const color = rockRngLocal.nextColor(resourceColors);
+        const smoothness = 0.6 + rockRngLocal.nextFloat(0, 0.3);
+        const rock: TSceneObject = {
+          id: `rock_${cluster}_${j}`,
+          type: 'rock',
+          coordinates: { x, y: 0, z },
+          scale: { x: baseSize, y: baseSize, z: baseSize },
+          rotation: {
+            x: rockRngLocal.nextFloat(0, Math.PI),
+            y: rockRngLocal.nextFloat(0, Math.PI),
+            z: rockRngLocal.nextFloat(0, Math.PI),
+          },
+          obstacleSize: baseSize * 0.5,
+          data: {
+            color,
+            size: baseSize,
+            smoothness,
+            resourceId: resourceType,
+            resourceAmount: 14 + rockRngLocal.nextInt(0, 16),
+            modelPath: this.getRandomModelPath(rockRngLocal),
+          },
+          tags: ['on-ground', 'static', 'rock', 'resource'],
+          bottomAnchor: -baseSize * 0.3,
+          terrainAlign: true,
+          targetType: ['collect-resource'],
+        };
+        this.scene.pushObjectWithTerrainConstraint(rock);
+      }
+    }
+  }
+
+  /**
+   * BIOMASS CLUSTERS that avoid rock clusters with 1m edge gap
+   */
+  private generateBiomass() {
+    const mapBounds = {
+      minX: -MAP_CONFIG.width / 2,
+      maxX: MAP_CONFIG.width / 2,
+      minZ: -MAP_CONFIG.depth / 2,
+      maxZ: MAP_CONFIG.depth / 2,
+    };
+
+    const clusterCount = MAP_CONFIG.generation.biomass.clusterCount;
+    const biomassPerCluster = MAP_CONFIG.generation.biomass.biomassPerCluster;
+    const minOriginR = 15;
+    const requiredInBand = Math.min(2, clusterCount);
+    const bandMax = 25;
+    const minInterClusterDist = 12;
+    const maxTriesPerPoint = 200;
+
+    const biomassRng = new SeededRandom(this.generationTracker.getSeed() + 3000);
+
+    const dist2 = (x: number, z: number) => x * x + z * z;
+    const withinBounds = (x: number, z: number) =>
+      x >= mapBounds.minX && x <= mapBounds.maxX && z >= mapBounds.minZ && z <= mapBounds.maxZ;
+
+    const sampleWithConstraints = (
+      existing: Array<{ x: number; z: number }>,
+      minR: number,
+      maxR?: number,
+      localMinInterClusterDist = minInterClusterDist
+    ): { x: number; z: number } | null => {
+      let inter = localMinInterClusterDist;
+      for (let phase = 0; phase < 3; phase++) {
+        for (let t = 0; t < maxTriesPerPoint; t++) {
+          const x = mapBounds.minX + biomassRng.nextFloat(0, mapBounds.maxX - mapBounds.minX);
+          const z = mapBounds.minZ + biomassRng.nextFloat(0, mapBounds.maxZ - mapBounds.minZ);
+          const d2 = dist2(x, z);
+          if (d2 < minR * minR) continue;
+          if (maxR !== undefined && d2 > maxR * maxR) continue;
+          let ok = true;
+          for (let i = 0; i < existing.length; i++) {
+            const dx = x - existing[i].x,
+              dz = z - existing[i].z;
+            if (dx * dx + dz * dz < inter * inter) { ok = false; break; }
+          }
+          if (!ok) continue;
+          if (!withinBounds(x, z)) continue;
+          return { x, z };
+        }
+        inter *= 0.85;
+      }
+      const a = biomassRng.nextFloat(0, Math.PI * 2);
+      const r = maxR !== undefined ? Math.min(maxR, Math.max(minR, inter)) : Math.max(minR, inter);
+      let x = Math.cos(a) * r;
+      let z = Math.sin(a) * r;
+      if (!withinBounds(x, z)) {
+        x = Math.min(Math.max(x, mapBounds.minX), mapBounds.maxX);
+        z = Math.min(Math.max(z, mapBounds.minZ), mapBounds.maxZ);
+      }
+      for (let i = 0; i < existing.length; i++) {
+        const dx = x - existing[i].x,
+          dz = z - existing[i].z;
+        if (dx * dx + dz * dz < inter * inter * 0.8) {
+          const len = Math.hypot(x, z) || 1;
+          const s = (r + inter * 0.2) / len;
+          x = x * s;
+          z = z * s;
+          break;
+        }
+      }
+      return { x, z };
+    };
+
+    // centers with radii chosen *before* registering/validating vs rocks
+    const centers: Array<{ x: number; z: number; resourceType: 'biomass'; r: number }> = [];
+
+    const pickRadius = () =>
+      MAP_CONFIG.generation.biomass.clusterRadius.min +
+      biomassRng.nextFloat(
+        0,
+        MAP_CONFIG.generation.biomass.clusterRadius.max -
+          MAP_CONFIG.generation.biomass.clusterRadius.min
+      );
+
+    const tryPlaceBiomCenter = (
+      existingCenters: Array<{ x: number; z: number; r: number }>,
+      minR: number,
+      maxR?: number
+    ): { x: number; z: number; r: number } | null => {
+      for (let tries = 0; tries < 64; tries++) {
+        const p = sampleWithConstraints(existingCenters.map(c => ({ x: c.x, z: c.z })), minR, maxR);
+        if (!p) continue;
+        const r = pickRadius();
+        // ROCK avoidance via clusterIndex
+        if (
+          this.clusterIndex &&
+          this.clusterIndex.overlaps(p.x, p.z, r, ['rock'], MapLogic.CLUSTER_MARGIN)
+        ) {
+          continue; // try another position
+        }
+        return { x: p.x, z: p.z, r };
+      }
+      return null;
+    };
+
+    // 1) place some centers in the band [15..25]
+    for (let i = 0; i < requiredInBand; i++) {
+      const c = tryPlaceBiomCenter(centers, minOriginR, bandMax) || { x: 0, z: bandMax, r: pickRadius() };
+      centers.push({ x: c.x, z: c.z, r: c.r, resourceType: 'biomass' });
+      if (this.clusterIndex) this.clusterIndex.insert(c.x, c.z, c.r, 'biomass');
+    }
+    // 2) rest anywhere with r >= 15, still avoiding rocks
+    for (let i = requiredInBand; i < clusterCount; i++) {
+      const c = tryPlaceBiomCenter(centers, minOriginR) || { x: minOriginR, z: 0, r: pickRadius() };
+      centers.push({ x: c.x, z: c.z, r: c.r, resourceType: 'biomass' });
+      if (this.clusterIndex) this.clusterIndex.insert(c.x, c.z, c.r, 'biomass');
+    }
+
+    // spawn biomass within clusters
+    for (let cluster = 0; cluster < clusterCount; cluster++) {
+      const { x: clusterCenterX, z: clusterCenterZ, r: clusterRadius } = centers[cluster];
+      for (let j = 0; j < biomassPerCluster; j++) {
+        if (this.generationTracker.isResourceCollected(cluster, j)) continue;
+        let x = 0,
+          z = 0,
+          placed = false;
+        for (let t = 0; t < 20; t++) {
+          const a = biomassRng.nextFloat(0, Math.PI * 2);
+          const d = biomassRng.nextFloat(0, clusterRadius);
+          x = clusterCenterX + Math.cos(a) * d;
+          z = clusterCenterZ + Math.sin(a) * d;
+          if (dist2(x, z) >= minOriginR * minOriginR) { placed = true; break; }
+        }
+        if (!placed) {
+          const len = Math.hypot(clusterCenterX, clusterCenterZ) || 1;
+          const s = minOriginR / len;
+          x = clusterCenterX * s;
+          z = clusterCenterZ * s;
+        }
+        const baseSize = 0.8 + biomassRng.nextFloat(0, 0.4);
+        const biomass: TSceneObject = {
+          id: `biomass_${cluster}_${j}`,
+          type: 'biomass',
+          coordinates: { x, y: 0, z },
+          scale: { x: baseSize, y: baseSize, z: baseSize },
+          rotation: {
+            x: biomassRng.nextFloat(0, Math.PI * 0.1),
+            y: biomassRng.nextFloat(0, Math.PI * 2),
+            z: biomassRng.nextFloat(0, Math.PI * 0.1),
+          },
+          obstacleSize: baseSize * 0.3,
+          data: {
+            resourceId: 'biomass',
+            resourceAmount: 8 + biomassRng.nextInt(0, 12),
+            modelPath: this.getRandomBiomassModelPath(biomassRng),
+          },
+          tags: ['on-ground', 'static', 'biomass', 'resource'],
+          bottomAnchor: -baseSize * 0.1,
+          terrainAlign: true,
+          targetType: ['collect-resource'],
+        };
+        this.scene.pushObjectWithTerrainConstraint(biomass);
+      }
+    }
+  }
+
+  public static readonly BIOMASS_MODELS = [
+    '/models/resources/biomass_01.glb',
+    '/models/resources/biomass_02.glb',
+    '/models/resources/biomass_03.glb',
+  ];
+  private getRandomBiomassModelPath(rng: SeededRandom): string {
+    const rand = rng.next();
+    const index = Math.floor(rand * MapLogic.BIOMASS_MODELS.length);
+    return MapLogic.BIOMASS_MODELS[index];
+  }
+
+  private lastExplosionTime = 0;
+  private explosionInterval = 3000;
+
+  tick(dT: number) {
+    this.droneManager.tick(dT);
+    this.commandSystem.update(dT);
+    this.commandGroupSystem.update(dT);
+    this.autoGroupMonitor.update(dT);
+    this.dynamics.moveObjects(dT);
+    this.updateClouds(dT); // Оновлюємо систему хмар
+    const currentTime = performance.now();
+    if (currentTime - this.lastExplosionTime >= this.explosionInterval) {
+      this.lastExplosionTime = currentTime;
+    }
+  }
+
+  public distributeTargetsForObjects(
+    objectIds: string[],
+    centerPoint: { x: number; y: number; z: number }
+  ) {
+    const dynamicObjects = objectIds
+      .map((id) => this.scene.getObjectById(id))
+      .filter((obj) => obj && obj.tags?.includes('dynamic')) as TSceneObject[];
+    if (dynamicObjects.length === 0) return;
+    if (dynamicObjects.length === 1) {
+      const obj = dynamicObjects[0];
+      this.addMoveCommand(obj.id, { x: centerPoint.x, y: centerPoint.y, z: centerPoint.z });
+      return;
+    }
+    const radius = Math.min(dynamicObjects.length * 0.8, 10);
+    const angleStep = (2 * Math.PI) / dynamicObjects.length;
+    dynamicObjects.forEach((obj, index) => {
+      const angle = index * angleStep;
+      const targetX = centerPoint.x + Math.cos(angle) * radius;
+      const targetZ = centerPoint.z + Math.sin(angle) * radius;
+      this.addMoveCommand(obj.id, { x: targetX, y: centerPoint.y, z: targetZ });
+    });
+  }
+
+  public handleRightclickCommand(
+    objectIds: string[],
+    centerPoint: { x: number; y: number; z: number },
+    commandGroup?: any
+  ) {
+    objectIds.forEach((unitId: string) => {
+      this.commandSystem.clearCommands(unitId);
+      const activeGroups = this.commandGroupSystem.getActiveGroupsForObject(unitId);
+      if (activeGroups && activeGroups.length > 0) {
+        activeGroups.forEach((groupState: any) => {
+          this.commandGroupSystem.cancelCommandGroup(unitId, groupState.groupId);
+        });
+      }
+    });
+
+    if (!commandGroup) {
+      this.distributeTargetsForObjects(objectIds, centerPoint);
+      return;
+    }
+
+    let resourceType = 'resource';
+    if (commandGroup.id === 'gather-stone-radius' || commandGroup.ui?.category === 'stone') resourceType = 'stone';
+    else if (commandGroup.id === 'gather-ore-radius' || commandGroup.ui?.category === 'ore') resourceType = 'ore';
+    else if (commandGroup.id === 'gather-biomass-radius' || commandGroup.ui?.category === 'biomass') resourceType = 'biomass';
+    else if (commandGroup.ui?.category === 'all') resourceType = 'resource';
+
+    objectIds.forEach((unitId: string) => {
+      const context = {
+        objectId: unitId,
+        targets: { center: centerPoint, resource: undefined, base: undefined },
+        parameters: { resourceType },
+      };
+      const ok = this.commandGroupSystem.addCommandGroup(unitId, commandGroup.id, context);
+      if (!ok) Logger.error('MapLogic', `Failed to start command ${commandGroup.id} for ${unitId}`, { unitId, commandGroup });
+    });
+  }
+
+  private addMoveCommand(objectId: string, target: { x: number; y: number; z: number }) {
+    const command = {
+      id: `move_${objectId}_${Date.now()}`,
+      type: 'move-to' as const,
+      position: target,
+      parameters: {},
+      status: 'pending' as const,
+      priority: 1,
+      createdAt: Date.now(),
+    };
+    this.commandSystem.addCommand(objectId, command);
+  }
+
+  private generateClouds() {
+    const cloudCount = 5;
+    for (let i = 0; i < cloudCount; i++) {
+      const x = (Math.random() - 0.5) * 100;
+      const z = (Math.random() - 0.5) * 100;
+      const cloud: TSceneObject = {
+        id: `dust_cloud_${i}`,
+        type: 'cloud',
+        coordinates: { x, y: 0, z },
+        scale: { x: 1, y: 1, z: 1 },
+        rotation: { x: 0, y: 0, z: 0 },
+        speed: { x: (Math.random() - 0.5) * 1.5, y: 0, z: (Math.random() - 0.5) * 1.5 },
+        data: {
+          size: 21 + Math.random() * 22,
+          color: 0xd2b46c,
+          particleCount: 200,
+          windSpeed: 0.3 + Math.random() * 0.7,
+          height: 4 + Math.random() * 8,
+        },
+        tags: ['on-ground', 'dust', 'dynamic'],
+        bottomAnchor: -1,
+        terrainAlign: false,
+      };
+      this.scene.pushObjectWithTerrainConstraint(cloud);
+    }
+  }
+
+  /** Mining / Charging **/
+  mineResource(resourceId: string, selectedObjectIds: string[]): void {
+    if (selectedObjectIds.length === 0) { Logger.warn('MapLogic', 'No objects selected for mining'); return; }
+    const resource = this.scene.getObjectById(resourceId);
+    if (!resource) { Logger.error('MapLogic', `Resource ${resourceId} not found`, { resourceId }); return; }
+    const miners = selectedObjectIds.filter((id) => {
+      const obj = this.scene.getObjectById(id);
+      return obj && obj.commandType && obj.commandType.includes('collect-resource');
+    });
+    if (miners.length === 0) { Logger.warn('MapLogic', 'No valid miners selected'); return; }
+    miners.forEach((minerId) => {
+      const context: CommandGroupContext = { objectId: minerId, targets: { resource: resourceId }, parameters: { amount: 100 } };
+      const ok = this.commandGroupSystem.addCommandGroup(minerId, 'collect-resource', context);
+      if (!ok) Logger.error('MapLogic', `Failed to start mining command group for ${minerId}`, { minerId });
+    });
+  }
+
+  chargeObject(selectedObjectIds: string[]): void {
+    if (selectedObjectIds.length === 0) { Logger.warn('MapLogic', 'No objects selected for charging'); return; }
+    const chargeableObjects = selectedObjectIds.filter((id) => {
+      const obj = this.scene.getObjectById(id);
+      return obj && obj.commandType && obj.commandType.includes('charge');
+    });
+    if (chargeableObjects.length === 0) { Logger.warn('MapLogic', 'No valid chargeable objects selected'); return; }
+    chargeableObjects.forEach((objectId) => {
+      const context: CommandGroupContext = { objectId, targets: {}, parameters: {} };
+      const ok = this.commandGroupSystem.addCommandGroup(objectId, 'charge-group', context);
+      if (!ok) Logger.error('MapLogic', `Failed to start charging command group for ${objectId}`, { objectId });
+    });
+  }
+
+  // ==================== SaveLoadManager ====================
+  save(): MapLogicSaveData {
+    const collectedRocks: string[] = Array.from(this.collectedRocks);
+    return { seed: this.generatedSeed, collectedRocks };
+  }
+  load(data: MapLogicSaveData): void {
+    if (data.seed) {
+      this.generatedSeed = data.seed;
+      this.generationTracker = new MapGenerationTracker(data.seed);
+      this.initializeSeeded();
+    }
+    if (data.collectedRocks) {
+      let rockIds: string[];
+      if (Array.isArray(data.collectedRocks)) rockIds = data.collectedRocks;
+      else if (data.collectedRocks && typeof data.collectedRocks === 'object' && 'add' in (data.collectedRocks as any)) {
+        rockIds = Array.from(data.collectedRocks as Set<string>);
+      } else {
+        rockIds = Object.values(data.collectedRocks as Record<string, string>);
+      }
+      rockIds.forEach((rockId) => this.collectRock(rockId));
+    }
+  }
+
+  reset(): void {
+    this.generationTracker.reset();
+    this.collectedRocks.clear();
+    this.clearBuildings();
+    this.droneManager.reset();
+  }
+
+  private clearBuildings(): void {
+    const buildings = Object.values(this.scene.getObjects()).filter((obj) => obj.tags.includes('building'));
+    buildings.forEach((b) => this.scene.removeObject(b.id));
+  }
+
+  getObjectByIdResult(id: string): Result<TSceneObject<any>, string> {
+    const object = this.scene.getObjectById(id);
+    if (!object) return failure(`Object with id '${id}' not found`);
+    return success(object);
+  }
+
+  startCommandResult(commandId: string, unitId: string): Result<boolean, string> {
+    const unitResult = this.getObjectByIdResult(unitId);
+    return unitResult.flatMap((unit) => {
+      if (!unit.tags.includes('drone')) return failure(`Unit ${unitId} is not a drone`);
+      const commandSuccess = true;
+      if (!commandSuccess) return failure(`Failed to start command ${commandId} for ${unitId}`);
+      return success(true);
+    });
+  }
+
+  processCommandWithMatch(commandId: string, unitId: string): string {
+    const result = this.startCommandResult(commandId, unitId);
+    return match(
+      result,
+      () => `Command ${commandId} started successfully for ${unitId}`,
+      (error) => `Failed to start command: ${error}`
+    );
+  }
+
+  // ==================== Система автоматичної генерації хмар ====================
+
+  /**
+   * Генерує нову хмару на карті
+   */
+  private generateDynamicCloud(): void {
+    const cloudId = `dynamic_cloud_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const createdAt = Date.now();
+    const ttl = 60000; // 60 секунд TTL
+
+    // Генеруємо випадкові координати в межах карти
+    const mapWidth = MAP_CONFIG.width;
+    const mapDepth = MAP_CONFIG.depth;
+    const x = (Math.random() - 0.5) * mapWidth;
+    const z = (Math.random() - 0.5) * mapDepth;
+
+    // Створюємо об'єкт хмари
+    const cloud: TSceneObject = {
+      id: cloudId,
+      type: 'cloud',
+      coordinates: { x, y: 0, z },
+      scale: { x: 1, y: 1, z: 1 },
+      rotation: { x: 0, y: 0, z: 0 },
+      speed: { 
+        x: (Math.random() - 0.5) * 1.5, 
+        y: 0, 
+        z: (Math.random() - 0.5) * 1.5 
+      },
+      data: {
+        size: 21 + Math.random() * 22,
+        color: 0xd2b46c,
+        particleCount: 200,
+        windSpeed: 0.3 + Math.random() * 0.7,
+        height: 4 + Math.random() * 8,
+        createdAt: createdAt,
+        ttl: ttl,
+        fadeStartTime: 45000 // Початок згасання за 15 секунд до завершення
+      },
+      tags: ['on-ground', 'dust', 'dynamic'],
+      bottomAnchor: -1,
+      terrainAlign: false,
+    };
+
+    // Додаємо хмару до сцени
+    this.scene.pushObjectWithTerrainConstraint(cloud);
     
+    // Записуємо в активні хмари для відстеження TTL
+    this.activeClouds.set(cloudId, { createdAt, ttl });
+
+    console.log(`Generated dynamic cloud ${cloudId} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+  }
+
+  /**
+   * Оновлює стан всіх активних хмар (TTL та згасання)
+   */
+  private updateClouds(deltaTime: number): void {
+    const now = Date.now();
+    const cloudsToRemove: string[] = [];
+
+    // Оновлюємо таймер генерації
+    this.cloudGenerationTimer += deltaTime;
+    if (this.cloudGenerationTimer >= this.cloudGenerationInterval) {
+      this.generateDynamicCloud();
+      this.cloudGenerationTimer = 0;
+    }
+
+    // Перевіряємо всі активні хмари
+    for (const [cloudId, cloudData] of this.activeClouds) {
+      const age = now - cloudData.createdAt;
+      
+      // Якщо час життя закінчився - видаляємо хмару
+      if (age >= cloudData.ttl) {
+        this.scene.removeObject(cloudId);
+        cloudsToRemove.push(cloudId);
+        continue;
+      }
+
+      // Якщо почався період згасання - зменшуємо прозорість
+      const fadeStartTime = 45000; // 15 секунд до завершення
+      if (age >= fadeStartTime) {
+        const fadeProgress = (age - fadeStartTime) / (cloudData.ttl - fadeStartTime);
+        const opacity = Math.max(0, 1 - fadeProgress);
+        
+        // Оновлюємо прозорість хмари
+        const cloud = this.scene.getObjectById(cloudId);
+        if (cloud && cloud.data && cloud.data.color) {
+          const alpha = Math.floor(opacity * 255);
+          cloud.data.color = (cloud.data.color & 0xFFFFFF) | (alpha << 24);
+        }
+      }
+    }
+
+    // Видаляємо хмари що закінчили життя
+    for (const cloudId of cloudsToRemove) {
+      this.activeClouds.delete(cloudId);
+    }
+  }
 }

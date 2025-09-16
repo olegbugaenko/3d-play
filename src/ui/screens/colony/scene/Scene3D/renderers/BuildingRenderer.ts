@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { BaseRenderer } from './BaseRenderer';
+import { TSceneObject } from '@logic/systems/scene/scene.types';
 import { BUILDINGS_DB } from '@logic/modules/buildings/buildings-db';
 import { ResourceRequest } from '@logic/modules/resources/resource-types';
 import { RESOURCES_DB, ResourceId } from '@logic/modules/resources/resources-db';
@@ -16,36 +17,34 @@ const _viewDir = new THREE.Vector3();
 
 // ---------- Screen-space таргети ----------
 const HUD_TARGET_PX = {
-  resourceHeight: 48, // екранна висота всього HUD у пікселях (фіксуємо)
+  resourceHeight: 48,
   minScale: 0.1,
   maxScale: 100.0,
 };
 
-// робимо HUD вужчим без втрати різкості: малюємо у центральній частці і кропимо UV
-const HUD_SAFE_FRACTION = 0.25; // 25% від повної ширини canvas
+const HUD_SAFE_FRACTION = 0.25;
 const HUD_CROP_X = HUD_SAFE_FRACTION;
 
 // Позиціонування у світі
 const HUD_WORLD_Y_OFFSET_FALLBACK = 0.6;
-const HUD_WORLD_Z_OFFSET = 0.035; // трохи ближче до камери
+const HUD_WORLD_Z_OFFSET = 0.035;
 
-// Висоти/ширини елементів у логічних px (до множення на DPR)
-const PROGRESS_HEIGHT_PX = 5;   // верхній construction-бар (у HUD)
-const ROW_HEIGHT_PX      = 28;  // висота рядка ресурсу
+// Висоти/ширини елементів у логічних px
+const PROGRESS_HEIGHT_PX = 5;
+const ROW_HEIGHT_PX      = 28;
 const ICON_SIZE_PX       = 24;
 
-const NAME_MIN_W_PX      = 120; // мін. ширина колонки "Назва"
-const BAR_MIN_W_PX       = 50;  // мін. ширина прогрес-бару
-const BAR_MAX_W_PX       = 160; // макс. ширина прогрес-бару
-const BAR_HEIGHT_PX      = 4;   // висота прогрес-бару
+const NAME_MIN_W_PX      = 120;
+const BAR_MIN_W_PX       = 50;
+const BAR_MAX_W_PX       = 160;
+const BAR_HEIGHT_PX      = 4;
 
-const SIDE_PAD_PX        = 16;  // внутрішні поля у SAFE-області
+const SIDE_PAD_PX        = 16;
 const GAP_SMALL_PX       = 8;
 const GAP_MEDIUM_PX      = 12;
-const REQ_COL_W_PX       = 48;  // колонка праворуч "необхідна кількість"
+const REQ_COL_W_PX       = 48;
 
-// --- якість канвасу ---
-const INTERNAL_SCALE = 2; // супресемплінг 2x для чітких шрифтів
+const INTERNAL_SCALE = 2;
 
 // --------- Типи ---------
 type ResourceInfo = {
@@ -61,14 +60,16 @@ export class BuildingRenderer extends BaseRenderer {
   private loader: GLTFLoader;
   private modelCache: Map<string, THREE.Group> = new Map();
   private lastCanvasUpdate: number = 0;
-  private readonly CANVAS_UPDATE_THROTTLE_MS = 200; // 5 разів на секунду
+  private readonly CANVAS_UPDATE_THROTTLE_MS = 200;
   private cachedCanvasTexture: THREE.CanvasTexture | null = null;
+
+  private lastAspect = 1;
+  private lastContentHeightWorld = 1;
 
   constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
     super(scene, renderer);
     (this as any).renderer = renderer;
 
-    // fallback-геометрія/матеріал
     this.geometry = new THREE.BoxGeometry(1, 1, 1);
     this.material = new THREE.MeshBasicMaterial({
       color: 0xffff00,
@@ -83,7 +84,6 @@ export class BuildingRenderer extends BaseRenderer {
     this.loader = new GLTFLoader();
   }
 
-  // ---------- публічний хелпер для рантайм-зсуву ----------
   public setHudYOffset(objectId: string, y: number) {
     const anchor = this.meshes.get(objectId);
     if (!anchor) return;
@@ -91,8 +91,42 @@ export class BuildingRenderer extends BaseRenderer {
     (anchor as any).userData.hudYOffset = y;
   }
 
-  // ---------- Render ----------
-  render(object: SceneObject): THREE.Object3D {
+  // --- допоміжне: санітизація PBR ---
+  private sanitizePBR(child: any, isUnderConstruction: boolean) {
+    const apply = (m: any) => {
+      // для готових будівель прибираємо типові «приглушувачі»
+      if (!isUnderConstruction) {
+        if (m.transparent) m.transparent = false;
+        if (typeof m.opacity === 'number' && m.opacity < 1) m.opacity = 1.0;
+        if ('toneMapped' in m) m.toneMapped = true;
+
+        // якщо є альбедо-текстура — колір має бути чисто білий (без множення)
+        if (m.map && m.color?.isColor) m.color.set(0xffffff);
+
+        // іноді експортери включають vertex colors → множення на альбедо
+        if (m.vertexColors === true) m.vertexColors = false;
+
+        // надто агресивна AO або відсутній uv2 → глобально затемнює
+        if (m.aoMap) {
+          const hasUv2 = !!child.geometry?.attributes?.uv2;
+          if (!hasUv2) m.aoMapIntensity = 0; // відключаємо вплив
+          // Якщо навіть із uv2 темно — можна спробувати знизити:
+          // m.aoMapIntensity = Math.min(m.aoMapIntensity ?? 1, 0.5);
+        }
+      } else {
+        // твій поточний режим будівництва — залишаю як є
+        m.transparent = true;
+        m.opacity = 0.6;
+        m.toneMapped = false;
+        m.fog = false;
+      }
+    };
+
+    if (Array.isArray(child.material)) child.material.forEach(apply);
+    else apply(child.material);
+  }
+
+  render(object: TSceneObject): THREE.Object3D {
     const data: any = object.data || {};
     const buildingType = data?.typeId || data?.buildingType || 'storage';
     const config = BUILDINGS_DB.get(buildingType);
@@ -110,7 +144,7 @@ export class BuildingRenderer extends BaseRenderer {
 
     this.addMesh(object.id, container);
 
-    // читаємо бажаний зсув HUD по Y
+    // HUD offset
     const userHudOffset = Number(data?.hudOffsetY ?? config?.ui?.hudOffsetY ?? 0);
     (container as any).userData = (container as any).userData || {};
     (container as any).userData.hudYOffset = userHudOffset;
@@ -118,7 +152,7 @@ export class BuildingRenderer extends BaseRenderer {
     const isUnderConstruction = !data?.built || data?.level === 0;
     const constructionProgress = THREE.MathUtils.clamp(data?.constructionProgress ?? 0, 0, 1);
 
-    // Fallback одразу
+    // Fallback
     const fallback = this.createFallbackMesh();
     fallback.name = 'fallback';
     container.add(fallback);
@@ -128,54 +162,63 @@ export class BuildingRenderer extends BaseRenderer {
       const baseParentScale = this.getBaseParentScale(container);
       const baseY = HUD_WORLD_Y_OFFSET_FALLBACK + userHudOffset;
       this.attachOrUpdateCombinedHUD(container, constructionProgress, resourceInfo, baseY, baseParentScale);
-      (container as any).userData.constructionBarY = HUD_WORLD_Y_OFFSET_FALLBACK; // збережемо «базову» без offset
+      (container as any).userData.constructionBarY = HUD_WORLD_Y_OFFSET_FALLBACK;
     }
 
-    // якщо немає моделі — повертаємо контейнер із fallback/HUD
+    // якщо немає моделі — повертаємо контейнер
     if (!config) return container;
     const modelName = config.ui?.modelName;
     if (!modelName) return container;
 
     const modelPath = modelName.startsWith('/') ? modelName : `/${modelName}`;
+
     const applyModel = (src: THREE.Group) => {
       const fb = container.getObjectByName('fallback');
       if (fb) container.remove(fb);
 
+      // Клон сцени
       const model = src.clone(true) as THREE.Group;
 
-      // колір з конфіга
-      const color = config.ui?.color;
+      // ГЛИБОКО клонувати матеріали (щоб не шарились між інстансами)
+      model.traverse((child: any) => {
+        if (child.isMesh && child.material) {
+          if (Array.isArray(child.material)) {
+            child.material = child.material.map((m: any) => (m?.clone ? m.clone() : m));
+          } else if (child.material?.clone) {
+            child.material = child.material.clone();
+          }
+          // Якщо десь модифікуєш геометрію — клон теж:
+          // child.geometry = child.geometry?.clone?.() ?? child.geometry;
+        }
+      });
+
+      // колір з конфіга (НЕ тінтити, якщо є map)
+      const color = config?.ui?.color;
       if (color) {
         const hex = parseInt(color.replace('#', ''), 16);
         model.traverse((child: any) => {
           if (child.isMesh && child.material) {
-            if (Array.isArray(child.material)) child.material.forEach((m: any) => m?.color?.setHex?.(hex));
-            else (child.material as any).color?.setHex?.(hex);
+            const tint = (m: any) => { if (!m.map && m.color?.setHex) m.color.setHex(hex); };
+            Array.isArray(child.material) ? child.material.forEach(tint) : tint(child.material);
           }
         });
       }
 
-      // недобудова — напівпрозорість
-      if (isUnderConstruction) {
-        model.traverse((child: any) => {
-          if (child.isMesh && child.material) {
-            const apply = (m: any) => { m.transparent = true; m.opacity = 0.6; m.toneMapped = false; m.fog = false; };
-            Array.isArray(child.material) ? child.material.forEach(apply) : apply(child.material);
-          }
-        });
-      }
+      // Санітизуємо PBR (vertexColors / aoMap / color множення)
+      model.traverse((child: any) => {
+        if (child.isMesh && child.material) this.sanitizePBR(child, isUnderConstruction);
+      });
 
       container.add(model);
 
       if (isUnderConstruction) {
         const bbox = new THREE.Box3().setFromObject(model);
         const h = Math.max(0.001, bbox.max.y - bbox.min.y);
-        const baseY = bbox.max.y + 0.15 * h; // «чиста» висота
-        (container as any).userData.constructionBarY = baseY; // запам'ятаємо
+        const baseY = bbox.max.y + 0.15 * h;
+        (container as any).userData.constructionBarY = baseY;
 
         const baseParentScale = this.getBaseParentScale(container);
         const resourceInfo = this.getBuildingResourceInfo(buildingType, data?.resourcesCollected || {});
-        // передаємо barY + offset
         this.attachOrUpdateCombinedHUD(
           container,
           constructionProgress,
@@ -207,7 +250,7 @@ export class BuildingRenderer extends BaseRenderer {
     anchor: THREE.Object3D,
     constructionProgress: number,
     resourceInfo: ResourceInfo,
-    barY: number,               // УЖЕ з урахуванням offset, якщо треба
+    barY: number,
     baseParentScale: number
   ): void {
     let hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
@@ -215,7 +258,6 @@ export class BuildingRenderer extends BaseRenderer {
     const { texture, aspect, contentHeightWorld } =
       this.buildCombinedCanvasTexture(constructionProgress, resourceInfo);
 
-    // геометрія площини: висота фіксована, ширина = aspect * height, потім кроп по X
     const baseW = contentHeightWorld * aspect;
     const baseH = contentHeightWorld;
     const planeW = baseW * HUD_CROP_X;
@@ -242,7 +284,6 @@ export class BuildingRenderer extends BaseRenderer {
       );
       bg.name = 'hudPlane';
 
-      // кроп UV по X
       if ((bg.material as THREE.MeshBasicMaterial).map) {
         const map = (bg.material as THREE.MeshBasicMaterial).map!;
         map.wrapS = THREE.ClampToEdgeWrapping;
@@ -256,30 +297,24 @@ export class BuildingRenderer extends BaseRenderer {
 
       const rendererRef = (this as any).renderer as THREE.WebGLRenderer | undefined;
       (bg as any).onBeforeRender = (_r: any, _s: any, camera: THREE.Camera) => {
-        // беремо додатковий зсув із userData (щоб працювало і при зміні в рантаймі)
         const extraY = (anchor as any).userData?.hudYOffset ?? 0;
 
-        // позиція над anchor
         _localOffset.set(0, barY + extraY, 0);
         anchor.updateWorldMatrix(true, false);
         anchor.localToWorld(_worldPos.copy(_localOffset));
 
-        // білбординг
         (camera as THREE.Object3D).getWorldQuaternion(_qCam);
         hud!.quaternion.copy(_qCam);
 
-        // розводка трохи до камери
         (camera as any).getWorldDirection?.(_viewDir) ?? _viewDir.set(0, 0, -1).applyQuaternion(_qCam);
         const pos = _worldPos.clone().addScaledVector(_viewDir, -HUD_WORLD_Z_OFFSET);
         hud!.position.copy(pos);
 
-        // anti-scale
         anchor.getWorldScale(_worldScale);
         const sx = _worldScale.x || 1, sy = _worldScale.y || 1, sz = _worldScale.z || 1;
         const base = 1 / Math.max(baseParentScale, 1e-6);
         const anti = base / Math.max(Math.max(sx, sy), sz);
 
-        // screen-space lock по висоті (снап до цілого px)
         const screenS = this.computeScreenSpaceScale(
           camera, hud!.position, planeH, Math.round(HUD_TARGET_PX.resourceHeight), rendererRef
         );
@@ -291,7 +326,6 @@ export class BuildingRenderer extends BaseRenderer {
       (anchor as any).userData = (anchor as any).userData || {};
       (anchor as any).userData.combinedHUD = hud;
     } else {
-      // оновлення існуючого HUD
       const bg = hud.getObjectByName('hudPlane') as THREE.Mesh;
       const mat = bg.material as THREE.MeshBasicMaterial;
       mat.map?.dispose();
@@ -310,7 +344,7 @@ export class BuildingRenderer extends BaseRenderer {
         mat.map.wrapT = THREE.ClampToEdgeWrapping;
         mat.map.repeat.set(HUD_CROP_X, 1);
         mat.map.offset.set((1 - HUD_CROP_X) * 0.5, 0);
-        mat.map.needsUpdate = true;
+        mat.needsUpdate = true;
       }
     }
   }
@@ -328,20 +362,19 @@ export class BuildingRenderer extends BaseRenderer {
     constructionProgress: number,
     resourceInfo: ResourceInfo
   ): { texture: THREE.CanvasTexture; aspect: number; contentHeightWorld: number } {
-    // Throttling для перемальовки канвасу
     const now = Date.now();
     if (now - this.lastCanvasUpdate < this.CANVAS_UPDATE_THROTTLE_MS) {
-      return this.getCachedCanvasTexture();
+      const { texture } = this.getCachedCanvasTexture();
+      return { texture, aspect: this.lastAspect, contentHeightWorld: this.lastContentHeightWorld };
     }
     this.lastCanvasUpdate = now;
 
-    // супресемплінг * POT для чіткості / коректних міпів
     const rendererDpr =
       this.renderer?.getPixelRatio?.() ??
       (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1;
     const dpr = rendererDpr * INTERNAL_SCALE;
 
-    const baseWidth = 1024; // логічні px по ширині (до множення на dpr)
+    const baseWidth = 1024;
     const widthRaw = Math.round(baseWidth * dpr);
 
     const rows = Math.max(1, Object.keys(resourceInfo.required).length);
@@ -353,22 +386,18 @@ export class BuildingRenderer extends BaseRenderer {
 
     const heightRaw = pad + progressH + vGap + rows * rowH + pad;
 
-    // Округляємо до степенів двійки для міпмапів (не змінюємо розкладку контенту всередині)
     const toPOT = (v: number) => THREE.MathUtils.ceilPowerOfTwo(Math.max(2, v));
     const width  = toPOT(widthRaw);
     const height = toPOT(heightRaw);
 
-    // Canvas
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d')!;
 
-    // фон (малюємо по всій POT-текстурі)
     ctx.fillStyle = 'rgba(0,0,0,0.92)';
     ctx.fillRect(0, 0, width, height);
 
-    // SAFE-область по ширині (рахуємо від widthRaw, щоб контент не «плив»)
     const safeW = Math.round(widthRaw * HUD_SAFE_FRACTION);
     const safeX = Math.round((widthRaw - safeW) * 0.5);
     const safeRight = safeX + safeW;
@@ -382,7 +411,6 @@ export class BuildingRenderer extends BaseRenderer {
     const contentLeft  = safeX + sidePad;
     const contentRight = safeRight - sidePad;
 
-    // Верхній ПРОГРЕС усередині SAFE
     const progressX = contentLeft;
     const progressW = Math.max(1, contentRight - contentLeft);
     const progressY = pad;
@@ -399,12 +427,11 @@ export class BuildingRenderer extends BaseRenderer {
       progressH
     );
 
-    // Рядки ресурсів (також у SAFE)
     const iconSize = px(ICON_SIZE_PX);
     const iconX = contentLeft;
 
-    const reqX = contentRight;         // правий край числа "required"
-    const rightLimit = reqX - reqColW; // межа для бару
+    const reqX = contentRight;
+    const rightLimit = reqX - reqColW;
 
     const nameX = iconX + iconSize + gapS;
 
@@ -441,7 +468,6 @@ export class BuildingRenderer extends BaseRenderer {
 
       const rowCenterY = startY + i * rowH + Math.round(rowH * 0.5);
 
-      // розподіл місця між назвою і баром
       let nameMaxW = Math.round(availableBetween * 0.55);
       let barW     = availableBetween - nameMaxW;
 
@@ -452,13 +478,11 @@ export class BuildingRenderer extends BaseRenderer {
 
       const barX = nameX + nameMaxW + gapM;
 
-      // іконка (SVG → Image → drawImage)
       const res = RESOURCES_DB[resourceId as ResourceId];
       const hex = res?.color ?? '#cccccc';
       const iconY = rowCenterY - Math.round(iconSize / 2);
       this.drawResourceIcon(ctx, resourceId, iconX, iconY, iconSize, hex, done);
 
-      // назва
       const name = res?.name ?? resourceId;
       const nameY = rowCenterY + px(1);
       ctx.fillStyle = done ? '#12d06b' : '#ffffff';
@@ -468,7 +492,6 @@ export class BuildingRenderer extends BaseRenderer {
       ctx.textAlign = 'left';
       ctx.fillText(clippedName, nameX, nameY);
 
-      // прогрес-бар
       const p = reqAmt > 0 ? Math.max(0, Math.min(1, got / reqAmt)) : 1;
       const bY = rowCenterY - Math.round(barH / 2);
       ctx.fillStyle = 'rgba(255,255,255,0.20)';
@@ -478,7 +501,6 @@ export class BuildingRenderer extends BaseRenderer {
       ctx.fillStyle = done ? '#12d06b' : '#ff4444';
       ctx.fillRect(barX, bY, Math.max(px(6), Math.round(barW * p)), barH);
 
-      // required праворуч
       ctx.font = qtyFont;
       ctx.fillStyle = '#e6e6e6';
       ctx.textBaseline = 'middle';
@@ -490,26 +512,24 @@ export class BuildingRenderer extends BaseRenderer {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.generateMipmaps = true; // POT → міпи ок
+    texture.generateMipmaps = true;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.anisotropy = this.renderer?.capabilities?.getMaxAnisotropy?.() ?? 8;
     texture.needsUpdate = true;
 
-    // Оновлюємо кеш
     this.cachedCanvasTexture = texture;
 
-    // aspect беремо від "контентних" розмірів, не POT
     const aspect = widthRaw / heightRaw;
-    const contentHeightWorld = 1.0; // довільна world-висота (екранну фіксуємо через screen-lock)
+    const contentHeightWorld = 1.0;
+
+    this.lastAspect = aspect;
+    this.lastContentHeightWorld = contentHeightWorld;
 
     return { texture, aspect, contentHeightWorld };
   }
 
   // ---------- Helpers ----------
-  /**
-   * Повертає кешовану текстуру канвасу
-   */
   private getCachedCanvasTexture(): { texture: THREE.CanvasTexture; aspect: number; contentHeightWorld: number } {
     if (!this.cachedCanvasTexture) {
       const canvas = document.createElement('canvas');
@@ -524,14 +544,11 @@ export class BuildingRenderer extends BaseRenderer {
     }
     return {
       texture: this.cachedCanvasTexture,
-      aspect: 1,
-      contentHeightWorld: 1
+      aspect: this.lastAspect,
+      contentHeightWorld: this.lastContentHeightWorld
     };
   }
 
-  /**
-   * Малює SVG іконку ресурсу на канвасі (і тригерить оновлення текстури)
-   */
   private drawResourceIcon(
     ctx: CanvasRenderingContext2D,
     resourceId: string,
@@ -549,11 +566,8 @@ export class BuildingRenderer extends BaseRenderer {
     const url = URL.createObjectURL(svgBlob);
 
     img.onload = () => {
-      // малюємо напряму в основний canvas
       ctx.drawImage(img, Math.round(x), Math.round(y), Math.round(size), Math.round(size));
       URL.revokeObjectURL(url);
-
-      // 🔥 текстура вже створена — позначаємо, що її треба перевантажити
       if (this.cachedCanvasTexture) {
         this.cachedCanvasTexture.needsUpdate = true;
       }
@@ -603,7 +617,6 @@ export class BuildingRenderer extends BaseRenderer {
     const viewportH =
       (size?.y ?? (typeof window !== 'undefined' ? window.innerHeight : 800)) * dpr;
 
-    // ORTHO
     if ((camera as any).isOrthographicCamera) {
       const cam = camera as THREE.OrthographicCamera;
       const orthoHeight = Math.max(1e-6, cam.top - cam.bottom);
@@ -613,7 +626,6 @@ export class BuildingRenderer extends BaseRenderer {
       return THREE.MathUtils.clamp(s, HUD_TARGET_PX.minScale, HUD_TARGET_PX.maxScale);
     }
 
-    // PERSPECTIVE
     if ((camera as any).isPerspectiveCamera) {
       (camera as THREE.Object3D).getWorldPosition(_camPos);
       const d = _camPos.distanceTo(worldPos);
@@ -628,8 +640,7 @@ export class BuildingRenderer extends BaseRenderer {
     return 1;
   }
 
-  // ---------- Update / Dispose ----------
-  public update(object: SceneObject): void {
+  public update(object: TSceneObject): void {
     super.update(object);
     const anchor = this.meshes.get(object.id);
     if (!anchor) return;
@@ -640,15 +651,16 @@ export class BuildingRenderer extends BaseRenderer {
 
     const hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
 
+    console.log(`[BuildingRenderer] ${object.id}: isUnderConstruction=${isUnderConstruction}, built=${data?.built}, level=${data?.level}, constructionProgress=${data?.constructionProgress}`);
     if (isUnderConstruction) {
       const buildingType = data?.typeId || data?.buildingType || 'storage';
       const info = this.getBuildingResourceInfo(buildingType, data?.resourcesCollected || {});
       const baseParentScale = this.getBaseParentScale(anchor);
 
-      // базовий barY (без урахування offset)
       const storedBaseY = (anchor as any).userData?.constructionBarY ?? HUD_WORLD_Y_OFFSET_FALLBACK;
       const extraY = (anchor as any).userData?.hudYOffset ?? 0;
       const barY = storedBaseY + extraY;
+      console.log('Redraw: ', info);
 
       if (hud) {
         const { texture, aspect, contentHeightWorld } = this.buildCombinedCanvasTexture(p, info);
@@ -674,10 +686,9 @@ export class BuildingRenderer extends BaseRenderer {
           mat.map.wrapT = THREE.ClampToEdgeWrapping;
           mat.map.repeat.set(HUD_CROP_X, 1);
           mat.map.offset.set((1 - HUD_CROP_X) * 0.5, 0);
-          mat.map.needsUpdate = true;
+          mat.needsUpdate = true;
         }
 
-        // зберігаємо barY у userData, щоб onBeforeRender мав актуальне значення
         (anchor as any).userData.constructionBarY = storedBaseY;
         (anchor as any).userData.hudYOffset = extraY;
       } else {

@@ -1,6 +1,6 @@
 import { Command, CommandType, CommandContext, CommandStatus, CommandFailureCode, CommandResult } from './command.types';
 import { CommandExecutor } from './CommandExecutor';
-import { MoveToExecutor, CollectResourceExecutor, UnloadResourcesExecutor, ChargeExecutor } from './executors';
+import { MoveToExecutor, CollectResourceExecutor, UnloadResourcesExecutor, LoadResourcesExecutor, BuildExecutor, ConditionalLoopExecutor, ChargeExecutor } from './executors';
 import { CommandQueue } from './CommandQueue';
 import { ICommandQueue } from '@interfaces/ICommandQueue';
 import { SaveLoadManager, CommandSystemSaveData } from '../save-load/save-load.types';
@@ -97,6 +97,15 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             case 'unload-resources':
                 executor = new UnloadResourcesExecutor(command, context);
                 break;
+            case 'load-resources':
+                executor = new LoadResourcesExecutor(command, context);
+                break;
+            case 'build':
+                executor = new BuildExecutor(command, context);
+                break;
+            case 'conditional-loop':
+                executor = new ConditionalLoopExecutor(command, context);
+                break;
             case 'charge':
                 executor = new ChargeExecutor(command, context);
                 break;
@@ -131,10 +140,8 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             executor.consumePower(deltaTime);
 
             // Виконуємо команду
-            const result = executor.execute();
-
-        
-
+            const result = executor.execute(); 
+            console.log(`[RUN-COMMAND]: ${executor.getCommand().type}`, this.commandQueues.get(`rover_1`), result);
             if (!result.success) {
                 console.warn(`Command execution failed for ${objectId}: ${result.message} [${result.code}]`);
                 
@@ -159,8 +166,10 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
                 continue;
             }
 
+
             // Перевіряємо чи завершена команда
             if (executor.completeCheck()) {
+                // console.log(`[RUN-COMMAND COMPLETE]: ${executor.getCommand().type}`, executor.getCommand());
                 executor.updateCommandStatus('completed');
                 
                 // Отримуємо чергу команд
@@ -332,6 +341,21 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
         if (command.parameterTemplates.targetId && resolvedParameters[command.parameterTemplates.targetId.parameterId]) {
             const value = resolvedParameters[command.parameterTemplates.targetId.parameterId];
             command.targetId = value?.id || value;
+        }
+
+        // Застосовуємо інші параметри з resolvedParamsMapping
+        if (command.resolvedParamsMapping) {
+            for (const [commandField, parameterId] of Object.entries(command.resolvedParamsMapping)) {
+                if (resolvedParameters[parameterId] !== undefined) {
+                    // Ініціалізуємо parameters якщо потрібно
+                    if (!command.parameters) {
+                        command.parameters = {};
+                    }
+                    // Застосовуємо значення
+                    command.parameters[commandField] = resolvedParameters[parameterId];
+                    console.log(`[CommandSystem] Applied resolved parameter: ${commandField} = ${parameterId} =`, resolvedParameters[parameterId]);
+                }
+            }
         }
     }
 
@@ -613,7 +637,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
      * Перевіряє чи є тип команди валідним
      */
     private isValidCommandType(type: string): type is CommandType {
-        return ['move-to', 'collect-resource', 'unload-resources', 'wait', 'attack', 'build', 'charge'].includes(type);
+        return ['move-to', 'collect-resource', 'unload-resources', 'wait', 'attack', 'build', 'charge', 'load-resources', 'conditional-loop'].includes(type);
     }
 
     // ==================== ICommandSystem Implementation ====================
@@ -641,6 +665,15 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
                 break;
             case 'unload-resources':
                 executor = new UnloadResourcesExecutor(command, context);
+                break;
+            case 'load-resources':
+                executor = new LoadResourcesExecutor(command, context);
+                break;
+            case 'build':
+                executor = new BuildExecutor(command, context);
+                break;
+            case 'conditional-loop':
+                executor = new ConditionalLoopExecutor(command, context);
                 break;
             case 'charge':
                 executor = new ChargeExecutor(command, context);
@@ -682,6 +715,58 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             this.executors.delete(objectId);
         }
         return removed;
+    }
+
+    /**
+     * Вставляє команди в чергу перед вказаною командою
+     */
+    insertCommandsBefore(objectId: string, beforeCommandId: string, commands: Command[]): boolean {
+        const queue = this.commandQueues.get(objectId);
+        if (!queue) {
+            console.error(`[CommandSystem] No command queue found for object ${objectId}`);
+            return false;
+        }
+
+        try {
+            // Використовуємо метод черги для вставки команд
+            if (typeof queue.insertCommandsBefore === 'function') {
+                queue.insertCommandsBefore(beforeCommandId, commands);
+                console.log(`[CommandSystem] Inserted ${commands.length} commands before ${beforeCommandId} for ${objectId}`);
+                return true;
+            } else {
+                console.error(`[CommandSystem] Queue does not support insertCommandsBefore method`);
+                return false;
+            }
+        } catch (error) {
+            console.error(`[CommandSystem] Error inserting commands:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Вставляє команди в чергу після вказаної команди
+     */
+    insertCommandsAfter(objectId: string, afterCommandId: string, commands: Command[]): boolean {
+        const queue = this.commandQueues.get(objectId);
+        if (!queue) {
+            console.error(`[CommandSystem] No command queue found for object ${objectId}`);
+            return false;
+        }
+
+        try {
+            // Використовуємо метод черги для вставки команд
+            if (typeof queue.insertCommandsAfter === 'function') {
+                queue.insertCommandsAfter(afterCommandId, commands);
+                console.log(`[CommandSystem] Inserted ${commands.length} commands after ${afterCommandId} for ${objectId}`);
+                return true;
+            } else {
+                console.error(`[CommandSystem] Queue does not support insertCommandsAfter method`);
+                return false;
+            }
+        } catch (error) {
+            console.error(`[CommandSystem] Error inserting commands:`, error);
+            return false;
+        }
     }
 
     /**

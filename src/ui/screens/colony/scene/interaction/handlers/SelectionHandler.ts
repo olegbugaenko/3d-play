@@ -212,7 +212,29 @@ export class SelectionHandler extends InteractionHandler {
     
     // Використовуємо ефективний метод з SelectionLogic для пошуку інтерактивних об'єктів
     const interactableObjects = this.mapLogic.selection.findInteractableObjects();
+
+    console.log('ChckInter: ', interactableObjects, selected);
     
+    // Перевіряємо недобудовані будівлі серед інтерактивних об'єктів
+    const clickedUnbuiltBuilding = interactableObjects.find((o: TSceneObject) => {
+      if (!o.tags?.includes('building')) return false;
+      console.log('BLD: ', o.data, 'commandType:', o.commandType);
+      // Перевіряємо чи будівля недобудована
+      if (o.data?.isBuilt !== false) return false;
+      const mesh = this.rendererManager.getMeshById(o.id);
+      if (!mesh) return false;
+      const sphere = new THREE.Sphere(
+        new THREE.Vector3(o.coordinates.x, o.coordinates.y, o.coordinates.z),
+        Math.max(o.scale.x, o.scale.y, o.scale.z) * 0.5
+      );
+      return raycaster.ray.intersectsSphere(sphere);
+    });
+
+    if (clickedUnbuiltBuilding) {
+      this.startConstructionWorkflow(clickedUnbuiltBuilding.id, selected);
+      return;
+    }
+
     // Перевіряємо ресурси та зарядки серед інтерактивних об'єктів
     const clickedResource = interactableObjects.find((o: TSceneObject) => {
       if (!o.tags?.includes('resource')) return false;
@@ -277,6 +299,47 @@ export class SelectionHandler extends InteractionHandler {
     if (selectedUnits.length > 0) {
       // Використовуємо той самий метод, що і в CommandHandler
       this.mapLogic.handleRightclickCommand(selectedUnits, { x: p.x, y: p.y, z: p.z }, null);
+    }
+  }
+
+  /**
+   * Запускає workflow будівництва для вибраних дронів
+   */
+  private startConstructionWorkflow(buildingId: string, selectedUnits: string[]): void {
+    console.log(`Starting construction workflow for building ${buildingId} with ${selectedUnits.length} units`);
+    console.log('Selected units:', selectedUnits);
+    
+    // Фільтруємо тільки дронів (rovers)
+
+    // Запускаємо групу команд 'construction' для кожного дрона
+    const commandGroupSystem = this.mapLogic.commandGroupSystem;
+    if (!commandGroupSystem) {
+      console.error('CommandGroupSystem not found');
+      return;
+    }
+
+    for (const drone of selectedUnits) {
+      try {
+        // Запускаємо групу команд будівництва
+        const success = commandGroupSystem.addCommandGroup(
+          drone,
+          'construction',
+          {
+            targets: {
+              buildingId: buildingId // Передаємо ID недобудованої будівлі
+            },
+            objectId: drone
+          }
+        );
+
+        if (success) {
+          console.log(`Construction group started for drone ${drone} -> building ${buildingId}`);
+        } else {
+          console.error(`Failed to start construction group for drone ${drone}`);
+        }
+      } catch (error) {
+        console.error(`Error starting construction workflow for drone ${drone}:`, error);
+      }
     }
   }
 }

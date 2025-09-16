@@ -19,3 +19,52 @@ body {
   width: 100vw;
   height: 100vh;
 }
+
+/* General styles */
+
+.box {
+  padding: 8px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background-color: rgba(0,0,0,0.75);
+}
+
+.vertical-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.horizontal-row {
+  display: flex;
+  flex-direction: row;
+}
+
+/* Menu utility classes */
+.menu {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  pointer-events: auto;
+}
+
+.vertical-flex {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.horizontal-flex {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+
+/* Responsive adjustments for menu */
+@media (max-width: 768px) {
+  .menu {
+    top: 5px;
+    right: 5px;
+    gap: 6px;
+  }
+}

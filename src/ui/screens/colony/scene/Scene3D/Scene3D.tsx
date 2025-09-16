@@ -3,7 +3,6 @@ import * as THREE from 'three'
 import { CameraController } from '@ui/screens/colony/scene/CameraController'
 import { RendererManager } from './renderers/RendererManager'
 import { SelectionRenderer } from './renderers/SelectionRenderer'
-import { SceneObject } from './renderers/BaseRenderer'
 import { TerrainRenderer } from './renderers/TerrainRenderer'
 import { AreaSelectionRenderer } from '@ui/screens/colony/scene/AreaSelectionRenderer'
 // Нова архітектура інтеракції
@@ -13,10 +12,10 @@ import { useDebugInfo } from '@ui/screens/colony/scene/hooks/useDebugInfo'
 import { InteractionProvider } from '@ui/screens/colony/scene/context/InteractionContext'
 import { DebugPanel } from '@ui/screens/colony/scene/components/DebugPanel'
 
-import { CommandPanel, UpgradesPanel } from '@ui/screens/colony'
+import { CommandPanel } from '@ui/screens/colony'
 import { ISaveManager, IMapLogic } from '@interfaces/index';
 import { TSceneObject } from '@logic/systems/scene/scene.types'
-import { BuildingsPanel } from '@ui/screens/colony/buildings/BuildingsPanel'
+import { VerticalMenuWithContext } from '../components/VerticalMenuWithContext'
 import { DragSelection } from '../DragSelection'
 
 /** ===================== core three setup ===================== */
@@ -25,7 +24,7 @@ function useThreeCore() {
     const s = new THREE.Scene()
     s.background = new THREE.Color('#6a5f3e')
     // lights
-    const ambient = new THREE.AmbientLight(0x404040, 0.6)
+    const ambient = new THREE.AmbientLight(0xf0f0c0, 0.6)
     const dir = new THREE.DirectionalLight(0xffffff, 0.8)
     dir.position.set(50, 100, 50)
     dir.castShadow = false
@@ -609,7 +608,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
 
   /** --------- NEW: object sync (like your renderObjects) --------- */
   // Ref для зберігання попереднього стану об'єктів
-  const prevObjectsRef = useRef<Map<string, SceneObject>>(new Map())
+  const prevObjectsRef = useRef<Map<string, TSceneObject>>(new Map())
   
   // 🚀 ОПТИМІЗОВАНИЙ syncVisibleObjects З DIRTY FLAGS
   const syncVisibleObjects = useCallback(() => {
@@ -630,7 +629,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
       _dirtyFlags: obj._dirtyFlags,
       _lastUpdate: obj._lastUpdate,
       needUpdate: obj.needUpdate
-    })) as SceneObject[]
+    })) as TSceneObject[]
 
     const prev = prevObjectsRef.current
 
@@ -764,45 +763,11 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
       {interactionManager && (
         <InteractionProvider value={interactionManager}>
 
-      {/* Main Menu Button */}
-      <button
-        onClick={onShowMainMenu}
-        style={{
-          position: 'absolute',
-          top: 10,
-          right: 10,
-          padding: '8px 16px',
-          backgroundColor: '#4CAF50',
-          color: 'white',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '14px',
-          zIndex: 1000
-        }}
-      >
-        Головне меню
-      </button>
-
-      {/* Save Game Button */}
-      <button
-        onClick={() => game.saveToCurrentSlot()}
-        style={{
-          position: 'absolute',
-          top: 50,
-          right: 10,
-          padding: '8px 16px',
-          backgroundColor: '#2196F3',
-          color: 'white',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '14px',
-          zIndex: 1000
-        }}
-      >
-        Зберегти гру
-      </button>
+          {/* Vertical Menu with Context */}
+          <VerticalMenuWithContext 
+            game={game}
+            onShowMainMenu={onShowMainMenu}
+          />
 
       
 
@@ -825,17 +790,6 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
         game={game}
         cameraController={controller}
       />
-
-      {/* Upgrades Panel */}
-      <UpgradesPanel game={game} />
-
-      {/* Buildings Panel */}
-      <BuildingsPanel 
-        game={game} 
-        onSelectBuilding={(typeId: string) => {
-          console.log(`Selected building for construction: ${typeId}`);
-        }}
-             />
 
        {/* Drag Selection Rectangle */}
        <DragSelection />

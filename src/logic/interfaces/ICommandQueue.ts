@@ -84,4 +84,14 @@ export interface ICommandQueue {
      * Видаляє завершену команду з черги
      */
     removeCompletedCommand(): void;
+
+    /**
+     * Вставляє команди перед вказаною командою
+     */
+    insertCommandsBefore(beforeCommandId: string, commands: Command[]): void;
+
+    /**
+     * Вставляє команди після вказаної команди
+     */
+    insertCommandsAfter(afterCommandId: string, commands: Command[]): void;
 }

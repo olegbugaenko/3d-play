@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { BaseRenderer } from './BaseRenderer';
+import { TSceneObject } from '@logic/systems/scene/scene.types';
 
 export interface CloudData {
   color?: number;        // базовий колір хмари
@@ -129,7 +130,7 @@ export class CloudRenderer extends BaseRenderer {
   }
 
   // ====== Public API ======
-  render(object: SceneObject): THREE.Object3D {
+  render(object: TSceneObject): THREE.Object3D {
     const cloudData: CloudData = object.data || {};
             // CloudRenderer.render() викликано
 
@@ -142,9 +143,10 @@ export class CloudRenderer extends BaseRenderer {
     return dustCloud;
   }
 
-  update(_object: SceneObject): void {
+  update(object: TSceneObject): void {
     // більше не рухаємо хмару в JS — вітер у шейдері (дешевше).
     // лишаємо метод для сумісності з BaseRenderer.
+    super.update(object);
   }
 
   remove(id: string): void {

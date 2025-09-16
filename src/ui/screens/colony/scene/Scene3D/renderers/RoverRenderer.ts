@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 // FIX: безпечний імпорт SkeletonUtils (працює на різних версіях three)
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { BaseRenderer } from './BaseRenderer';
+import { TSceneObject } from '@logic/systems/scene/scene.types';
 
 export interface RoverData {
   modelPath?: string;
@@ -49,7 +50,7 @@ export class RoverRenderer extends BaseRenderer {
     this.loader = new GLTFLoader();
   }
 
-  render(object: SceneObject): THREE.Mesh {
+  render(object: TSceneObject): THREE.Mesh {
     // Якщо меш уже існує — оновлюємо й повертаємо
     const existing = this.meshes.get(object.id) as THREE.Mesh | undefined;
     if (existing) {
@@ -456,7 +457,7 @@ export class RoverRenderer extends BaseRenderer {
   // -------------------------
   // Трансформи/тіні
   // -------------------------
-  private setupMesh(mesh: THREE.Mesh, object: SceneObject): void {
+  private setupMesh(mesh: THREE.Mesh, object: TSceneObject): void {
     mesh.position.set(object.coordinates.x, object.coordinates.y, object.coordinates.z);
     mesh.rotation.set(object.rotation.x, object.rotation.y, object.rotation.z);
     mesh.castShadow = false;
@@ -466,7 +467,7 @@ export class RoverRenderer extends BaseRenderer {
   // -------------------------
   // Tick/Update
   // -------------------------
-  public update(object: SceneObject): void {
+  public update(object: TSceneObject): void {
     super.update(object);
     const existingMesh = this.meshes.get(object.id) as THREE.Mesh | undefined;
     if (!existingMesh) return;

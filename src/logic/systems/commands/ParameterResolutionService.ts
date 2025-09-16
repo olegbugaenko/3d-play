@@ -56,6 +56,11 @@ export class ParameterResolutionService {
         context.resolved = {...context.resolved, ...resolvedParameters};
       } catch (error) {
         console.error(`Failed to resolve parameter ${param.id}:`, error);
+        // Для критичних параметрів (requiredResources, missingResources) фейлимо групу
+        if (param.id === 'requiredResources' || param.id === 'missingResources') {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          throw new Error(`Critical parameter resolution failed: ${param.id} - ${errorMessage}`);
+        }
       }
     }
 
@@ -126,6 +131,35 @@ export class ParameterResolutionService {
         const targetObjectId = resolvedArgs[0];
         const droneObjectId = resolvedArgs[1];
         return this.parameterResolvers.getObjectAccessPoint(targetObjectId, droneObjectId);
+      
+      case 'getBuildingInstance':
+        const buildingId = resolvedArgs[0];
+        return this.parameterResolvers.getBuildingInstance(buildingId);
+      
+      case 'getBuildingRequiredResources':
+        const buildingIdForResources = resolvedArgs[0];
+        return this.parameterResolvers.getBuildingRequiredResources(buildingIdForResources);
+      
+      case 'getMissingResources':
+        const buildingIdForMissing = resolvedArgs[0];
+        return this.parameterResolvers.getMissingResources(buildingIdForMissing);
+      
+      case 'checkHasMissingResources':
+        const buildingIdForCheck = resolvedArgs[0];
+        return this.parameterResolvers.checkHasMissingResources(buildingIdForCheck);
+      
+      case 'getValuesSum':
+        const valuesObject = resolvedArgs[0];
+        return this.parameterResolvers.getValuesSum(valuesObject);
+      
+      case 'getUnnecessaryResources':
+        const objectIdForUnnecessary = resolvedArgs[0];
+        const requiredResourcesForUnnecessary = resolvedArgs[1];
+        return this.parameterResolvers.getUnnecessaryResources(objectIdForUnnecessary, requiredResourcesForUnnecessary);
+      
+      case 'literal':
+        // Просто повертаємо перший аргумент як є
+        return resolvedArgs[0];
       
       case 'validate':
         return null;

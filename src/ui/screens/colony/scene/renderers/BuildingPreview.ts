@@ -8,6 +8,10 @@ export class BuildingPreview {
   private gltfLoader: GLTFLoader;
   private loadedModels: Map<string, THREE.Group> = new Map();
   private loadingModels: Set<string> = new Set();
+  
+  // Стан валідності розміщення та збереження оригінальних матеріалів
+  private isPlacementValid: boolean = true;
+  private originalMaterials: Map<string, { color: THREE.Color; opacity: number }> = new Map();
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -183,7 +187,8 @@ export class BuildingPreview {
   public updatePositionAndRotation(
     position: { x: number; y: number; z: number }, 
     rotation: THREE.Euler, 
-    buildingData?: any
+    buildingData?: any,
+    isValid?: boolean
   ): void {
     if (this.mesh && this.isVisible) {
       // Встановлюємо позицію з урахуванням bottomAnchor
@@ -199,6 +204,11 @@ export class BuildingPreview {
       } else if (this.mesh instanceof THREE.Group) {
         this.mesh.position.set(position.x, adjustedY, position.z);
         this.mesh.rotation.copy(rotation);
+      }
+      
+      // Оновлюємо візуальний стиль на основі валідності розміщення
+      if (isValid !== undefined) {
+        this.setPlacementValid(isValid);
       }
     }
   }
@@ -236,6 +246,53 @@ export class BuildingPreview {
       this.mesh = null;
     }
     this.isVisible = false;
+    
+    // Очищаємо збережені матеріали при приховуванні
+    this.originalMaterials.clear();
+    this.isPlacementValid = true;
+  }
+
+  /**
+   * Встановлює візуальний стиль на основі валідності розміщення
+   */
+  private setPlacementValid(isValid: boolean): void {
+    if (this.isPlacementValid === isValid) return; // оптимізація - не змінюємо якщо стан не змінився
+    
+    this.isPlacementValid = isValid;
+    
+    if (this.mesh) {
+      this.mesh.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material) {
+          const materials = Array.isArray(child.material) ? child.material : [child.material];
+          
+          materials.forEach((mat, index) => {
+            const materialKey = `${child.uuid}_${index}`;
+            
+            if (isValid) {
+              // Повертаємо оригінальний колір (якщо збережений)
+              if (this.originalMaterials.has(materialKey)) {
+                const originalMat = this.originalMaterials.get(materialKey)!;
+                mat.color.copy(originalMat.color);
+                mat.opacity = originalMat.opacity;
+              }
+            } else {
+              // Зберігаємо оригінальний колір перед зміною
+              if (!this.originalMaterials.has(materialKey)) {
+                this.originalMaterials.set(materialKey, {
+                  color: mat.color.clone(),
+                  opacity: mat.opacity
+                });
+              }
+              
+              // Червоний колір для невалідного розміщення
+              mat.color.setHex(0xff0000);
+              mat.opacity = 0.8; // трохи менш прозорий для кращої видимості
+            }
+            mat.needsUpdate = true;
+          });
+        }
+      });
+    }
   }
 
   private createGeometry(buildingData: any): THREE.BufferGeometry {

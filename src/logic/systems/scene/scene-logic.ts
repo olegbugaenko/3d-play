@@ -135,7 +135,8 @@ export class SceneLogic implements ISceneLogic {
                 obj._dirtyFlags.visibility = false;
             }
         }
-        this.clearAllDirtyFlags();
+        // Очищаємо Set з dirty об'єктів
+        this.dirtyObjects.clear();
     }
 
     // Terrain system

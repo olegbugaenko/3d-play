@@ -14,7 +14,7 @@ export const UpgradesModal: React.FC<UpgradesModalProps> = ({
   onPurchaseUpgrade
 }) => {
 
-
+  console.log('UPGRS: ', upgrades);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Upgrades" size="large">

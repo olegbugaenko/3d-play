@@ -23,6 +23,19 @@ export const MAP_CONFIG = {
             count: 50,                // Загальна кількість
             minDistance: 15,          // Мінімальна відстань між болдерами
             sizeRange: { min: 0.25, max: 0.7 } // Розмір болдерів
+        },
+        
+        // Налаштування біомаси
+        biomass: {
+            clusterCount: 60,         // Кількість кластерів біомаси
+            biomassPerCluster: 15,    // Рослин на кластер
+            clusterRadius: { min: 4, max: 6 }, // Радіус кластера
+            resourceTypes: ['biomass'] as const
+        },
+        
+        // Загальні налаштування для ресурсів
+        resources: {
+            minDistanceBetweenResources: 1.0  // Мінімальна відстань між будь-якими ресурсами (м)
         }
     },
     
@@ -98,6 +111,15 @@ export interface MapConfig {
             count: number;
             minDistance: number;
             sizeRange: { min: number; max: number };
+        };
+        biomass: {
+            clusterCount: number;
+            biomassPerCluster: number;
+            clusterRadius: { min: number; max: number };
+            resourceTypes: readonly ('biomass')[];
+        };
+        resources: {
+            minDistanceBetweenResources: number;
         };
     };
     terrain: {

@@ -1,0 +1,39 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+     xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <!-- чорні штрихи у масці = прозорі щілини -->
+    <mask id="leafSlots" maskUnits="userSpaceOnUse">
+      <rect width="24" height="24" fill="white"/>
+      <!-- центральна жилка -->
+      <path d="M11 2 C 13 5, 13 14, 12 20"
+            stroke="black" stroke-width="1.3" stroke-linecap="round"/>
+      <!-- бокові прожилки зліва -->
+      <path d="M12 16 C 10.3 15.5, 8.8 14.8, 5.2 13"
+            stroke="black" stroke-width="1.0" stroke-linecap="round"/>
+      <path d="M12 13 C 10.3 12.5, 8.8 11.8, 5.2 10"
+            stroke="black" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M12 9.5 C 10.3 9.0, 8.8 8.3, 5.2 6.5"
+            stroke="black" stroke-width="1.2" stroke-linecap="round"/>
+      <!-- бокові прожилки справа -->
+      <path d="M12.4 9 C 13.7 8.5, 16.2 6.5, 19.2 2.4"
+            stroke="black" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M12.5 13.5 C 14.4 13.2, 16.7 10.9, 20.5 4.5"
+            stroke="black" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M12.4 17 C 14.1 16.6, 15.9 14.6, 20.6 8.8"
+            stroke="black" stroke-width="1.2" stroke-linecap="round"/>
+    </mask>
+  </defs>
+
+  <!-- силует листка (білий), маска «вирізає» щілини -->
+  <g mask="url(#leafSlots)">
+    <path fill="white" d="
+      M12 2
+      C 16.6 3.6, 19.6 7.6, 18.6 12.1
+      C 17.7 15.7, 14.9 18.8, 12 20.3
+      C 9.1 18.8, 6.3 15.7, 5.4 12.1
+      C 4.4 7.6, 7.4 3.6, 12 2
+      Z"/>
+    <!-- короткий черешок -->
+    <rect x="11.2" y="20.2" width="1.6" height="2.6" rx="0.8" fill="white"/>
+  </g>
+</svg>

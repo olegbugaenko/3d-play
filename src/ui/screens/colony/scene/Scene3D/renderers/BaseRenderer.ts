@@ -1,27 +1,5 @@
 import * as THREE from 'three'
-
-export interface SceneObject {
-    id: string;
-    type: string;
-    coordinates: {
-        x: number;
-        y: number;
-        z: number;
-    };
-    scale: {
-        x: number;
-        y: number;
-        z: number;
-    };
-    rotation: {
-        x: number;
-        y: number;
-        z: number;
-    };
-    data: any;
-    bottomAnchor?: number;
-    tags?: string[]; // Теги для швидкого доступу та фільтрації
-}
+import { TSceneObject } from '@logic/systems/scene/scene.types'
 
 export abstract class BaseRenderer {
     protected scene: THREE.Scene;
@@ -33,9 +11,9 @@ export abstract class BaseRenderer {
         this.renderer = renderer;
     }
 
-    abstract render(object: SceneObject): THREE.Object3D;
+    abstract render(object: TSceneObject): THREE.Object3D;
     
-    update(object: SceneObject): void {
+    update(object: TSceneObject): void {
         const mesh = this.meshes.get(object.id);
         if (mesh) {
             // Оновлюємо позицію

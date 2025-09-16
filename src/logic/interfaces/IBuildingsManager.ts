@@ -32,5 +32,9 @@ export interface IBuildingsManager extends SaveLoadManager {
   syncBuildingIsBuiltStatus(instanceId: string): void;
   syncAllBuildingsIsBuiltStatus(): void;
   updateBuildingStatus(instanceId: string, built: boolean, level: number): void;
-  updateConstructionProgress(instanceId: string, progress: number, resourcesCollected: Record<string, number>): void;
+  updateConstructionProgress(instanceId: string, progress: number, resourcesCollected?: Record<string, number>): void;
+  
+  // Завершення будівництва та управління бонусами
+  completeBuildingConstruction(instanceId: string): void;
+  updateBonusLevelForBuildingType(buildingTypeId: string): void;
 }

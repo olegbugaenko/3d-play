@@ -6,9 +6,9 @@ import { CommandType } from '../command.types';
  */
 export const COMMAND_COSTS: Record<CommandType, { powerPerSecond: number }> = {
   'move-to': { powerPerSecond: 0.0 },           // Рух не споживає енергію
-  'collect-resource': { powerPerSecond: 2 },  // Добування ресурсів
+  'collect-resource': { powerPerSecond: 1 },  // Добування ресурсів
   'unload-resources': { powerPerSecond: 0.5 }, // Розвантаження
-  'build': { powerPerSecond: 1.5 },             // Будівництво
+  'build': { powerPerSecond: 2.5 },             // Будівництво
   'wait': { powerPerSecond: 0.0 },              // Очікування не споживає
   'attack': { powerPerSecond: 2.0 },            // Атака (висока затратність)
   'charge': { powerPerSecond: 0.0 }             // Зарядка не споживає

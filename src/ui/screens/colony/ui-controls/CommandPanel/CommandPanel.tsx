@@ -3,6 +3,7 @@ import { CommandGroup } from '@systems/commands';
 import { Game } from '@core/game/game';
 import { CameraController } from '@ui/screens/colony/scene/CameraController';
 import { useInteractionContext } from '@ui/screens/colony/scene/context/InteractionContext';
+import { HorizontalMenu, IconButton } from '@ui/shared';
 
 interface CommandPanelProps {
   selectedUnits: string[];
@@ -15,35 +16,55 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
   const interactionManager = useInteractionContext();
   
   const [selectedScope, setSelectedScope] = useState<'gather' | 'build' | null>(null);
-  const [availableScopes, setAvailableScopes] = useState<string[]>([]);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [selectedCommand, setSelectedCommand] = useState<CommandGroup | null>(null);
   const [interpolationSpeed, setInterpolationSpeed] = useState(0.1);
+  const [isCameraPinned, setIsCameraPinned] = useState(false);
+
+  // Перевіряємо чи відкрито будівництво
+  const isBuildingConstructionsUnlocked = game.upgradesManager.isUnlocked('building_constructions');
+  const buildingConstructionsState = game.upgradesManager.getUpgradeState('building_constructions');
+  const isBuildingConstructionsPurchased = (buildingConstructionsState?.level ?? 0) > 0;
+  const isBuildingAvailable = isBuildingConstructionsUnlocked && isBuildingConstructionsPurchased;
+
+  // Функція для отримання іконки ресурсу
+  const getResourceIcon = (resourceType: string): string => {
+    switch (resourceType) {
+      case 'stone': return 'resources/stone.svg';
+      case 'ore': return 'resources/ore.svg';
+      case 'biomass': return 'resources/biomass.svg';
+      case 'energy': return 'resources/energy.svg';
+      default: return 'interface/gather.png';
+    }
+  };
+  
 
   // Мемоізація: Обчислюємо тільки коли змінилася кількість юнітів
   const selectedUnitsCount = selectedUnits.length;
   
   const memoizedScopes = useMemo(() => {
     if (selectedUnitsCount === 0) return [];
+    console.log('isBuildingAvailable', isBuildingAvailable);
+    const scopes = ['gather'];
+    // Додаємо build тільки якщо будівництво доступне
+    if (isBuildingAvailable) {
+      scopes.push('build');
+    }
     
-    const scopes = ['gather', 'build'];
     return scopes.filter(scope => {
       const groups = game.commandGroupSystem.getAvailableGroupsByScope(scope as 'gather' | 'build');
       return groups.length > 0;
     });
-  }, [selectedUnitsCount, game.commandGroupSystem]);
+  }, [selectedUnitsCount, game.commandGroupSystem, isBuildingAvailable]);
   
   // Отримуємо доступні scope для вибраних юнітів
   useEffect(() => {
     if (selectedUnitsCount === 0) {
-      setAvailableScopes([]);
       setSelectedScope(null);
       setSelectedCommand(null);
       onCommandChange(null);
       return;
     }
-
-    setAvailableScopes(memoizedScopes);
     
     // Якщо немає доступних scope, скидаємо вибір
     if (memoizedScopes.length === 0) {
@@ -104,180 +125,60 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
     return null;
   }
 
-  // Додатковий захист - якщо панель активна, не зникаємо навіть якщо юніти тимчасово скидаються
-  const shouldShowPanel = selectedUnits.length > 0 || selectedScope !== null;
+  // Створюємо кнопки для основного меню
+  const mainMenuButtons = [
+    {
+      id: 'gather',
+      iconId: 'interface/gather.png',
+      variant: selectedScope === 'gather' ? 'success' : 'primary' as const,
+      onClick: () => handleScopeClick('gather'),
+      title: 'Gather Resources',
+      visible: true
+    },
+    {
+      id: 'build',
+      iconId: 'build.svg',
+      variant: selectedScope === 'build' ? 'success' : 'primary' as const,
+      onClick: () => handleScopeClick('build'),
+      title: 'Build Structures',
+      visible: isBuildingAvailable
+    },
+    {
+      id: 'pin-camera',
+      iconId: isCameraPinned ? 'unpin-camera.svg' : 'pin-camera.svg',
+      variant: isCameraPinned ? 'success' : 'primary' as const,
+      onClick: () => {
+        if (isCameraPinned) {
+          cameraController.unpin();
+          setIsCameraPinned(false);
+        } else if (selectedUnits.length === 1) {
+          cameraController.pinToObject(selectedUnits[0]);
+          setIsCameraPinned(true);
+        }
+      },
+      title: isCameraPinned ? 'Unpin Camera' : 'Pin Camera',
+      visible: selectedUnits.length === 1,
+      disabled: selectedUnits.length !== 1
+    }
+  ];
 
   return (
-    <div className="command-panel ui-panel" style={{
+    <div style={{
       position: 'fixed',
       bottom: '20px',
       left: '50%',
       transform: 'translateX(-50%)',
-      backgroundColor: 'rgba(0, 0, 0, 0.8)',
-      borderRadius: '8px',
-      padding: '10px',
-      color: 'white',
       zIndex: 9999,
       pointerEvents: 'auto'
-    }}
-    onMouseDown={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    }}
-    onClick={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    }}
-    >
-      {/* Debug info */}
-      <div style={{ fontSize: '10px', opacity: 0.7, marginBottom: '5px' }}>
-        Debug: selectedScope={selectedScope}, categories={availableCategories.length}
-      </div>
+    }}>
 
-      {/* Панель scope */}
-      <div className="scope-panel" style={{ marginBottom: '10px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '5px', fontSize: '12px', opacity: 0.7 }}>
-          Available Commands
-        </div>
-        <div style={{ display: 'flex', gap: '5px' }}>
-          {availableScopes.map(scope => (
-            <button
-              key={scope}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleScopeClick(scope as 'gather' | 'build');
-              }}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: selectedScope === scope ? '#4CAF50' : '#666',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '12px',
-                textTransform: 'capitalize'
-              }}
-            >
-              {scope}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Кнопка Pin Camera */}
+      {/* Інформація про вибрані юніти */}
       <div style={{ 
         textAlign: 'center', 
-        marginBottom: '10px',
-        borderTop: '1px solid rgba(255, 255, 255, 0.2)',
-        paddingTop: '10px'
-      }}>
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (cameraController.isCameraPinned()) {
-              cameraController.unpin();
-            } else if (selectedUnits.length === 1) {
-              // Пінимо камеру до першого вибраного юніта
-              cameraController.pinToObject(selectedUnits[0]);
-            }
-          }}
-          style={{
-            padding: '6px 12px',
-            backgroundColor: cameraController.isCameraPinned() ? '#FF5722' : '#9C27B0',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '11px',
-            pointerEvents: 'auto'
-          }}
-          title={cameraController.isCameraPinned() ? 'Unpin Camera' : 'Pin Camera to Selected Unit'}
-          disabled={selectedUnits.length !== 1}
-        >
-          {cameraController.isCameraPinned() ? 'Unpin Camera' : 'Pin Camera'}
-        </button>
-        
-        {/* Слайдер швидкості інтерполяції */}
-        {cameraController.isCameraPinned() && (
-          <div style={{ 
-            marginTop: '8px',
-            textAlign: 'center'
-          }}>
-            <div style={{ 
-              fontSize: '10px', 
-              opacity: 0.7, 
-              marginBottom: '4px' 
-            }}>
-              Smoothness: {Math.round(interpolationSpeed * 100)}%
-            </div>
-            <input
-              type="range"
-              min="0.01"
-              max="1.0"
-              step="0.01"
-              value={interpolationSpeed}
-              onChange={(e) => setInterpolationSpeed(parseFloat(e.target.value))}
-              style={{
-                width: '100%',
-                height: '4px',
-                borderRadius: '2px',
-                background: '#555',
-                outline: 'none',
-                cursor: 'pointer'
-              }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Панель команд для обраного scope */}
-      {selectedScope && (
-        <div className="commands-panel">
-          <div style={{ textAlign: 'center', marginBottom: '5px', fontSize: '12px', opacity: 0.7 }}>
-            {selectedScope} Commands ({availableCategories.length} categories)
-          </div>
-          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', justifyContent: 'center' }}>
-            {availableCategories.map(category => {
-              const groups = game.commandGroupSystem.getAvailableGroupsByScopeAndCategory(selectedScope, category);
-              return groups.map(group => (
-                <button
-                  key={group.id}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleCommandClick(group);
-                  }}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: selectedCommand?.id === group.id ? '#4CAF50' : '#2196F3',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    fontSize: '11px',
-                    whiteSpace: 'nowrap',
-                    pointerEvents: 'auto'
-                  }}
-                  title={group.ui?.description}
-                >
-                  {group.ui?.name || group.name}
-                </button>
-              ));
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Інформація про вибрані юніти та команду */}
-      <div style={{ 
-        textAlign: 'center', 
-        marginTop: '10px', 
         fontSize: '11px', 
         opacity: 0.6,
-        borderTop: '1px solid rgba(255, 255, 255, 0.2)',
-        paddingTop: '10px'
+        color: 'white',
+        marginTop: '8px'
       }}>
         {selectedUnits.length} unit{selectedUnits.length !== 1 ? 's' : ''} selected
         {selectedCommand && (
@@ -286,6 +187,46 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
           </div>
         )}
       </div>
+      {/* Підменю для вибору ресурсів/команд */}
+      {selectedScope && (
+        <div className="box menu-second-row" style={{ marginBottom: '8px' }}>
+          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            {availableCategories.map(category => {
+              const groups = game.commandGroupSystem.getAvailableGroupsByScopeAndCategory(selectedScope, category);
+              return groups.map(group => {
+                // Визначаємо тип ресурсу з назви команди
+                const resourceType = group.ui?.name?.toLowerCase().includes('stone') ? 'stone' :
+                                   group.ui?.name?.toLowerCase().includes('ore') ? 'ore' :
+                                   group.ui?.name?.toLowerCase().includes('biomass') ? 'biomass' :
+                                   group.ui?.name?.toLowerCase().includes('energy') ? 'energy' : 'gather';
+                
+                return (
+                  <IconButton
+                    key={group.id}
+                    iconId={getResourceIcon(resourceType)}
+                    variant={selectedCommand?.id === group.id ? 'success' : 'primary'}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleCommandClick(group);
+                    }}
+                    title={group.ui?.description || group.ui?.name || group.name}
+                  />
+                );
+              });
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Основне меню команд */}
+      <div className="" style={{ marginBottom: '8px' }}>
+        <HorizontalMenu buttons={mainMenuButtons} />
+      </div>
+
+
+
+
     </div>
   );
 });

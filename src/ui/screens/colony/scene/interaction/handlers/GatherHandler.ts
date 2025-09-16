@@ -10,9 +10,10 @@ export class GatherHandler extends InteractionHandler {
     scene: THREE.Scene, 
     camera: THREE.Camera, 
     mapLogic: any,
-    areaSelectionRenderer: AreaSelectionRenderer
+    areaSelectionRenderer: AreaSelectionRenderer,
+    emit?: (event: string, data?: any) => void
   ) {
-    super(scene, camera, mapLogic);
+    super(scene, camera, mapLogic, emit);
     this.areaSelectionRenderer = areaSelectionRenderer;
   }
 
@@ -35,8 +36,12 @@ export class GatherHandler extends InteractionHandler {
   }
 
   onMouseDown(event: MouseEvent): void {
-    // В режимі збору обробляємо тільки праву кнопку миші
-    if (event.button === 2) {
+    // Ліва кнопка миші - скидаємо режим збору
+    if (event.button === 0) {
+      this.handleLeftClick(event);
+    }
+    // Права кнопка миші - вибираємо точку збору
+    else if (event.button === 2) {
       this.handleRightClick(event);
     }
   }
@@ -60,6 +65,21 @@ export class GatherHandler extends InteractionHandler {
 
   setSelectedCommand(command: any): void {
     this.selectedCommand = command;
+  }
+
+  private handleLeftClick(_event: MouseEvent): void {
+    console.log('GatherHandler: Left click detected - canceling gather mode');
+    
+    // Приховуємо кільце зони збору
+    this.areaSelectionRenderer.hide();
+    
+    // Скидаємо вибрану команду
+    this.selectedCommand = null;
+    
+    // Повертаємося до режиму вибору
+    if (this.emit) {
+      this.emit('modeChange', { from: 'gather', to: 'selection' });
+    }
   }
 
   private handleRightClick(event: MouseEvent): void {

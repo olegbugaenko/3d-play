@@ -50,4 +50,7 @@ export interface ISceneLogic {
   
   // 🚀 Метод для синхронізації ротації
   syncRotation(obj: TSceneObject<any>): void;
+  
+  // Pathfinding system
+  pathfinder: any;
 }

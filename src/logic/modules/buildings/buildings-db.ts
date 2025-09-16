@@ -15,6 +15,121 @@ const chargingStationCostFormula: CostFormula = (level: number) => ({
 
 // База даних типів будівель
 export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
+  ['spaceship', {
+    id: 'spaceship',
+    name: 'Spaceship',
+    tags: ['decor'],
+    description: 'Зберігає ресурси та збільшує ємність складу',
+    maxLevel: 1,
+    data: {
+      obstacleSize: 2.0,
+    },
+    modifier: {},
+    ui: {
+      defaultScale: { x: 2.0, y: 2.0, z: 2.0 },
+      rotationOffset: { x: 0, y: 0, z: 0 },
+      modelName: 'models/buildings/spaceship_v0.glb',
+      hudOffsetY: 1,
+    },
+    cost: storageCostFormula
+  }],
+
+  
+  ['charging_station_small', {
+    id: 'charging_station_small',
+    name: 'Зарядна станція',
+    description: 'Заряджає дрони та збільшує ємність батареї',
+    maxLevel: 5,
+    tags: ['charge'],
+    modifier: {
+        resource: {
+            cap: {
+              energy: {
+                formula: (_data: any) => ({
+                  type: 'linear',
+                  A: 25,
+                  B: 0
+                }),
+                deps: []
+              },
+            },
+            income: {
+              energy: {
+                formula: (_data: any) => ({
+                  type: 'linear',
+                  A: 0.1,
+                  B: 0
+                }),
+                deps: []
+              }
+            }
+          }
+    },
+    ui: {
+      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
+      rotationOffset: { x: 0, y: 0, z: 0 }, // Поворот на 45 градусів
+      modelName: 'models/buildings/charging_station_small.glb',
+      bottomAnchor: -0.15,
+      hudOffsetY: 1,
+    },
+    data: {
+        chargeRate: 0.5,
+        obstacleSize: 1.5,
+    },
+    cost: chargingStationCostFormula
+  }],
+
+  ['minimal_storage', {
+    id: 'minimal_storage',
+    name: 'Small Storage',
+    tags: ['storage'],
+    description: 'Зберігає ресурси та збільшує ємність складу',
+    maxLevel: 1,
+    data: {
+      obstacleSize: 1.0,
+      chargeRate: 0.25,
+    },
+    modifier: {
+        
+          resource: {
+            cap: {
+              stone: {
+                formula: (_data: any) => ({
+                  type: 'linear',
+                  A: 0,
+                  B: 20
+                }),
+                deps: []
+              },
+              ore: {
+                formula: (_data: any) => ({
+                  type: 'linear',
+                  A: 0,
+                  B: 20
+                }),
+                deps: []
+              },
+              biomass: {
+                formula: (_data: any) => ({
+                  type: 'linear',
+                  A: 0,
+                  B: 20
+                }),
+                deps: []
+              },
+            },
+          }
+    },
+    ui: {
+      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
+      rotationOffset: { x: 0, y: Math.PI, z: 0 },
+      modelName: 'models/buildings/minimal_storage.glb',
+      hudOffsetY: 1,
+    },
+    cost: storageCostFormula
+  }],
+  
+
   ['storage', {
     id: 'storage',
     name: 'Склад',
@@ -32,7 +147,7 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
                 formula: (_data: any) => ({
                   type: 'linear',
                   A: 20,
-                  B: 50
+                  B: 0
                 }),
                 deps: []
               },
@@ -40,7 +155,15 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
                 formula: (_data: any) => ({
                   type: 'linear',
                   A: 20,
-                  B: 50
+                  B: 0
+                }),
+                deps: []
+              },
+              biomass: {
+                formula: (_data: any) => ({
+                  type: 'linear',
+                  A: 20,
+                  B: 0
                 }),
                 deps: []
               }
@@ -69,7 +192,7 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
                 formula: (_data: any) => ({
                   type: 'linear',
                   A: 25,
-                  B: 75
+                  B: 0
                 }),
                 deps: []
               },

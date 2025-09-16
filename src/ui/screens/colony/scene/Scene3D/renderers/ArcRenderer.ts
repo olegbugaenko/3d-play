@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { BaseRenderer } from './BaseRenderer';
+import { TSceneObject } from '@logic/systems/scene/scene.types';
 
 type Vec3 = { x:number; y:number; z:number };
 
@@ -269,7 +270,7 @@ void main(){
   }
 
   // ---------- PUBLIC API ----------
-  render(object: SceneObject): THREE.Object3D {
+  render(object: TSceneObject): THREE.Object3D {
     const d = (object.data || {}) as ElectricArcData;
     if (!d.target) return new THREE.Object3D();
 
@@ -451,7 +452,7 @@ void main(){
     return mesh;
   }
 
-  update(object: SceneObject): void {
+  update(object: TSceneObject): void {
     const mesh = this.getMeshById(object.id) as THREE.Mesh | undefined;
     if (!mesh) return;
     const A = (mesh as any).userData.arc;

@@ -18,9 +18,10 @@ export class BuildingHandler extends InteractionHandler {
     scene: THREE.Scene, 
     camera: THREE.Camera, 
     mapLogic: any,
-    buildingPreview: BuildingPreview
+    buildingPreview: BuildingPreview,
+    emit?: (event: string, data?: any) => void
   ) {
-    super(scene, camera, mapLogic);
+    super(scene, camera, mapLogic, emit);
     this.buildingPreview = buildingPreview;
   }
 
@@ -73,15 +74,21 @@ export class BuildingHandler extends InteractionHandler {
           this.lastUpdateTime = now;
           this.lastWorldPos.copy(newWorldPos);
           
+          // Перевіряємо чи можна розмістити будівлю в цій позиції
+          const canPlace = this.mapLogic.buildingsManager.canPlaceBuildingAt(
+            { x: newWorldPos.x, y: newWorldPos.y, z: newWorldPos.z },
+            this.selectedBuildingData.id
+          );
+          
           // Обчислюємо орієнтацію для вирівнювання до терейну
           const terrainRotation = this.calculateTerrainRotation(newWorldPos, tm);
           
-          // Оновлюємо позицію та орієнтацію превью
+          // Оновлюємо позицію та орієнтацію превью з інформацією про валідність розміщення
           this.buildingPreview.updatePositionAndRotation({
             x: newWorldPos.x,
             y: newWorldPos.y,
             z: newWorldPos.z
-          }, terrainRotation, this.selectedBuildingData);
+          }, terrainRotation, this.selectedBuildingData, canPlace);
         }
       }
     }
@@ -330,6 +337,17 @@ private raycastHeightfield(
     if (tm) {
       // Використовуємо той самий покращений рейкастинг що і для превью
       const bestPoint = this.performImprovedRaycast(raycaster, tm);
+      
+      // Перевіряємо чи можна розмістити будівлю в цій позиції
+      const canPlace = this.mapLogic.buildingsManager.canPlaceBuildingAt(
+        { x: bestPoint.x, y: bestPoint.y, z: bestPoint.z },
+        this.selectedBuildingData.id
+      );
+      
+      if (!canPlace) {
+        console.log('Cannot place building here - position is blocked');
+        return; // Не розміщуємо будівлю якщо позиція заблокована
+      }
       
       // Розміщуємо будівлю
       this.placeBuilding(bestPoint);

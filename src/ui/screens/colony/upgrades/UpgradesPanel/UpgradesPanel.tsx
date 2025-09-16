@@ -9,10 +9,6 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({ game }) => {
   const [isUpgradesModalOpen, setIsUpgradesModalOpen] = useState(false);
   const [upgradesVersion, setUpgradesVersion] = useState(0); // Для force re-render
 
-  const handleUpgradesClick = () => {
-    setIsUpgradesModalOpen(true);
-  };
-
   const handlePurchaseUpgrade = (typeId: string) => {
     const success = game.upgradesManager.purchaseUpgrade(typeId);
     if (success) {
@@ -22,33 +18,49 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({ game }) => {
   };
 
   return (
-    <>
-      <button
-        onClick={handleUpgradesClick}
-        style={{
-          position: 'absolute',
-          top: 90,
-          right: 10,
-          padding: '8px 16px',
-          backgroundColor: '#FF9800',
-          color: 'white',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '14px',
-          zIndex: 1000
-        }}
-      >
-        Upgrades
-      </button>
+    <UpgradesModal
+      isOpen={isUpgradesModalOpen}
+      onClose={() => setIsUpgradesModalOpen(false)}
+      upgrades={game.upgradesManager.listUpgradesForUI()}
+      onPurchaseUpgrade={handlePurchaseUpgrade}
+      key={upgradesVersion} // Force re-render коли змінюється версія
+    />
+  );
+};
 
+// Хук для отримання даних кнопки меню
+export const useUpgradesMenuButton = (game: any) => {
+  const [isUpgradesModalOpen, setIsUpgradesModalOpen] = useState(false);
+  const [upgradesVersion, setUpgradesVersion] = useState(0);
+
+  const handleUpgradesClick = () => {
+    setIsUpgradesModalOpen(true);
+  };
+
+  const handlePurchaseUpgrade = (typeId: string) => {
+    const success = game.upgradesManager.purchaseUpgrade(typeId);
+    if (success) {
+      setUpgradesVersion(prev => prev + 1);
+    }
+  };
+
+  return {
+    button: {
+      id: 'upgrades',
+      iconId: 'interface/upgrade.png',
+      variant: 'primary' as const,
+      onClick: handleUpgradesClick,
+      title: 'Upgrades',
+      visible: true
+    },
+    modal: (
       <UpgradesModal
         isOpen={isUpgradesModalOpen}
         onClose={() => setIsUpgradesModalOpen(false)}
         upgrades={game.upgradesManager.listUpgradesForUI()}
         onPurchaseUpgrade={handlePurchaseUpgrade}
-        key={upgradesVersion} // Force re-render коли змінюється версія
+        key={upgradesVersion}
       />
-    </>
-  );
+    )
+  };
 };

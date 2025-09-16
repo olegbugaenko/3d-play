@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { BaseRenderer } from './BaseRenderer';
+import { TSceneObject } from '@logic/systems/scene/scene.types';
 
 export interface RockData {
   color?: number;       // hex, напр. 0xAABBCC
@@ -123,7 +124,7 @@ export class RockRenderer extends BaseRenderer {
 
   // ----------------------- Public API -----------------------
 
-  render(object: SceneObject): THREE.Object3D {
+  render(object: TSceneObject): THREE.Object3D {
     const existing = this.instances.get(object.id);
     if (existing) {
       this.updateInstance(existing, /*allowRebucket=*/true);
@@ -174,7 +175,7 @@ export class RockRenderer extends BaseRenderer {
     return mesh;
   }
 
-  update(object: SceneObject): void {
+  update(object: TSceneObject): void {
     const inst = this.instances.get(object.id);
     if (inst) {
       inst.object = object;

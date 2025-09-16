@@ -30,8 +30,8 @@ export function useInteractionManager(
     if (selectionRenderer && rendererManager && areaSelectionRenderer && buildingPreview) {
         const selectionHandler = new SelectionHandler(scene, camera, mapLogic, selectionRenderer, rendererManager, interactionManagerRef.current?.emit.bind(interactionManagerRef.current));
         const commandHandler = new CommandHandler(scene, camera, mapLogic, rendererManager);
-        const gatherHandler = new GatherHandler(scene, camera, mapLogic, areaSelectionRenderer);
-        const buildingHandler = new BuildingHandler(scene, camera, mapLogic, buildingPreview);
+        const gatherHandler = new GatherHandler(scene, camera, mapLogic, areaSelectionRenderer, interactionManagerRef.current?.emit.bind(interactionManagerRef.current));
+        const buildingHandler = new BuildingHandler(scene, camera, mapLogic, buildingPreview, interactionManagerRef.current?.emit.bind(interactionManagerRef.current));
       
       interactionManagerRef.current.registerHandler('selection', selectionHandler);
       interactionManagerRef.current.registerHandler('command', commandHandler);

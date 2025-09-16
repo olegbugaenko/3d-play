@@ -5,7 +5,7 @@
 .no-upgrades {
   text-align: center;
   padding: 40px;
-  color: #666;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .upgrades-grid {
@@ -17,16 +17,17 @@
 }
 
 .upgrade-card {
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
   padding: 20px;
-  background: #fafafa;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
   transition: all 0.2s ease;
 }
 
 .upgrade-card:hover {
-  border-color: #007bff;
-  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 16px rgba(255, 255, 255, 0.1);
 }
 
 .upgrade-header {
@@ -40,7 +41,7 @@
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: white;
 }
 
 .upgrade-level {
@@ -54,7 +55,7 @@
 
 .upgrade-description {
   margin: 0 0 16px 0;
-  color: #666;
+  color: rgba(255, 255, 255, 0.7);
   font-size: 14px;
   line-height: 1.4;
 }
@@ -62,7 +63,7 @@
 .upgrade-cost h4 {
   margin: 0 0 8px 0;
   font-size: 14px;
-  color: #333;
+  color: white;
 }
 
 .cost-items {
@@ -73,11 +74,12 @@
 }
 
 .cost-item {
-  background: #f0f0f0;
+  background: rgba(255, 255, 255, 0.1);
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 500;
+  color: white;
 }
 
 .upgrade-actions {
@@ -85,50 +87,56 @@
 }
 
 .purchase-button {
-  background: #28a745;
+  background: rgba(40, 167, 69, 0.8);
   color: white;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   padding: 8px 16px;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
+  backdrop-filter: blur(4px);
 }
 
 .purchase-button:hover:not(.disabled) {
-  background: #218838;
+  background: rgba(40, 167, 69, 1);
+  box-shadow: 0 4px 16px rgba(255, 255, 255, 0.1);
 }
 
 .purchase-button.disabled {
-  background: #6c757d;
+  background: rgba(108, 117, 125, 0.8);
   cursor: not-allowed;
 }
 
 .max-level-badge {
-  background: #17a2b8;
+  background: rgba(23, 162, 184, 0.8);
   color: white;
   padding: 8px 16px;
-  border-radius: 4px;
+  border-radius: 8px;
   text-align: center;
   font-size: 14px;
   font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(4px);
 }
 
 .locked-badge {
-  background: #6c757d;
+  background: rgba(108, 117, 125, 0.8);
   color: white;
   padding: 8px 16px;
-  border-radius: 4px;
+  border-radius: 8px;
   text-align: center;
   font-size: 14px;
   font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(4px);
 }
 
 .missing-resources h4 {
   margin: 0 0 8px 0;
   font-size: 14px;
-  color: #dc3545;
+  color: #ff6b6b;
 }
 
 .missing-items {
@@ -138,11 +146,11 @@
 }
 
 .missing-item {
-  background: #f8d7da;
-  color: #721c24;
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 500;
-  border: 1px solid #f5c6cb;
+  border: 1px solid rgba(255, 107, 107, 0.3);
 }

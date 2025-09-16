@@ -1,6 +1,7 @@
 // ExplosionRenderer_GPU.ts (WebGL2, radial bursts + TTL + 3D flash sphere with gradient + particleSharpness)
 import * as THREE from 'three';
-import { BaseRenderer, SceneObject } from './BaseRenderer';
+import { BaseRenderer } from './BaseRenderer';
+import { TSceneObject } from '@logic/systems/scene/scene.types';
 import { GPUComputationRenderer } from 'three/examples/jsm/misc/GPUComputationRenderer.js';
 
 type Vec3 = { x:number; y:number; z:number };
@@ -639,7 +640,7 @@ void main(){
   }
 
   // ==== API ====
-  render(object: SceneObject): THREE.Object3D {
+  render(object: TSceneObject): THREE.Object3D {
     const idx = this.addExplosion(object.coordinates, {
       particleSize:    object.data?.particleSize ?? 26.0,
       particleSizeEnd: object.data?.particleSizeEnd ?? 10.0,
@@ -670,7 +671,7 @@ void main(){
     return this.points;
   }
 
-  update(object: SceneObject): void {
+  update(object: TSceneObject): void {
     const map: Map<string, number> = (this.points as any).__explosionIndexMap;
     const idx = map?.get(object.id);
     if (idx !== undefined && idx >= 0) this.moveExplosion(idx, object.coordinates);

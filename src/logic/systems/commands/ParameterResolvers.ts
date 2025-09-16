@@ -225,6 +225,8 @@ export class ParameterResolvers {
         true  // fullCircle
       );
 
+      console.log(`Finding docking for ${targetObject.id}: `, targetObject.coordinates, dockingPoint);
+
       if (dockingPoint) {
         return new Vector3(dockingPoint.x, dockingPoint.y, dockingPoint.z);
       } else {
@@ -235,5 +237,168 @@ export class ParameterResolvers {
       console.warn('Error finding docking point:', error);
       return null;
     }
+  }
+
+  /**
+   * Отримує інстанс будівлі по ID
+   */
+  getBuildingInstance(buildingId: string): any {
+    const buildingsManager = this.mapLogic.buildingsManager;
+    if (!buildingsManager) {
+      console.error('[ParameterResolvers] BuildingsManager not found');
+      return null;
+    }
+
+    const buildingInstance = buildingsManager.getBuildingInstance(buildingId);
+    if (!buildingInstance) {
+      console.error(`[ParameterResolvers] Building instance not found: ${buildingId}`);
+      return null;
+    }
+
+    return buildingInstance;
+  }
+
+  /**
+   * Отримує ресурси, потрібні для будівництва
+   */
+  getBuildingRequiredResources(buildingId: string): Record<string, number> {
+    const buildingInstance = this.getBuildingInstance(buildingId);
+    if (!buildingInstance) {
+      return {};
+    }
+
+    const buildingsManager = this.mapLogic.buildingsManager;
+    if (!buildingsManager) {
+      return {};
+    }
+
+    try {
+      // Отримуємо тип будівлі
+      const buildingType = buildingsManager.getBuildingType(buildingInstance.typeId);
+      if (!buildingType) {
+        console.error(`[ParameterResolvers] Building type not found: ${buildingInstance.typeId}`);
+        return {};
+      }
+
+      // Отримуємо costs для рівня 1 (початкове будівництво)
+      if (!buildingType.cost) {
+        console.error(`[ParameterResolvers] No cost formula found for building ${buildingInstance.typeId}`);
+        throw new Error(`No cost formula found for building ${buildingInstance.typeId}`);
+      }
+
+      const costs = buildingType.cost(1); // Викликаємо формулу з рівнем 1
+      if (!costs) {
+        console.error(`[ParameterResolvers] Cost formula returned null for building ${buildingInstance.typeId} level 1`);
+        throw new Error(`Cost formula returned null for building ${buildingInstance.typeId} level 1`);
+      }
+
+      // Конвертуємо costs в формат Record<string, number>
+      const requiredResources: Record<string, number> = {};
+      
+      for (const [resourceId, amount] of Object.entries(costs)) {
+        if (typeof amount === 'number' && amount > 0) {
+          requiredResources[resourceId] = amount;
+        }
+      }
+
+      console.log(`[ParameterResolvers] Required resources for ${buildingId}:`, requiredResources);
+      return requiredResources;
+
+    } catch (error) {
+      console.error(`[ParameterResolvers] Error getting required resources for ${buildingId}:`, error);
+      return {};
+    }
+  }
+
+  /**
+   * Обчислює відсутні ресурси для будівництва
+   */
+  getMissingResources(buildingId: string): Record<string, number> {
+    const buildingInstance = this.getBuildingInstance(buildingId);
+    const requiredResources = this.getBuildingRequiredResources(buildingId);
+    
+    if (!buildingInstance || Object.keys(requiredResources).length === 0) {
+      return {};
+    }
+
+    const collectedResources = buildingInstance.resourcesCollected || {};
+    const missingResources: Record<string, number> = {};
+
+    // Обчислюємо різницю між потрібними та зібраними ресурсами
+    for (const [resourceId, required] of Object.entries(requiredResources)) {
+      const collected = collectedResources[resourceId] || 0;
+      const missing = Math.max(0, required - collected);
+      
+      if (missing > 0) {
+        missingResources[resourceId] = missing;
+      }
+    }
+
+    console.log(`[ParameterResolvers] Missing resources for ${buildingId}:`, missingResources);
+    return missingResources;
+  }
+
+  /**
+   * Перевіряє чи є ще відсутні ресурси для будівництва
+   */
+  checkHasMissingResources(buildingId: string): boolean {
+    const missingResources = this.getMissingResources(buildingId);
+    const hasMissing = Object.values(missingResources).some(amount => amount > 0);
+    
+    console.log(`[ParameterResolvers] Has missing resources for ${buildingId}:`, hasMissing);
+    return hasMissing;
+  }
+
+  /**
+   * Універсальний резолвер для обчислення суми значень в об'єкті
+   * @param values - об'єкт з числовими значеннями
+   * @returns сума всіх значень
+   */
+  getValuesSum(values: Record<string, any>): number {
+    if (!values || typeof values !== 'object') {
+      console.warn(`[ParameterResolvers] getValuesSum: invalid input:`, values);
+      return 0;
+    }
+
+    const sum = Object.values(values).reduce((total, val) => {
+      const numVal = typeof val === 'number' ? val : 0;
+      return total + numVal;
+    }, 0);
+    
+    console.log(`[ParameterResolvers] Values sum:`, { values, sum });
+    return sum;
+  }
+
+  /**
+   * Отримує ресурси які є у дрона але не потрібні для будівництва
+   */
+  getUnnecessaryResources(objectId: string, requiredResources: Record<string, number>): Record<string, number> {
+    const object = this.mapLogic.scene.getObjectById(objectId);
+    if (!object || !object.data?.storage) {
+      console.log(`[ParameterResolvers] Object not found or no storage:`, objectId);
+      return {};
+    }
+
+    const storage = object.data.storage as Record<string, number>;
+    const unnecessaryResources: Record<string, number> = {};
+
+    // Проходимо по всіх ресурсах в storage дрона
+    for (const [resourceId, currentAmount] of Object.entries(storage)) {
+      if (currentAmount > 0) {
+        const requiredAmount = requiredResources[resourceId] || 0;
+        
+        // Якщо цей ресурс не потрібен для будівництва - додаємо весь
+        if (requiredAmount === 0) {
+          unnecessaryResources[resourceId] = currentAmount;
+        }
+        // Якщо маємо більше ніж потрібно - додаємо надлишок
+        else if (currentAmount > requiredAmount) {
+          unnecessaryResources[resourceId] = currentAmount - requiredAmount;
+        }
+      }
+    }
+
+    console.log(`[ParameterResolvers] Unnecessary resources:`, { objectId, requiredResources, storage, unnecessaryResources });
+    return unnecessaryResources;
   }
 }

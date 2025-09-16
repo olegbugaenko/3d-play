@@ -647,6 +647,160 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     ]
   },
 
+  // Група для збору біомаси у радіусі
+  {
+    id: 'gather-biomass-radius',
+    name: 'Gather Biomass',
+    description: 'Gather biomass resources in radius',
+    startCondition: null,
+    endCondition: null,
+    loopCondition: null,
+    isLoop: true, // Повторюємо поки є ресурси
+    requirements: [
+      {
+        scope: 'resource',
+        id: 'biomass',
+        level: 1
+      }
+    ],
+    ui: {
+      scope: 'gather',
+      category: 'biomass',
+      name: 'Gather Biomass',
+      description: 'Gather biomass resources in radius'
+    },
+    resolveParametersPipeline: [
+      {
+        id: 'resourcesInRadius',
+        getterType: 'getResourcesInRadius',
+        args: [
+          {type: 'lit', value: 'biomass'},
+          {type: 'var', value: 'targets.center'},
+          {type: 'lit', value: 5}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'dronePosition',
+        getterType: 'getCurrentObjectPosition',
+        args: [],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'sortedResourcesByDistance',
+        getterType: 'sortObjectsByDistanceToDrone',
+        args: [
+          {type: 'var', value: 'resolved.resourcesInRadius'},
+          {type: 'var', value: 'resolved.dronePosition'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'validateResourcesExist',
+        getterType: 'validate',
+        args: [
+          {type: 'lit', value: 'arrayNotEmpty'},
+          {type: 'var', value: 'resolved.sortedResourcesByDistance'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourceId',
+        getterType: 'getFirstOfList',
+        args: [{type: 'var', value: 'resolved.sortedResourcesByDistance'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'firstResourcePosition',
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.firstResourceId'},
+          {type: 'var', value: 'objectId'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'validateFirstResourcePosition',
+        getterType: 'validate',
+        args: [
+          {type: 'lit', value: 'objectExists'},
+          {type: 'var', value: 'resolved.firstResourcePosition'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'closestStorageId',
+        getterType: 'getClosestStorage',
+        args: [{type: 'lit', value: {maxDistance: 200}}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'storagePosition',
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.closestStorageId'},
+          {type: 'var', value: 'objectId'}
+        ],
+        resolveWhen: 'before-command'
+      }
+    ],
+    tasksPipeline: (_context): Command[] => [
+      {
+        id: `move-to-resource-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'high' },
+        status: 'pending',
+        priority: 1,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'firstResourcePosition'
+        }
+      },
+      {
+        id: `collect-resource-${Date.now()}`,
+        type: 'collect-resource',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { amount: 100 },
+        status: 'pending',
+        priority: 2,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'firstResourceId'
+        },
+        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
+      },
+      {
+        id: `return-to-storage-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'low' },
+        status: 'pending',
+        priority: 3,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'storagePosition'
+        }
+      },
+      {
+        id: `unload-resources-${Date.now()}`,
+        type: 'unload-resources',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: {},
+        status: 'pending',
+        priority: 4,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          targetId: 'closestStorageId'
+        }
+      }
+    ]
+  },
+
   {
     id: 'gather-all-radius',
     name: 'Gather All',
@@ -789,6 +943,222 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolvedParamsMapping: {
           targetId: 'closestStorageId'
         }
+      }
+    ]
+  },
+
+  // Група для будівництва
+  {
+    id: 'construction',
+    name: 'Construction',
+    description: 'Build a structure by gathering resources and constructing',
+    startCondition: null,
+    endCondition: null,
+    loopCondition: null,
+    isLoop: false, // Не повторюємо - виконуємо один раз
+    ui: {
+      scope: 'build',
+      category: 'construction',
+      name: 'Build Structure',
+      description: 'Gather resources and build a structure'
+    },
+    resolveParametersPipeline: [
+      // ID будівлі
+      {
+        id: 'buildingId',
+        getterType: 'literal',
+        args: [{type: 'var', value: 'targets.buildingId'}],
+        resolveWhen: 'before-command'
+      },
+      // Базові дані про будівлю
+      {
+        id: 'buildingInstance',
+        getterType: 'getBuildingInstance',
+        args: [{type: 'var', value: 'targets.buildingId'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'requiredResources',
+        getterType: 'getBuildingRequiredResources',
+        args: [{type: 'var', value: 'targets.buildingId'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'missingResources',
+        getterType: 'getMissingResources',
+        args: [{type: 'var', value: 'targets.buildingId'}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'missingSum',
+        getterType: 'getValuesSum',
+        args: [{type: 'var', value: 'resolved.missingResources'}],
+        resolveWhen: 'before-command'
+      },
+      // Ресурси які потрібно вивантажити (непотрібні для будівництва)
+      {
+        id: 'resourcesToUnload',
+        getterType: 'getUnnecessaryResources',
+        args: [
+          {type: 'var', value: 'objectId'},
+          {type: 'var', value: 'resolved.requiredResources'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      // Найближчий склад
+      {
+        id: 'closestStorageId',
+        getterType: 'getClosestStorage',
+        args: [{type: 'lit', value: {maxDistance: 200}}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'storagePosition',
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.closestStorageId'},
+          {type: 'var', value: 'objectId'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      // Позиція будівлі
+      {
+        id: 'buildingPosition',      
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'targets.buildingId'},
+          {type: 'var', value: 'objectId'}
+        ],
+        resolveWhen: 'before-command'
+      }
+    ],
+    tasksPipeline: (context): Command[] => [
+      // 1. Цикл збору ресурсів (conditional-loop)
+      {
+        id: `construction-resource-loop-${Date.now()}`,
+        type: 'conditional-loop',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: {
+          // Універсальні параметри умови
+          condition: '>',
+          value2: 0,
+          // Команди циклу для збору ресурсів
+          loopCommands: [
+            // A) Рухаємося до складу
+            {
+              id: `move-to-storage-${Date.now()}`,
+              type: 'move-to',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: { priority: 'high' },
+              status: 'pending',
+              priority: 1,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                position: 'storagePosition'
+              }
+            },
+            // B) Вивантажуємо непотрібні ресурси
+            {
+              id: `unload-unnecessary-${Date.now()}`,
+              type: 'unload-resources',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: {},
+              status: 'pending',
+              priority: 2,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                targetId: 'closestStorageId',
+                resourcesToUnload: 'resourcesToUnload'
+              }
+            },
+            // C) Завантажуємо потрібні ресурси
+            {
+              id: `load-needed-resources-${Date.now()}`,
+              type: 'load-resources',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: {},
+              status: 'pending',
+              priority: 3,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                targetId: 'closestStorageId',
+                resources: 'missingResources'  // Завантажуємо потрібні ресурси
+              }
+            },
+            // D) Рухаємося до будівлі
+            {
+              id: `move-to-construction-${Date.now()}`,
+              type: 'move-to',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: { priority: 'high' },
+              status: 'pending',
+              priority: 4,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                position: 'buildingPosition'
+              }
+            },
+            // E) Вивантажуємо ресурси на будівлю
+            {
+              id: `unload-to-construction-${Date.now()}`,
+              type: 'unload-resources',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: {
+                buildingId: context.targets?.buildingId
+              },
+              status: 'pending',
+              priority: 5,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                targetId: 'buildingId',  // Встановлюємо ціль - будівлю
+                resourcesToUnload: 'missingResources'  // Вивантажуємо тільки потрібні ресурси
+              }
+            }
+          ]
+        },
+        status: 'pending',
+        priority: 1,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          value1: 'missingSum',
+          missingResources: 'missingResources',
+          requiredResources: 'requiredResources',
+          closestStorageId: 'closestStorageId',
+          buildingInstance: 'buildingInstance'
+        }
+      },
+      // 2. Рух до будівлі для будівництва
+      {
+        id: `final-move-to-construction-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'high' },
+        status: 'pending',
+        priority: 2,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'buildingPosition'
+        }
+      },
+      // 3. Власне будівництво
+      {
+        id: `build-structure-${Date.now()}`,
+        type: 'build',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: {
+          buildingId: context.targets?.buildingId
+        },
+        status: 'pending',
+        priority: 3,
+        createdAt: Date.now()
       }
     ]
   }
