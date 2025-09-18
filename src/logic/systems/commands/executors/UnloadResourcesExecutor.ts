@@ -129,6 +129,28 @@ export class UnloadResourcesExecutor extends CommandExecutor {
                         if (acceptedResources.length < resourceChanges.length) {
                             this.returnUnacceptedResources(object, resourceChanges, acceptedResources);
                         }
+                    } else if (target.tags?.includes('building') && target.data?.isBuilt) {
+                        // Побудована будівля з внутрішнім складом
+                        const bm: any = this.context.mapLogic?.buildingsManager;
+                        const inst = bm?.getBuildingInstance?.(target.id);
+                        if (inst?.internalStorage) {
+                            let acceptedTotal = 0;
+                            for (const change of resourceChanges) {
+                                const bucket = inst.internalStorage[change.resourceId];
+                                if (!bucket) continue;
+                                const free = Math.max(0, bucket.capacity - (bucket.current || 0));
+                                const put = Math.min(free, change.amount);
+                                if (put > 0) {
+                                    bucket.current = (bucket.current || 0) + put;
+                                    acceptedTotal += put;
+                                }
+                            }
+                            if (acceptedTotal > 0) {
+                                this.context.scene.markObjectDirty?.(target.id);
+                            }
+                        } else {
+                            console.warn('[UnloadResourcesExecutor] Target building has no internal storage');
+                        }
                     } else {
                         console.warn(`[UnloadResourcesExecutor] Unknown target type: ${target.tags}`);
                     }

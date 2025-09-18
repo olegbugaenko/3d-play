@@ -26,6 +26,12 @@ export interface BuildingInstance {
   position?: Vector3;
   constructionProgress?: number;
   resourcesCollected?: Record<string, number>;
+  internalStorage?: Record<string, {
+    capacity: number;
+    current: number;
+  }>;
+  isFunctional?: boolean;
+  lastUpdateTime?: number;
 }
 
 export interface BuildingUI {
@@ -39,6 +45,23 @@ export interface BuildingUI {
 export interface BuildingsManagerSaveData {
   buildingInstances: BuildingInstance[];
 }
+```
+
+### Ключові методи для Internal Storage
+```ts
+// Storage info API (для UI та debugging)
+getBuildingStorageInfo(buildingId: string): Record<string, {
+  current: number;
+  capacity: number;
+  percentage: number;
+}> | null;
+
+// Storage management API
+doesBuildingNeedRefill(buildingId: string, threshold?: number): boolean;
+getBuildingMissingResourcesFromStorage(buildingId: string): Record<string, number>;
+
+// Internal tick для оновлення внутрішніх складів
+tick(deltaTime: number): void;
 ```
 
 ---

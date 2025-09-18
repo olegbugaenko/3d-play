@@ -157,6 +157,11 @@ export class ParameterResolutionService {
         const requiredResourcesForUnnecessary = resolvedArgs[1];
         return this.parameterResolvers.getUnnecessaryResources(objectIdForUnnecessary, requiredResourcesForUnnecessary);
       
+      case 'planBuildingTransfer':
+        const bId = resolvedArgs[0];
+        const objId = context.objectId;
+        return this.parameterResolvers.planBuildingTransfer(bId, objId);
+      
       case 'literal':
         // Просто повертаємо перший аргумент як є
         return resolvedArgs[0];

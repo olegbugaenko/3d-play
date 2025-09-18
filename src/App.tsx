@@ -14,6 +14,13 @@ function App() {
   useEffect(() => {
     game.initGame();
     setIsGameInitialized(true);
+    
+    // Експортуємо debug функції для браузера
+    (window as any).debugGame = {
+      storage: (buildingId?: string) => game.debugBuildingStorage(buildingId),
+      game: game
+    };
+    console.log('[App] Debug functions available: window.debugGame.storage(), window.debugGame.game');
   }, [game]);
 
   const handleStartGame = () => {

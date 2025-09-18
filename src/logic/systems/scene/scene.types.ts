@@ -45,3 +45,22 @@ export interface GridSystem {
     cellSize: number; // Розмір однієї клітинки гріду
     grid: Map<string, GridCell>; // key: "x,z" координати гріду
 }
+
+// НОВЕ: Дані будівлі в TSceneObject
+export interface BuildingData {
+  buildingType: string;
+  level: number;
+  typeId: string;
+  built: boolean;
+  constructionProgress?: number;
+  resourcesCollected?: Record<string, number>;
+  
+  // НОВЕ: Внутрішні склади
+  internalStorage?: Record<string, {
+    capacity: number;
+    current: number;
+  }>;
+  
+  // НОВЕ: Стан функціонування
+  isFunctional?: boolean;
+}

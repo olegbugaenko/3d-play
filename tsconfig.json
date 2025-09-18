@@ -30,6 +30,7 @@
       "@scene/*": ["src/logic/systems/scene/*"],
       "@map/*": ["src/logic/systems/map/*"],
       "@commands/*": ["src/logic/systems/commands/*"],
+      "@environment/*": ["src/logic/systems/environment/*"],
       "@modifiers/*": ["src/logic/systems/modifiers-system/*"],
       "@save-load/*": ["src/logic/systems/save-load/*"],
       "@utils/*": ["src/logic/utils/*"],

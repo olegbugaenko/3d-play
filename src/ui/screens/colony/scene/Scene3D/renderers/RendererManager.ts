@@ -10,19 +10,32 @@ import { BuildingRenderer } from './BuildingRenderer'
 import { CloudRenderer } from './CloudRenderer'
 
 import { FireRenderer } from './FireRenderer'
+import { UiLogicBridge } from '@ui/logic/UiLogicBridge'
 // import { ElectricArcRenderer } from './ArcRenderer'
 import { SmokeRenderer } from './SmokeRenderer'
+import { RoadRenderer } from './RoadRenderer'
+import { AuroraRenderer } from './environment/AuroraRenderer'
 // import { ExplosionRenderer } from './ExplosionRenderer'
 
 export class RendererManager {
     public renderers: Map<string, BaseRenderer> = new Map();
     private scene: THREE.Scene;
     private renderer: THREE.WebGLRenderer;
+    private bridge: UiLogicBridge | null = null;
 
-    constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
+    constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, bridge?: UiLogicBridge) {
         this.scene = scene;
         this.renderer = renderer;
+        if (bridge) this.bridge = bridge;
         this.initializeRenderers();
+    }
+
+    public setBridge(bridge: UiLogicBridge): void {
+        this.bridge = bridge;
+        const buildingRenderer = this.renderers.get('building') as any;
+        if (buildingRenderer && buildingRenderer.setUiLogicBridge) {
+            buildingRenderer.setUiLogicBridge(bridge);
+        }
     }
 
     private initializeRenderers(): void {
@@ -35,10 +48,16 @@ export class RendererManager {
         })); // Каменюки типу rock з звичайним рендерингом
         this.registerRenderer('biomass', new BiomassRenderer(this.scene)); // Біомаса
         this.registerRenderer('rover', new RoverRenderer(this.scene)); // Rover об'єкти
-        this.registerRenderer('building', new BuildingRenderer(this.scene)); // Будівлі
+        const buildingRenderer = new BuildingRenderer(this.scene);
+        if (this.bridge && (buildingRenderer as any).setUiLogicBridge) {
+            (buildingRenderer as any).setUiLogicBridge(this.bridge);
+        }
+        this.registerRenderer('building', buildingRenderer); // Будівлі
         this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Хмари
         this.registerRenderer('smoke', new SmokeRenderer(this.scene, this.renderer)); // Дим (GPU)
         this.registerRenderer('fire', new FireRenderer(this.scene, this.renderer)); // Вогонь (GPU)
+        this.registerRenderer('road', new RoadRenderer(this.scene)); // Дороги
+        this.registerRenderer('aurora', new AuroraRenderer(this.scene, this.bridge || undefined)); // Полярне сяйво
         //this.registerRenderer('explosion', new ExplosionRenderer(this.scene, this.renderer)); // Вибухи (GPU)
         //this.registerRenderer('electric-arc', new ElectricArcRenderer(this.scene));
         // Тут можна додати інші рендерери: plane, тощо
@@ -93,6 +112,7 @@ export class RendererManager {
     clearAll(): void {
 
     }
+
 
     // -------------------------
     // Очищення ресурсів (важливо для HMR!)

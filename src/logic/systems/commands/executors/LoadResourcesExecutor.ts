@@ -86,7 +86,7 @@ export class LoadResourcesExecutor extends CommandExecutor {
                 console.log('requiredResources', resourceId, currentInDrone, stillNeeded);
                 
                 if (stillNeeded > 0) {
-                    // Скільки можемо завантажити (обмежено швидкістю та залишками в складі)
+                    // Скільки можемо завантажити (обмежено швидкістю та залишками в джерелі)
                     const availableInStorage = this.getResourceAmount(target, resourceId);
                     const maxCapacity = this.getRemainingCapacity(object);
                     
@@ -107,22 +107,34 @@ export class LoadResourcesExecutor extends CommandExecutor {
                 
 
                     if (amountToTake > 0) {
-                        // Забираємо ресурс зі складу (через ResourceManager)
-                        const resourceManager = this.context.mapLogic?.resources;
-                        if (resourceManager) {
-                            const takeChanges: ResourceChange[] = [{
-                                resourceId: resourceId as any,
-                                amount: -amountToTake, // Негативне значення = забираємо
-                                reason: `Loaded by ${object.id}`
-                            }];
-                            
-                            const success = resourceManager.addResources(takeChanges);
-                            if (success) {
-                                // Додаємо ресурс в інвентар дрона
-                                (object.data.storage as Record<string, number>)[resourceId] = currentInDrone + amountToTake;
-                                totalLoaded += amountToTake;
-                                
-                                console.log(`[LoadResourcesExecutor] Loaded ${amountToTake} ${resourceId} to ${object.id}`);
+                        if (target?.tags?.includes('building') && target.data?.isBuilt && !target?.tags?.includes('storage')) {
+                            // Джерело – внутрішній склад будівлі
+                            const bm: any = this.context.mapLogic?.buildingsManager;
+                            const inst = bm?.getBuildingInstance?.(target.id);
+                            const bucket = inst?.internalStorage?.[resourceId];
+                            if (bucket && bucket.current > 0) {
+                                const taken = Math.min(bucket.current, amountToTake);
+                                bucket.current = Math.max(0, bucket.current - taken);
+                                (object.data.storage as Record<string, number>)[resourceId] = currentInDrone + taken;
+                                totalLoaded += taken;
+                                this.context.scene.markObjectDirty?.(target.id);
+                                console.log(`[LoadResourcesExecutor] Loaded ${taken} ${resourceId} from ${target.id} to ${object.id}`);
+                            }
+                        } else {
+                            // Джерело – глобальний склад (ResourceManager)
+                            const resourceManager = this.context.mapLogic?.resources;
+                            if (resourceManager) {
+                                const takeChanges: ResourceChange[] = [{
+                                    resourceId: resourceId as any,
+                                    amount: -amountToTake,
+                                    reason: `Loaded by ${object.id}`
+                                }];
+                                const success = resourceManager.addResources(takeChanges);
+                                if (success) {
+                                    (object.data.storage as Record<string, number>)[resourceId] = currentInDrone + amountToTake;
+                                    totalLoaded += amountToTake;
+                                    console.log(`[LoadResourcesExecutor] Loaded ${amountToTake} ${resourceId} to ${object.id}`);
+                                }
                             }
                         }
                     }
@@ -142,6 +154,7 @@ export class LoadResourcesExecutor extends CommandExecutor {
 
     completeCheck(): boolean {
         const object = this.context.scene.getObjectById(this.context.objectId);
+        const target = this.context.scene.getObjectById(this.command.targetId);
         const requiredResources = this.command.parameters?.resources || {};
         
         if (!object) return true;
@@ -157,6 +170,13 @@ export class LoadResourcesExecutor extends CommandExecutor {
         const allResourcesLoaded = this.hasAllRequiredResources(object, requiredResources);
         if (allResourcesLoaded) {
             console.log(`[LoadResourcesExecutor] All required resources loaded for ${object.id}`);
+            return true;
+        }
+
+        // НОВА УМОВА: Перевіряємо чи є ще ресурси в джерелі для завантаження
+        // Якщо в джерелі закінчились ресурси, а дрон щось завантажив - завершуємо успішно
+        if (target && this.hasSomethingLoaded(object, requiredResources) && !this.hasAnyRequiredResourcesInTarget(target, requiredResources)) {
+            console.log(`[LoadResourcesExecutor] No more resources available in target, completing with what was loaded for ${object.id}`);
             return true;
         }
 
@@ -177,19 +197,35 @@ export class LoadResourcesExecutor extends CommandExecutor {
     }
 
     private hasResourcesInTarget(target: any): boolean {
-        // Для складу перевіряємо через ResourceManager
+        // Підтримка двох джерел: глобальний склад або внутрішній склад будівлі
+        if (target?.tags?.includes('building') && target.data?.isBuilt && !target?.tags?.includes('storage')) {
+            const bm: any = this.context.mapLogic?.buildingsManager;
+            const inst = bm?.getBuildingInstance?.(target.id);
+            if (!inst?.internalStorage) return false;
+            // Якщо параметр resources заданий — перевіряємо його, інакше перевіряємо будь-який ресурс
+            const req = this.command.parameters?.resources as Record<string, number> | undefined;
+            if (req && Object.keys(req).length > 0) {
+                return Object.entries(req).some(([rid]) => (inst.internalStorage![rid]?.current || 0) > 0);
+            }
+            return Object.values(inst.internalStorage).some((b: any) => (b?.current || 0) > 0);
+        }
+
         const resourceManager = this.context.mapLogic?.resources;
         if (!resourceManager) return false;
-        
         const resources = resourceManager.getResources();
         return Object.values(resources).some((amount: any) => amount > 0);
     }
 
     private getResourceAmount(target: any, resourceId: string): number {
-        // Отримуємо кількість ресурсу через ResourceManager
+        // Якщо джерело — будівля з внутрішнім складом
+        if (target?.tags?.includes('building') && target.data?.isBuilt && !target?.tags?.includes('storage')) {
+            const bm: any = this.context.mapLogic?.buildingsManager;
+            const inst = bm?.getBuildingInstance?.(target.id);
+            const bucket = inst?.internalStorage?.[resourceId];
+            return bucket?.current || 0;
+        }
         const resourceManager = this.context.mapLogic?.resources;
         if (!resourceManager) return 0;
-        
         return resourceManager.getResourceAmount(resourceId);
     }
 
@@ -238,5 +274,37 @@ export class LoadResourcesExecutor extends CommandExecutor {
         
         if (totalRequired === 0) return 1.0;
         return totalLoaded / totalRequired;
+    }
+
+    /**
+     * Перевіряє чи дрон завантажив хоча б щось з потрібних ресурсів
+     */
+    private hasSomethingLoaded(object: any, requiredResources: Record<string, number>): boolean {
+        if (!object.data?.storage) return false;
+        
+        const inventory = object.data.storage as Record<string, number>;
+        
+        for (const [resourceId] of Object.entries(requiredResources)) {
+            const currentAmount = inventory[resourceId] || 0;
+            if (currentAmount > 0) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * Перевіряє чи є хоча б один з потрібних ресурсів в джерелі
+     */
+    private hasAnyRequiredResourcesInTarget(target: any, requiredResources: Record<string, number>): boolean {
+        for (const [resourceId] of Object.entries(requiredResources)) {
+            const availableAmount = this.getResourceAmount(target, resourceId);
+            if (availableAmount > 0) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }

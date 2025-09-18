@@ -189,7 +189,17 @@ export class MoveToExecutor extends CommandExecutor {
 
         // Встановлюємо швидкість руху до поточної цільової точки
         const direction = currentTarget.sub(currentPos).normalize();
-        const speed = object.data?.maxSpeed || 1.0;
+        let speed = object.data?.maxSpeed || 1.0;
+        
+        // Перевіряємо чи дрон на дорозі та застосовуємо бонус швидкості
+        const pathfindingSystem = this.context.scene.pathfinder;
+        if (pathfindingSystem) {
+            const roadSpeedBonus = pathfindingSystem.getSpeedBonusAtWorld(currentPos.x, currentPos.z);
+            if (roadSpeedBonus > 1.0) {
+                speed *= roadSpeedBonus;
+                console.log(`Road speed bonus: ${roadSpeedBonus}x, new speed: ${speed} at (${currentPos.x.toFixed(1)}, ${currentPos.z.toFixed(1)})`);
+            }
+        }
         
         // Ініціалізуємо speed якщо не існує
         if (!object.speed) {

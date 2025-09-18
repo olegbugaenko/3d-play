@@ -32,13 +32,8 @@ export class ChargeExecutor extends CommandExecutor {
             return { success: false, message: 'Too far from charging station' };
         }
 
-        // Перевіряємо наявність глобального ресурсу power
-        if (mapLogic && mapLogic.resources) {
-            const globalPower = mapLogic.resources.getResourceAmount('energy');
-            if (globalPower <= 0) {
-                return { success: false, message: 'No global power available' };
-            }
-        }
+        // Перевірка глобальної енергії: зарядка має пріоритет → бак не повинен блокуватись нулем
+        // Якщо енергії немає, дозволяємо заряджати повільною швидкістю без списання, щоб дрон міг "ожити"
 
         // Заряджаємо об'єкт зі швидкістю станції
         const chargeRate = chargingStation.data.chargeRate || 0.02; // Використовуємо chargeRate зі станції
@@ -47,22 +42,17 @@ export class ChargeExecutor extends CommandExecutor {
         if (object.data.power < object.data.maxPower) {
             // Споживаємо глобальний ресурс power
             if (mapLogic && mapLogic.resources) {
-                const consumedPower = Math.min(chargeAmount, mapLogic.resources.getResourceAmount('energy'));
-                if (consumedPower <= 0) {
-                    return { success: false, message: 'Insufficient global power' };
+                const available = mapLogic.resources.getResourceAmount('energy');
+                const consumedPower = Math.min(chargeAmount, Math.max(0, available));
+                if (consumedPower > 0) {
+                    mapLogic.resources.spendResources([{ resourceId: 'energy', amount: consumedPower, reason: 'charging' }]);
+                    object.data.power = Math.min(object.data.maxPower, object.data.power + consumedPower);
+                } else {
+                    // Фолбек: повільний пасивний заряд, коли глобальна енергія на нулі
+                    const trickle = chargeAmount * 0.2;
+                    object.data.power = Math.min(object.data.maxPower, object.data.power + trickle);
                 }
-                
-                // Зменшуємо глобальний ресурс
-                mapLogic.resources.spendResources([{
-                    resourceId: 'energy',
-                    amount: consumedPower,
-                    reason: 'charging'
-                }]);
-                
-                // Заряджаємо об'єкт на величину спожитого ресурсу
-                object.data.power = Math.min(object.data.maxPower, object.data.power + consumedPower);
             } else {
-                // Якщо немає доступу до ресурсів - заряджаємо без споживання
                 object.data.power = Math.min(object.data.maxPower, object.data.power + chargeAmount);
             }
             

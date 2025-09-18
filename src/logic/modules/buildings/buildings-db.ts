@@ -1,4 +1,4 @@
-import { BuildingTypeData } from './buildings.types';
+import { BuildingTypeData, RoadTypeData } from './buildings.types';
 import { CostFormula } from '@shared/types/common.types';
 
 // Формули вартості для різних типів будівель
@@ -11,6 +11,19 @@ const chargingStationCostFormula: CostFormula = (level: number) => ({
   stone: 100 + (level - 1) * 50,
   ore: 50 + (level - 1) * 30,
   energy: 25 + (level - 1) * 10
+});
+
+// НОВІ формули вартості для біо-будівель
+const bioGeneratorCostFormula: CostFormula = (level: number) => ({
+  stone: 60 + (level - 1) * 30,
+  ore: 30 + (level - 1) * 15,
+  biomass: 15 + (level - 1) * 10
+});
+
+const bioIncubatorCostFormula: CostFormula = (level: number) => ({
+  stone: 50 + (level - 1) * 25,
+  ore: 25 + (level - 1) * 12,
+  energy: 20 + (level - 1) * 8
 });
 
 // База даних типів будівель
@@ -258,6 +271,113 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
       ore: 10 + (level - 1) * 30,
       energy: 10 + (level - 1) * 10
     })
+  }],
+
+  // НОВІ БІО-БУДІВЛІ
+  ['bioGenerator', {
+    id: 'bioGenerator',
+    name: 'Bio Generator',
+    description: 'Спалює біомасу для виробництва енергії',
+    maxLevel: 3,
+    tags: ['generator', 'bio', 'building'],
+    requirements: [
+      {
+        scope: 'upgrade',
+        id: 'bioModule',
+        level: 1
+      }
+    ],
+    modifier: {
+      resource: {
+        income: {
+          energy: {
+            formula: (data: any) => ({
+              type: 'linear',
+              A: 0.5 * (data.level || 1), // 0.5 енергії за секунду на рівень
+              B: 0
+            }),
+            deps: []
+          }
+        }
+      }
+    },
+    ui: {
+      defaultScale: { x: 1.2, y: 1.2, z: 1.2 },
+      rotationOffset: { x: 0, y: 0, z: 0 },
+      modelName: 'models/buildings/bio_generator.glb',
+      color: '#4ECDC4' // Тірквойзовий для біо-генератора
+    },
+    data: {
+      obstacleSize: 1.5,
+      // НОВЕ: Конфігурація внутрішнього складу
+      internalStorageConfig: {
+        biomass: {
+          capacity: 20,
+          defaultCurrent: 0,
+          acceptsInput: true,
+          providesOutput: false
+        }
+      },
+      // НОВЕ: Споживання ресурсів (формула залежно від рівня)
+      consumption: {
+        biomass: (level: number) => 0.1 * level // Більше споживання на вищих рівнях
+      }
+    },
+    cost: bioGeneratorCostFormula
+  }],
+
+  ['bioIncubator', {
+    id: 'bioIncubator',
+    name: 'Bio Incubator',
+    description: 'Виробляє біомасу з органічних відходів',
+    maxLevel: 3,
+    tags: ['producer', 'bio', 'building'],
+    requirements: [
+      {
+        scope: 'upgrade',
+        id: 'bioModule',
+        level: 1
+      }
+    ],
+    modifier: {
+      resource: {
+        // ВАЖЛИВО: виробництво біомаси відбувається у ВНУТРІШНІЙ склад (internalProduction),
+        // тому global income для біомаси тут не задаємо
+        consumption: {
+          energy: {
+            formula: (data: any) => ({
+              type: 'linear', 
+              A: 0.2 * (data.level || 1), // 0.2 енергії за секунду на рівень
+              B: 0
+            }),
+            deps: []
+          }
+        }
+      }
+    },
+    ui: {
+      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
+      rotationOffset: { x: 0, y: 0, z: 0 },
+      modelName: 'models/buildings/bio_incubator.glb',
+      color: '#90EE90' // Світло-зелений для біо-інкубатора
+    },
+    data: {
+      obstacleSize: 1.2,
+      // НОВЕ: Внутрішній склад для зберігання виробленої біомаси
+      internalStorageConfig: {
+        biomass: {
+          capacity: 80, // Менший склад ніж у генератора
+          defaultCurrent: 0,
+          acceptsInput: false,
+          providesOutput: true
+        }
+      },
+      // НОВЕ: Виробництво у внутрішній склад
+      internalProduction: {
+        biomass: (level: number) => 0.3 * level // Базова швидкість виробництва біомаси
+      }
+    },
+    cost: bioIncubatorCostFormula
   }]
 ]);
 
@@ -279,4 +399,51 @@ export function isBuildingTypeExists(id: string): boolean {
 // Метод для отримання кількості типів будівель
 export function getBuildingTypesCount(): number {
   return BUILDINGS_DB.size;
+}
+
+// Формули вартості доріг (за метр)
+const basicRoadCostFormula: CostFormula = (_level: number) => ({
+  stone: 2,    // за метр
+  ore: 0.5     // за метр
+});
+
+const reinforcedRoadCostFormula: CostFormula = (_level: number) => ({
+  stone: 4,
+  ore: 2,
+  energy: 1
+});
+
+// База даних типів доріг
+export const ROADS_DB: Map<string, RoadTypeData> = new Map([
+  ['basic_road', {
+    id: 'basic_road',
+    name: 'Основна дорога',
+    description: 'Базова дорога що пришвидшує рух дронів на 50%',
+    width: 1.0,
+    speedBonus: 1.5,
+    cost: basicRoadCostFormula,
+    ui: {
+      color: '#8B4513', // коричневий
+      pattern: 'basic'
+    },
+    tags: ['road', 'infrastructure']
+  }],
+  
+  ['reinforced_road', {
+    id: 'reinforced_road',
+    name: 'Посилена дорога',
+    description: 'Покращена дорога що пришвидшує рух дронів на 100%',
+    width: 1.5,
+    speedBonus: 2.0,
+    cost: reinforcedRoadCostFormula,
+    ui: {
+      color: '#696969', // темно-сірий
+      pattern: 'reinforced'
+    },
+    tags: ['road', 'infrastructure', 'advanced']
+  }]
+]);
+
+export function getRoadTypesCount(): number {
+  return ROADS_DB.size;
 }

@@ -231,6 +231,72 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
       stone: 5 * (1.2 ** (level - 1)),
       ore: 5 * (1.2 ** (level - 1)),
     })
+  }],
+
+  // НОВІ АПГРЕЙДИ ПІСЛЯ КОНСТРУКШИНУ
+  ['repairKit', {
+    id: 'repairKit',
+    name: 'Repair Kit',
+    description: 'Додає ще один дрон до колонії',
+    maxLevel: 1,
+    requirements: [
+      {
+        scope: 'building-instance',
+        id: 'spaceship',
+        level: 1
+      }
+    ],
+    modifier: {
+      effect: {
+        addition: {
+          max_drone_count: {
+            formula: (_data: any) => ({
+              type: 'linear',
+              A: 1, // +1 дрон
+              B: 0
+            }),
+            deps: [] as string[]
+          }
+        }
+      }
+    },
+    ui: {
+      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
+      rotationOffset: { x: 0, y: 0, z: 0 },
+      iconName: 'repair-kit.png',
+      color: '#FF6B6B' // Червоний для ремонту
+    },
+    cost: (level: number) => ({
+      stone: 30,
+      ore: 20,
+      energy: 15
+    })
+  }],
+
+  ['bioModule', {
+    id: 'bioModule',
+    name: 'Bio Module',
+    description: 'Розблоковує біо-технології та нові будівлі',
+    maxLevel: 1,
+    requirements: [
+      {
+        scope: 'building-instance',
+        id: 'spaceship',
+        level: 1
+      }
+    ],
+    modifier: {}, // Тільки розблоковує будівлі
+    ui: {
+      defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
+      rotationOffset: { x: 0, y: 0, z: 0 },
+      iconName: 'bio-module.png',
+      color: '#4ECDC4' // Тірквойзовий для біо-технологій
+    },
+    cost: (level: number) => ({
+      stone: 40,
+      ore: 25,
+      biomass: 20
+    })
   }]
 ]);
 

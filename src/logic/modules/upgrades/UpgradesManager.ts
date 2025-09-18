@@ -12,12 +12,20 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
   private bonusSystem: IBonusSystem;
   private resourceManager: IResourceManager;
   private requirementsSystem: IRequirementsSystem;
+  private container: any | null = null; // Посилання на GameContainer
 
   constructor(bonusSystem: IBonusSystem, resourceManager: IResourceManager, requirementsSystem: IRequirementsSystem) {
     this.bonusSystem = bonusSystem;
     this.resourceManager = resourceManager;
     this.requirementsSystem = requirementsSystem;
 
+  }
+
+  /**
+   * Встановлює посилання на GameContainer для доступу до інших менеджерів
+   */
+  public setContainer(container: any): void {
+    this.container = container;
   }
 
   /**
@@ -208,6 +216,8 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       const bonusSourceId = this.getBonusSourceId(typeId);
       this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
       
+      // НОВЕ: Обробляємо спеціальні ефекти апгрейдів
+      this.handleSpecialUpgradeEffects(typeId);
   
       return true;
     }
@@ -351,7 +361,47 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       this.setInitialState(typeId, 0, true);
     }
     
+    // 🚀 TEST: Додаємо тестові апгрейди для швидкого тесту storage індикації
+    console.log('[TEST] Adding test upgrades for storage testing...');
+    this.forceUnlockUpgrade('construction');
+    this.forceUnlockUpgrade('bioModule');
+    this.forceUnlockUpgrade('repairKit');
+    // TEMP: set miningEfficiency1 to level 5 for testing
+    this.forceSetUpgradeLevel('miningEfficiency1', 5);
 
+  }
+
+  /**
+   * Force unlock upgrade for testing (bypasses requirements and costs)
+   */
+  private forceUnlockUpgrade(upgradeId: string): void {
+    const state = this.upgradeStates.get(upgradeId);
+    if (state) {
+      state.level = 1;
+      state.unlocked = true;
+      
+      // Update bonus system
+      const bonusSourceId = this.getBonusSourceId(upgradeId);
+      this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
+      
+      // Handle special effects (like repairKit creating drone)
+      this.handleSpecialUpgradeEffects(upgradeId);
+      
+      console.log(`[TEST] Force unlocked upgrade: ${upgradeId}`);
+    } else {
+      console.warn(`[TEST] Upgrade ${upgradeId} not found in states`);
+    }
+  }
+
+  private forceSetUpgradeLevel(upgradeId: string, level: number): void {
+    const state = this.upgradeStates.get(upgradeId);
+    if (state) {
+      state.unlocked = true;
+      state.level = level;
+      const bonusSourceId = this.getBonusSourceId(upgradeId);
+      this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
+      console.log(`[TEST] Force set upgrade ${upgradeId} to level ${level}`);
+    }
   }
 
   /**
@@ -425,6 +475,52 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
     return Array.from(this.upgradesDB.values()).filter(upgrade => 
       this.isUnlocked(upgrade.id)
     );
+  }
+
+  /**
+   * Обробляє спеціальні ефекти апгрейдів
+   */
+  private handleSpecialUpgradeEffects(upgradeId: string): void {
+    switch (upgradeId) {
+      case 'repairKit':
+        this.handleRepairKitUpgrade();
+        break;
+      
+      // Можна додати інші спеціальні апгрейди в майбутньому
+      default:
+        // Нічого спеціального не робимо для звичайних апгрейдів
+        break;
+    }
+  }
+
+  /**
+   * Обробляє ефект апгрейду "Ремонтний комплект" - створює новий дрон
+   */
+  private handleRepairKitUpgrade(): void {
+    if (!this.container) {
+      console.warn('[UpgradesManager] Container not set, cannot create drone');
+      return;
+    }
+    
+    console.log('[UpgradesManager] Handling Repair Kit upgrade - creating new drone');
+    
+    // Оновлюємо максимальну кількість дронів через DroneManager
+    const droneManager = this.container.droneManager;
+    if (!droneManager) {
+      console.warn('[UpgradesManager] DroneManager not found in container');
+      return;
+    }
+    
+    droneManager.updateMaxDroneCount();
+    
+    // СТВОРЮЄМО РЕАЛЬНОГО НОВОГО ДРОНА
+    const success = droneManager.createAdditionalDrone();
+    
+    if (success) {
+      console.log('[UpgradesManager] Successfully created additional drone from Repair Kit');
+    } else {
+      console.warn('[UpgradesManager] Failed to create additional drone from Repair Kit');
+    }
   }
 
 

@@ -14,7 +14,7 @@ import { initEffects } from '@shared/effects';
 import { GameContainer } from './GameContainer';
 import { ISceneLogic, IResourceManager, IBonusSystem, IBuildingsManager, IUpgradesManager, IDroneManager, ISaveManager } from '../../interfaces/index';
 import { Logger } from '@shared/ErrorService';
-import { Result, isSuccess, match } from '@shared/Result';
+// Видалено невикористовувані імпорти для Result
 
 
 export class Game {
@@ -179,6 +179,11 @@ export class Game {
     
     // Будуємо граф залежностей для системи бонусів
     this.bonusSystem.buildDependencyGraph();
+    
+    // НОВЕ: Надаємо UpgradesManager доступ до контейнера для створення дронів
+    if ('setContainer' in this.upgradesManager) {
+      (this.upgradesManager as any).setContainer(this.container);
+    }
   }
 
   public static getInstance(): Game {
@@ -268,8 +273,33 @@ export class Game {
     // Оновлюємо ресурси
     this.resourceManager.tick(dT);
     
+    // НОВЕ: Оновлюємо внутрішні склади будівель
+    if ('tick' in this.buildingsManager) {
+      (this.buildingsManager as any).tick(dT);
+    }
+    
     // Оновлюємо логіку карти
     this.mapLogic.tick(dT);
+  }
+
+  /**
+   * Debug method to get building storage info (for testing in browser console)
+   */
+  public debugBuildingStorage(buildingId?: string): void {
+    if (buildingId) {
+      const info = (this.buildingsManager as any).getBuildingStorageInfo(buildingId);
+      console.log(`[DEBUG] Building ${buildingId} storage:`, info);
+    } else {
+      // Show all buildings with internal storage
+      const buildings = Array.from((this.buildingsManager as any).getBuildingInstances().values())
+        .filter((b: any) => b.built && b.internalStorage);
+      
+      console.log(`[DEBUG] Found ${buildings.length} buildings with internal storage:`);
+      buildings.forEach((building: any) => {
+        const info = (this.buildingsManager as any).getBuildingStorageInfo(building.id);
+        console.log(`  ${building.id} (${building.typeId}):`, info);
+      });
+    }
   }
 
   /**

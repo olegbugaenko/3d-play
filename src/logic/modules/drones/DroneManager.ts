@@ -22,6 +22,7 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
     private scene: ISceneLogic;
     private bonusSystem: IBonusSystem;
     private droneTypesDB: Map<string, DroneTypeData> = new Map();
+    private maxDroneCount: number = 1; // Початкова кількість дронів
     
     constructor(bonusSystem: IBonusSystem, scene: ISceneLogic) {
         this.scene = scene;
@@ -35,6 +36,9 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
     public beforeInit(): void {
         // Копіюємо БД типів дронів
         this.droneTypesDB = new Map(DRONE_TYPES_DB);
+        
+        // Оновлюємо максимальну кількість дронів з бонус-системи
+        this.updateMaxDroneCount();
     }
     
     // ==================== Drone Management ====================
@@ -440,5 +444,179 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         return this.getAllDrones().filter(drone => 
             drone.tags && drone.tags.includes(tag)
         );
+    }
+
+    // ==================== Drone Count Management ====================
+    
+    /**
+     * Оновлює максимальну кількість дронів з бонус-системи
+     */
+    public updateMaxDroneCount(): void {
+        const baseDrones = 1;
+        const bonusDrones = this.bonusSystem.getEffectValue('max_drone_count') || 0;
+        this.maxDroneCount = baseDrones + Math.floor(bonusDrones);
+        
+        console.log(`[DroneManager] Max drone count updated: ${this.maxDroneCount}`);
+    }
+
+    /**
+     * Отримує максимальну кількість дронів
+     */
+    public getMaxDroneCount(): number {
+        return this.maxDroneCount;
+    }
+
+    /**
+     * Перевіряє чи можна створити новий дрон
+     */
+    public canCreateNewDrone(): boolean {
+        const currentCount = this.getActiveDronesCount();
+        return currentCount < this.maxDroneCount;
+    }
+
+    /**
+     * Отримує кількість активних дронів
+     */
+    private getActiveDronesCount(): number {
+        return this.scene.getObjectsByTag('rover').filter(obj => 
+            obj.data?.status !== 'destroyed'
+        ).length;
+    }
+
+    /**
+     * Створює додатковий дрон (викликається при покупці апгрейду)
+     */
+    public createAdditionalDrone(): boolean {
+        // Перевіряємо чи можемо створити новий дрон
+        const currentCount = this.getActiveDronesCount();
+        if (currentCount >= this.maxDroneCount) {
+            console.warn('[DroneManager] Cannot create drone - at max capacity');
+            return false;
+        }
+        
+        // Знаходимо безпечну позицію для нового дрона
+        const spawnPosition = this.findSafeDroneSpawnPosition();
+        if (!spawnPosition) {
+            console.warn('[DroneManager] Cannot find safe spawn position for drone');
+            return false;
+        }
+        
+        // Створюємо унікальний ID для нового дрона
+        const newDroneId = `drone_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Створюємо дрона
+        const droneObject = this.createDrone(newDroneId, spawnPosition, 'basic_rover');
+        
+        if (droneObject) {
+            console.log(`[DroneManager] Created new drone: ${newDroneId} at position:`, spawnPosition);
+            
+            // Ініціалізуємо дрона з правильними характеристиками
+            this.initializeDroneData(newDroneId);
+            
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Знаходить безпечну позицію для створення нового дрона
+     */
+    private findSafeDroneSpawnPosition(): Vector3 | null {
+        // Шукаємо позицію біля космічного корабля (spaceship)
+        const spaceship = this.scene.getObjectsByTag('building').find(obj => 
+            obj.data?.buildingType === 'spaceship'
+        );
+        
+        if (spaceship) {
+            // Спробуємо кілька позицій навколо корабля
+            const basePos = spaceship.coordinates;
+            const attempts = [
+                { x: basePos.x + 2, y: basePos.y, z: basePos.z + 2 },
+                { x: basePos.x - 2, y: basePos.y, z: basePos.z + 2 },
+                { x: basePos.x + 2, y: basePos.y, z: basePos.z - 2 },
+                { x: basePos.x - 2, y: basePos.y, z: basePos.z - 2 },
+                { x: basePos.x + 3, y: basePos.y, z: basePos.z },
+                { x: basePos.x - 3, y: basePos.y, z: basePos.z },
+                { x: basePos.x, y: basePos.y, z: basePos.z + 3 },
+                { x: basePos.x, y: basePos.y, z: basePos.z - 3 }
+            ];
+            
+            for (const pos of attempts) {
+                if (this.isPositionSafe(pos)) {
+                    return pos;
+                }
+            }
+        }
+        
+        // Якщо біля корабля немає місця, шукаємо будь-де на карті
+        return this.findRandomSafePosition();
+    }
+
+    /**
+     * Перевіряє чи безпечна позиція для створення дрона
+     */
+    private isPositionSafe(position: Vector3): boolean {
+        // Перевіряємо чи немає перешкод в цій позиції
+        const center = { x: position.x, y: position.y, z: position.z };
+        const staticObjects = this.scene.getObjectsByTagInRadius('static', center, 1.5);
+        const buildingObjects = this.scene.getObjectsByTagInRadius('building', center, 1.5);
+        const resourceObjects = this.scene.getObjectsByTagInRadius('resource', center, 1.5);
+        
+        // Дозволяємо тільки якщо поблизу немає статичних об'єктів
+        const hasObstacles = staticObjects.length > 0 || buildingObjects.length > 0 || resourceObjects.length > 0;
+        
+        return !hasObstacles;
+    }
+
+    /**
+     * Знаходить випадкову безпечну позицію на карті
+     */
+    private findRandomSafePosition(): Vector3 | null {
+        // Генеруємо випадкові позиції поки не знайдемо безпечну
+        const maxAttempts = 20;
+        const mapSize = 50; // Розмір карти
+        
+        for (let i = 0; i < maxAttempts; i++) {
+            const randomPos = {
+                x: (Math.random() - 0.5) * mapSize,
+                y: 0,
+                z: (Math.random() - 0.5) * mapSize
+            };
+            
+            if (this.isPositionSafe(randomPos)) {
+                return randomPos;
+            }
+        }
+        
+        console.warn('[DroneManager] Could not find safe spawn position after', maxAttempts, 'attempts');
+        return null;
+    }
+
+    /**
+     * Ініціалізує дрона з правильними характеристиками
+     */
+    private initializeDroneData(droneId: string): void {
+        // Ініціалізуємо дрона з базовими характеристиками
+        const droneObject = this.scene.getObjectById(droneId);
+        if (!droneObject) return;
+        
+        // Отримуємо базові характеристики з бонус-системи
+        const droneType = this.droneTypesDB.get('basic_rover');
+        if (!droneType) return;
+        
+        // Встановлюємо початкові характеристики з урахуванням бонусів
+        droneObject.data = {
+            ...droneObject.data,
+            status: 'idle',
+            battery: this.bonusSystem.getEffectValue('drone_max_battery') || droneType.baseBatteryCapacity,
+            maxBattery: this.bonusSystem.getEffectValue('drone_max_battery') || droneType.baseBatteryCapacity,
+            storage: {},
+            maxCapacity: this.bonusSystem.getEffectValue('drone_max_inventory') || droneType.baseInventoryCapacity,
+            efficiency: this.bonusSystem.getEffectValue('drone_efficiency') || 1.0,
+            isReady: true
+        };
+        
+        console.log(`[DroneManager] Initialized drone ${droneId} with data:`, droneObject.data);
     }
 }

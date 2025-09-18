@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { UiLogicBridge } from '@ui/logic/UiLogicBridge';
 import { BaseRenderer } from './BaseRenderer';
 import { TSceneObject } from '@logic/systems/scene/scene.types';
 import { BUILDINGS_DB } from '@logic/modules/buildings/buildings-db';
@@ -20,6 +21,7 @@ const HUD_TARGET_PX = {
   resourceHeight: 48,
   minScale: 0.1,
   maxScale: 100.0,
+  maxWidth: 320,
 };
 
 const HUD_SAFE_FRACTION = 0.25;
@@ -65,6 +67,8 @@ export class BuildingRenderer extends BaseRenderer {
 
   private lastAspect = 1;
   private lastContentHeightWorld = 1;
+  
+  private uiLogicBridge: UiLogicBridge | null = null; // Bridge to logic for storage info
 
   constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
     super(scene, renderer);
@@ -82,6 +86,13 @@ export class BuildingRenderer extends BaseRenderer {
     });
 
     this.loader = new GLTFLoader();
+  }
+
+  /**
+   * Set UI↔Logic bridge
+   */
+  public setUiLogicBridge(bridge: UiLogicBridge): void {
+    this.uiLogicBridge = bridge;
   }
 
   public setHudYOffset(objectId: string, y: number) {
@@ -109,12 +120,9 @@ export class BuildingRenderer extends BaseRenderer {
         // надто агресивна AO або відсутній uv2 → глобально затемнює
         if (m.aoMap) {
           const hasUv2 = !!child.geometry?.attributes?.uv2;
-          if (!hasUv2) m.aoMapIntensity = 0; // відключаємо вплив
-          // Якщо навіть із uv2 темно — можна спробувати знизити:
-          // m.aoMapIntensity = Math.min(m.aoMapIntensity ?? 1, 0.5);
+          if (!hasUv2) m.aoMapIntensity = 0;
         }
       } else {
-        // твій поточний режим будівництва — залишаю як є
         m.transparent = true;
         m.opacity = 0.6;
         m.toneMapped = false;
@@ -145,7 +153,7 @@ export class BuildingRenderer extends BaseRenderer {
     this.addMesh(object.id, container);
 
     // HUD offset
-    const userHudOffset = Number(data?.hudOffsetY ?? config?.ui?.hudOffsetY ?? 0);
+    const userHudOffset = Number(data?.hudOffsetY ?? (config?.ui as any)?.hudOffsetY ?? 0);
     (container as any).userData = (container as any).userData || {};
     (container as any).userData.hudYOffset = userHudOffset;
 
@@ -161,8 +169,24 @@ export class BuildingRenderer extends BaseRenderer {
       const resourceInfo = this.getBuildingResourceInfo(buildingType, data?.resourcesCollected || {});
       const baseParentScale = this.getBaseParentScale(container);
       const baseY = HUD_WORLD_Y_OFFSET_FALLBACK + userHudOffset;
-      this.attachOrUpdateCombinedHUD(container, constructionProgress, resourceInfo, baseY, baseParentScale);
+      const title = config?.name ? `${config.name}` : (object.id || 'building');
+      this.attachOrUpdateCombinedHUD(container, constructionProgress, resourceInfo, baseY, baseParentScale, { title });
       (container as any).userData.constructionBarY = HUD_WORLD_Y_OFFSET_FALLBACK;
+    } else {
+      // Storage HUD via combined HUD without progress bar
+      const hasInternalStorage = this.buildingHasInternalStorage(object.id, config);
+      if (hasInternalStorage && this.uiLogicBridge) {
+        const storageInfo = this.uiLogicBridge.getBuildingStorageInfo(object.id);
+        if (storageInfo) {
+          const baseParentScale = this.getBaseParentScale(container);
+          const baseY = HUD_WORLD_Y_OFFSET_FALLBACK + userHudOffset;
+          const resInfo = this.storageToResourceInfo(storageInfo);
+          const title = config?.name ? `${config.name}` : (object.id || 'building');
+          this.attachOrUpdateCombinedHUD(container, 0, resInfo, baseY, baseParentScale, { showProgress: false, disableCache: true, title });
+        }
+      } else {
+        this.removeHUD(container);
+      }
     }
 
     // якщо немає моделі — повертаємо контейнер
@@ -179,7 +203,7 @@ export class BuildingRenderer extends BaseRenderer {
       // Клон сцени
       const model = src.clone(true) as THREE.Group;
 
-      // ГЛИБОКО клонувати матеріали (щоб не шарились між інстансами)
+      // ГЛИБОКО клонувати матеріали
       model.traverse((child: any) => {
         if (child.isMesh && child.material) {
           if (Array.isArray(child.material)) {
@@ -187,8 +211,6 @@ export class BuildingRenderer extends BaseRenderer {
           } else if (child.material?.clone) {
             child.material = child.material.clone();
           }
-          // Якщо десь модифікуєш геометрію — клон теж:
-          // child.geometry = child.geometry?.clone?.() ?? child.geometry;
         }
       });
 
@@ -204,7 +226,7 @@ export class BuildingRenderer extends BaseRenderer {
         });
       }
 
-      // Санітизуємо PBR (vertexColors / aoMap / color множення)
+      // Санітизуємо PBR
       model.traverse((child: any) => {
         if (child.isMesh && child.material) this.sanitizePBR(child, isUnderConstruction);
       });
@@ -227,7 +249,22 @@ export class BuildingRenderer extends BaseRenderer {
           baseParentScale
         );
       } else {
-        this.removeHUD(container);
+        // Storage HUD via combined HUD without progress bar (with model height)
+        const hasInternalStorage = this.buildingHasInternalStorage(object.id, config);
+        if (hasInternalStorage && this.uiLogicBridge) {
+          const storageInfo = this.uiLogicBridge.getBuildingStorageInfo(object.id);
+          if (storageInfo) {
+            const bbox = new THREE.Box3().setFromObject(model);
+            const h = Math.max(0.001, bbox.max.y - bbox.min.y);
+            const baseY = bbox.max.y + 0.15 * h;
+            const baseParentScale = this.getBaseParentScale(container);
+            const resInfo = this.storageToResourceInfo(storageInfo);
+            const title = config?.name ? `${config.name}` : (object.id || 'building');
+            this.attachOrUpdateCombinedHUD(container, 0, resInfo, baseY + userHudOffset, baseParentScale, { showProgress: false, disableCache: true, title });
+          }
+        } else {
+          this.removeHUD(container);
+        }
       }
     };
 
@@ -251,16 +288,18 @@ export class BuildingRenderer extends BaseRenderer {
     constructionProgress: number,
     resourceInfo: ResourceInfo,
     barY: number,
-    baseParentScale: number
+    baseParentScale: number,
+    options?: { showProgress?: boolean; disableCache?: boolean; title?: string }
   ): void {
     let hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
 
     const { texture, aspect, contentHeightWorld } =
-      this.buildCombinedCanvasTexture(constructionProgress, resourceInfo);
+      this.buildCombinedCanvasTexture(constructionProgress, resourceInfo, options);
 
     const baseW = contentHeightWorld * aspect;
     const baseH = contentHeightWorld;
-    const planeW = baseW * HUD_CROP_X;
+    const cropX = HUD_CROP_X;
+    const planeW = baseW * cropX;
     const planeH = baseH;
 
     if (!hud) {
@@ -288,8 +327,8 @@ export class BuildingRenderer extends BaseRenderer {
         const map = (bg.material as THREE.MeshBasicMaterial).map!;
         map.wrapS = THREE.ClampToEdgeWrapping;
         map.wrapT = THREE.ClampToEdgeWrapping;
-        map.repeat.set(HUD_CROP_X, 1);
-        map.offset.set((1 - HUD_CROP_X) * 0.5, 0);
+        map.repeat.set(cropX, 1);
+        map.offset.set((1 - cropX) * 0.5, 0);
         map.needsUpdate = true;
       }
 
@@ -313,12 +352,26 @@ export class BuildingRenderer extends BaseRenderer {
         anchor.getWorldScale(_worldScale);
         const sx = _worldScale.x || 1, sy = _worldScale.y || 1, sz = _worldScale.z || 1;
         const base = 1 / Math.max(baseParentScale, 1e-6);
-        const anti = base / Math.max(Math.max(sx, sy), sz);
+        // const anti = base / Math.max(Math.max(sx, sy), sz); // Коментуємо антискейл
 
         const screenS = this.computeScreenSpaceScale(
           camera, hud!.position, planeH, Math.round(HUD_TARGET_PX.resourceHeight), rendererRef
         );
-        const final = anti * screenS;
+
+        // Використовуємо тільки screen-space scale без компенсації скейлу моделі
+        let final = base * screenS;
+        if (rendererRef) {
+          const pxScale = this.computeWidthClampScale(
+            camera,
+            hud!.position,
+            planeH,
+            Math.round(HUD_TARGET_PX.resourceHeight),
+            planeW / planeH,
+            HUD_TARGET_PX.maxWidth,
+            rendererRef
+          );
+          final = Math.min(final, pxScale);
+        }
         hud!.scale.set(final, final, final);
       };
 
@@ -342,8 +395,8 @@ export class BuildingRenderer extends BaseRenderer {
       if (mat.map) {
         mat.map.wrapS = THREE.ClampToEdgeWrapping;
         mat.map.wrapT = THREE.ClampToEdgeWrapping;
-        mat.map.repeat.set(HUD_CROP_X, 1);
-        mat.map.offset.set((1 - HUD_CROP_X) * 0.5, 0);
+        mat.map.repeat.set(cropX, 1);
+        mat.map.offset.set((1 - cropX) * 0.5, 0);
         mat.needsUpdate = true;
       }
     }
@@ -360,10 +413,12 @@ export class BuildingRenderer extends BaseRenderer {
   // ---------- Canvas builder ----------
   private buildCombinedCanvasTexture(
     constructionProgress: number,
-    resourceInfo: ResourceInfo
+    resourceInfo: ResourceInfo,
+    options?: { showProgress?: boolean; disableCache?: boolean; title?: string }
   ): { texture: THREE.CanvasTexture; aspect: number; contentHeightWorld: number } {
+    const showProgress = options?.showProgress !== false;
     const now = Date.now();
-    if (now - this.lastCanvasUpdate < this.CANVAS_UPDATE_THROTTLE_MS) {
+    if (!options?.disableCache && now - this.lastCanvasUpdate < this.CANVAS_UPDATE_THROTTLE_MS) {
       const { texture } = this.getCachedCanvasTexture();
       return { texture, aspect: this.lastAspect, contentHeightWorld: this.lastContentHeightWorld };
     }
@@ -380,11 +435,12 @@ export class BuildingRenderer extends BaseRenderer {
     const rows = Math.max(1, Object.keys(resourceInfo.required).length);
     const pad  = Math.round(12 * dpr);
 
-    const progressH = Math.round(PROGRESS_HEIGHT_PX * dpr);
+    const progressH = showProgress ? Math.round(PROGRESS_HEIGHT_PX * dpr) : 0;
     const rowH      = Math.round(ROW_HEIGHT_PX * dpr);
     const vGap      = Math.round(10 * dpr);
 
-    const heightRaw = pad + progressH + vGap + rows * rowH + pad;
+    const titleH = options?.title ? Math.round(20 * dpr) : 0;
+    const heightRaw = pad + titleH + (titleH ? vGap : 0) + progressH + (showProgress ? vGap : 0) + rows * rowH + pad;
 
     const toPOT = (v: number) => THREE.MathUtils.ceilPowerOfTwo(Math.max(2, v));
     const width  = toPOT(widthRaw);
@@ -411,21 +467,35 @@ export class BuildingRenderer extends BaseRenderer {
     const contentLeft  = safeX + sidePad;
     const contentRight = safeRight - sidePad;
 
-    const progressX = contentLeft;
-    const progressW = Math.max(1, contentRight - contentLeft);
-    const progressY = pad;
+    let cursorTop = pad;
 
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fillRect(progressX - px(2), progressY - px(2), progressW + px(4), progressH + px(4));
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.fillRect(progressX, progressY, progressW, progressH);
-    ctx.fillStyle = '#12d06b';
-    ctx.fillRect(
-      progressX,
-      progressY,
-      Math.max(px(6), Math.round(progressW * THREE.MathUtils.clamp(constructionProgress, 0, 1))),
-      progressH
-    );
+    if (options?.title) {
+      ctx.font = `${px(16)}px Inter, Arial, sans-serif`;
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      const titleX = contentLeft;
+      ctx.fillText(options.title, titleX, cursorTop);
+      cursorTop += titleH + vGap;
+    }
+
+    if (showProgress) {
+      const progressX = contentLeft;
+      const progressW = Math.max(1, contentRight - contentLeft);
+      const progressY = cursorTop;
+
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(progressX - px(2), progressY - px(2), progressW + px(4), progressH + px(4));
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(progressX, progressY, progressW, progressH);
+      ctx.fillStyle = '#12d06b';
+      ctx.fillRect(
+        progressX,
+        progressY,
+        Math.max(px(6), Math.round(progressW * THREE.MathUtils.clamp(constructionProgress, 0, 1))),
+        progressH
+      );
+    }
 
     const iconSize = px(ICON_SIZE_PX);
     const iconX = contentLeft;
@@ -459,7 +529,7 @@ export class BuildingRenderer extends BaseRenderer {
     const qtyFont  = `${px(16)}px Inter, Arial, sans-serif`;
 
     let i = 0;
-    const startY = progressY + progressH + vGap;
+    const startY = cursorTop + progressH + (showProgress ? vGap : 0);
 
     for (const [resourceId, reqAmt] of Object.entries(resourceInfo.required)) {
       const got = resourceInfo.collected[resourceId] || 0;
@@ -599,6 +669,21 @@ export class BuildingRenderer extends BaseRenderer {
     return { required, collected, missing, progress };
   }
 
+  private storageToResourceInfo(storage: Record<string, { current: number; capacity: number }>): ResourceInfo {
+    const required: ResourceRequest = {} as any;
+    const collected: Record<string, number> = {};
+    for (const [resId, s] of Object.entries(storage)) {
+      required[resId] = s.capacity; // use effective capacity from logic
+      collected[resId] = Math.round(s.current * 10) / 10;
+    }
+    const missing: ResourceRequest = {} as any;
+    for (const [id, cap] of Object.entries(required)) {
+      const got = collected[id] || 0;
+      missing[id] = Math.max(0, cap - got);
+    }
+    return { required, collected, missing, progress: 0 };
+  }
+
   private getBaseParentScale(anchor: THREE.Object3D): number {
     return Math.max(1e-6, Math.max(anchor.scale.x, anchor.scale.y, anchor.scale.z));
   }
@@ -640,6 +725,30 @@ export class BuildingRenderer extends BaseRenderer {
     return 1;
   }
 
+  private computeWidthClampScale(
+    camera: THREE.Camera,
+    worldPos: THREE.Vector3,
+    planeWorldHeight: number,
+    targetHeightPx: number,
+    aspect: number,
+    maxWidthPx: number,
+    renderer: THREE.WebGLRenderer
+  ): number {
+    // Compute current pixels per world unit using height, then derive width in px and clamp
+    const baseScale = this.computeScreenSpaceScale(
+      camera,
+      worldPos,
+      planeWorldHeight,
+      targetHeightPx,
+      renderer
+    );
+    // Predicted width in pixels if we used baseScale
+    const predictedWidthPx = targetHeightPx * aspect;
+    if (predictedWidthPx <= 0) return baseScale;
+    const widthClamp = Math.max(1e-6, maxWidthPx / predictedWidthPx);
+    return Math.min(baseScale, widthClamp * baseScale);
+  }
+
   public update(object: TSceneObject): void {
     super.update(object);
     const anchor = this.meshes.get(object.id);
@@ -651,7 +760,6 @@ export class BuildingRenderer extends BaseRenderer {
 
     const hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
 
-    console.log(`[BuildingRenderer] ${object.id}: isUnderConstruction=${isUnderConstruction}, built=${data?.built}, level=${data?.level}, constructionProgress=${data?.constructionProgress}`);
     if (isUnderConstruction) {
       const buildingType = data?.typeId || data?.buildingType || 'storage';
       const info = this.getBuildingResourceInfo(buildingType, data?.resourcesCollected || {});
@@ -660,10 +768,9 @@ export class BuildingRenderer extends BaseRenderer {
       const storedBaseY = (anchor as any).userData?.constructionBarY ?? HUD_WORLD_Y_OFFSET_FALLBACK;
       const extraY = (anchor as any).userData?.hudYOffset ?? 0;
       const barY = storedBaseY + extraY;
-      console.log('Redraw: ', info);
-
+      
       if (hud) {
-        const { texture, aspect, contentHeightWorld } = this.buildCombinedCanvasTexture(p, info);
+        const { texture, aspect, contentHeightWorld } = this.buildCombinedCanvasTexture(p, info, { disableCache: true });
         const bg = hud.getObjectByName('hudPlane') as THREE.Mesh;
         const mat = bg.material as THREE.MeshBasicMaterial;
         mat.map?.dispose();
@@ -681,6 +788,7 @@ export class BuildingRenderer extends BaseRenderer {
           bg.geometry = new THREE.PlaneGeometry(planeW, planeH);
         }
 
+        // ВАЖЛИВО: повторно застосовуємо обрізання карти після заміни texture
         if (mat.map) {
           mat.map.wrapS = THREE.ClampToEdgeWrapping;
           mat.map.wrapT = THREE.ClampToEdgeWrapping;
@@ -695,7 +803,60 @@ export class BuildingRenderer extends BaseRenderer {
         this.attachOrUpdateCombinedHUD(anchor, p, info, barY, baseParentScale);
       }
     } else {
-      this.removeHUD(anchor);
+      // Built building: render storage HUD if internal storage present
+      const buildingType = data?.typeId || data?.buildingType || 'storage';
+      const config = BUILDINGS_DB.get(buildingType);
+      const hasInternal = this.buildingHasInternalStorage(object.id, config);
+      if (hasInternal && this.uiLogicBridge) {
+        const storageInfo = this.uiLogicBridge.getBuildingStorageInfo(object.id);
+        if (storageInfo) {
+          const resInfo = this.storageToResourceInfo(storageInfo);
+          const baseParentScale = this.getBaseParentScale(anchor);
+          const storedBaseY = (anchor as any).userData?.constructionBarY ?? HUD_WORLD_Y_OFFSET_FALLBACK;
+          const extraY = (anchor as any).userData?.hudYOffset ?? 0;
+          const barY = storedBaseY + extraY;
+
+          const title = config?.name ? `${config.name}` : (object.id || 'building');
+          if (hud) {
+            const { texture, aspect, contentHeightWorld } =
+              this.buildCombinedCanvasTexture(0, resInfo, { showProgress: false, disableCache: true, title });
+            const bg = hud.getObjectByName('hudPlane') as THREE.Mesh;
+            const mat = bg.material as THREE.MeshBasicMaterial;
+            mat.map?.dispose();
+            mat.map = texture;
+            mat.needsUpdate = true;
+
+            const baseW = contentHeightWorld * aspect;
+            const planeW = baseW * HUD_CROP_X;
+            const planeH = contentHeightWorld;
+
+            const geo = bg.geometry as THREE.PlaneGeometry;
+            const params = geo.parameters;
+            if (params.width !== planeW || params.height !== planeH) {
+              bg.geometry.dispose();
+              bg.geometry = new THREE.PlaneGeometry(planeW, planeH);
+            }
+
+            // ВАЖЛИВО: це було відсутнє — саме воно й ламало скейл на частині будівель
+            if (mat.map) {
+              mat.map.wrapS = THREE.ClampToEdgeWrapping;
+              mat.map.wrapT = THREE.ClampToEdgeWrapping;
+              mat.map.repeat.set(HUD_CROP_X, 1);
+              mat.map.offset.set((1 - HUD_CROP_X) * 0.5, 0);
+              mat.needsUpdate = true;
+            }
+
+            (anchor as any).userData.constructionBarY = storedBaseY;
+            (anchor as any).userData.hudYOffset = extraY;
+          } else {
+            this.attachOrUpdateCombinedHUD(anchor, 0, resInfo, barY, baseParentScale, { showProgress: false, disableCache: true, title });
+          }
+        } else {
+          this.removeHUD(anchor);
+        }
+      } else {
+        this.removeHUD(anchor);
+      }
     }
   }
 
@@ -720,4 +881,15 @@ export class BuildingRenderer extends BaseRenderer {
 
     this.modelCache.clear();
   }
+
+  // ========== Storage HUD Methods ==========
+  
+  /**
+   * Check if building has internal storage based on its type
+   */
+  private buildingHasInternalStorage(_objectId: string, buildingConfig: any): boolean {
+    return buildingConfig?.data?.internalStorageConfig !== undefined;
+  }
+  
+  // Removed old storage-only canvas method (now unified)
 }

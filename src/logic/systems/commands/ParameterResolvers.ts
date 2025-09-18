@@ -401,4 +401,67 @@ export class ParameterResolvers {
     console.log(`[ParameterResolvers] Unnecessary resources:`, { objectId, requiredResources, storage, unnecessaryResources });
     return unnecessaryResources;
   }
+
+  /**
+   * Планер для building-transfer: визначає напрямок, resourceId та amount, а також точки доступу і склад
+   */
+  planBuildingTransfer(buildingId: string, objectId: string): any {
+    const bm = this.mapLogic.buildingsManager as any;
+    if (!bm) return null;
+    const sm = bm.storageManager || bm.getStorageManager?.();
+    if (!sm?.pickBuildingTransferAction) return null;
+
+    const plan = sm.pickBuildingTransferAction(buildingId);
+    if (!plan) return null;
+
+    const dronePos = this.getCurrentObjectPosition(objectId) || new Vector3(0,0,0);
+    const buildingAccess = this.getObjectAccessPoint(buildingId, objectId);
+    const closestStorageId = this.getClosestStorage(dronePos, 200);
+    const storageAccess = closestStorageId ? this.getObjectAccessPoint(closestStorageId, objectId) : null;
+
+    // amount heuristics: 5 by default
+    const inst = bm.getBuildingInstance(buildingId);
+    const storageInfo = inst?.internalStorage?.[plan.resourceId];
+    const drone = this.mapLogic.scene.getObjectById(objectId);
+    const droneFree = Math.max(0, (drone?.data?.maxCapacity || 5) - (Object.values(drone?.data?.storage || {}).reduce((s: number, v: any) => s + (v as number), 0)));
+
+    let amount = 0;
+    if (plan.direction === 'from-building') {
+      // collect: беремо з будівлі стільки, скільки влізе в дрон і є у будівлі
+      amount = Math.min(droneFree, storageInfo?.current || 0);
+    } else {
+      // to-building: беремо скільки бракує
+      const missing = Math.max(0, (storageInfo?.capacity || 0) - (storageInfo?.current || 0));
+      amount = Math.min(missing, droneFree || 5);
+    }
+
+    // Для load-resources: скільки треба завантажити зі складу
+    const loadResourcesMap: Record<string, number> = {};
+    loadResourcesMap[plan.resourceId] = Math.max(0, amount);
+
+    // Для unload-resources: скільки треба вивантажити з дрона
+    const droneStorage = drone?.data?.storage?.[plan.resourceId] || 0;
+    const unloadResourcesMap: Record<string, number> = {};
+    
+    if (plan.direction === 'from-building') {
+      // Збираємо з будівлі - вивантажуємо все що завантажили
+      unloadResourcesMap[plan.resourceId] = Math.max(0, amount);
+    } else {
+      // Веземо в будівлю - вивантажуємо все що є в дрона цього ресурсу
+      unloadResourcesMap[plan.resourceId] = Math.max(0, droneStorage);
+    }
+
+    // Якщо нема що везти — не стартуємо групу
+    if (loadResourcesMap[plan.resourceId] <= 0 && unloadResourcesMap[plan.resourceId] <= 0) return null;
+
+    return {
+      ...plan,
+      amount: Math.max(0, amount),
+      buildingAccessPoint: buildingAccess,
+      closestStorageId,
+      storageAccessPoint: storageAccess,
+      resources: loadResourcesMap,
+      resourcesToUnload: unloadResourcesMap
+    };
+  }
 }

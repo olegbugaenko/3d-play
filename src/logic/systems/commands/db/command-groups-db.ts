@@ -93,6 +93,102 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       }
     ]
   },
+
+  // Building → Refill group (storage -> building)
+  {
+    id: 'building-refill',
+    name: 'Building Refill',
+    description: 'Deliver resources from global storage to building internal storage',
+    startCondition: null,
+    endCondition: null,
+    loopCondition: null,
+    isLoop: true,
+    resolveParametersPipeline: [
+      { id: 'buildingId', getterType: 'literal', args: [{ type: 'var', value: 'targets.buildingId' }], resolveWhen: 'before-command' },
+      { id: 'plan', getterType: 'planBuildingTransfer', args: [ { type: 'var', value: 'targets.buildingId' } ], resolveWhen: 'before-command' },
+      { id: 'buildingPosition', getterType: 'getObjectAccessPoint', args: [ {type:'var', value:'resolved.buildingId' }, {type:'var', value:'objectId'} ], resolveWhen: 'before-command' },
+      { id: 'closestStorageId', getterType: 'getClosestStorage', args: [ { type: 'lit', value: { maxDistance: 200 } } ], resolveWhen: 'before-command' },
+      { id: 'storagePosition', getterType: 'getObjectAccessPoint', args: [ { type:'var', value:'resolved.closestStorageId' }, {type:'var', value:'objectId'} ], resolveWhen: 'before-command' },
+      { id: 'validatePlan', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.plan' } ], resolveWhen: 'before-command' },
+      { id: 'planAmount', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.amount' } ], resolveWhen: 'before-command' },
+      { id: 'validateAmount', getterType: 'validate', args: [ { type:'lit', value:'resourceAmount' }, { type:'var', value:'resolved.planAmount' } ], resolveWhen: 'before-command' },
+      { id: 'validateStorage', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.closestStorageId' } ], resolveWhen: 'before-command' },
+      { id: 'validatePositions1', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.storagePosition' } ], resolveWhen: 'before-command' },
+      { id: 'validatePositions2', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.buildingPosition' } ], resolveWhen: 'before-command' },
+      { id: 'planResourcesToUnload', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.resourcesToUnload' } ], resolveWhen: 'before-command' },
+    ],
+    tasksPipeline: (context): Command[] => {
+      const resources = context.resolved?.plan?.resources || {};
+      return [
+        {
+          id: `move-to-storage-${Date.now()}`,
+          type: 'move-to', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { priority:'high' }, status:'pending', priority:1, createdAt: Date.now(),
+          resolvedParamsMapping: { position: 'storagePosition' }
+        },
+        {
+          id: `load-from-storage-${Date.now()}`,
+          type: 'load-resources', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { resources }, status:'pending', priority:2, createdAt: Date.now(),
+          resolvedParamsMapping: { targetId: 'closestStorageId' }
+        },
+        {
+          id: `move-to-building-${Date.now()}`,
+          type: 'move-to', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { priority:'high' }, status:'pending', priority:3, createdAt: Date.now(),
+          resolvedParamsMapping: { position: 'buildingPosition' }
+        },
+        {
+          id: `unload-to-building-${Date.now()}`,
+          type: 'unload-resources', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { }, status:'pending', priority:4, createdAt: Date.now(),
+          resolvedParamsMapping: { targetId: 'buildingId', resourcesToUnload: 'planResourcesToUnload' }
+        }
+      ];
+    }
+  },
+
+  // Building → Collect group (building -> storage)
+  {
+    id: 'building-collect',
+    name: 'Building Collect',
+    description: 'Collect resources from building internal storage to global storage',
+    startCondition: null,
+    endCondition: null,
+    loopCondition: null,
+    isLoop: true,
+    resolveParametersPipeline: [
+      { id: 'buildingId', getterType: 'literal', args: [{ type: 'var', value: 'targets.buildingId' }], resolveWhen: 'before-command' },
+      { id: 'plan', getterType: 'planBuildingTransfer', args: [ { type: 'var', value: 'targets.buildingId' } ], resolveWhen: 'before-command' },
+      { id: 'buildingPosition', getterType: 'getObjectAccessPoint', args: [ {type:'var', value:'resolved.buildingId' }, {type:'var', value:'objectId'} ], resolveWhen: 'before-command' },
+      { id: 'closestStorageId', getterType: 'getClosestStorage', args: [ { type: 'lit', value: { maxDistance: 200 } } ], resolveWhen: 'before-command' },
+      { id: 'storagePosition', getterType: 'getObjectAccessPoint', args: [ { type:'var', value:'resolved.closestStorageId' }, {type:'var', value:'objectId'} ], resolveWhen: 'before-command' },
+      { id: 'validatePlan', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.plan' } ], resolveWhen: 'before-command' },
+      { id: 'planResourcesToUnload', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.resourcesToUnload' } ], resolveWhen: 'before-command' },
+    ],
+    tasksPipeline: (context): Command[] => {
+      const resources = context.resolved?.plan?.resources || {};
+      const resourcesToUnload = context.resolved?.plan?.resourcesToUnload || {};
+      return [
+        {
+          id: `move-to-building-${Date.now()}`,
+          type: 'move-to', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { priority:'high' }, status:'pending', priority:1, createdAt: Date.now(),
+          resolvedParamsMapping: { position: 'buildingPosition' }
+        },
+        {
+          id: `load-from-building-${Date.now()}`,
+          type: 'load-resources', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { resources }, status:'pending', priority:2, createdAt: Date.now(),
+          resolvedParamsMapping: { targetId: 'buildingId' }
+        },
+        {
+          id: `move-to-storage-${Date.now()}`,
+          type: 'move-to', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { priority:'low' }, status:'pending', priority:3, createdAt: Date.now(),
+          resolvedParamsMapping: { position: 'storagePosition' }
+        },
+        {
+          id: `unload-to-storage-${Date.now()}`,
+          type: 'unload-resources', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { resourcesToUnload }, status:'pending', priority:4, createdAt: Date.now(),
+          resolvedParamsMapping: { targetId: 'closestStorageId', resourcesToUnload: 'planResourcesToUnload' }
+        }
+      ];
+    }
+  },
   
   {
     id: 'charge-group',

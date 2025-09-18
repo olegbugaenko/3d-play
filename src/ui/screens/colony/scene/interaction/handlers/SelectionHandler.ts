@@ -235,6 +235,41 @@ export class SelectionHandler extends InteractionHandler {
       return;
     }
 
+    // Перевіряємо побудовані будівлі з internal storage
+    const clickedBuiltBuilding = interactableObjects.find((o: TSceneObject) => {
+      if (!o.tags?.includes('building')) return false;
+      if (o.data?.isBuilt === false) return false;
+      const hasInternal = !!(o.data?.internalStorage);
+      if (!hasInternal) return false;
+      const mesh = this.rendererManager.getMeshById(o.id);
+      if (!mesh) return false;
+      const sphere = new THREE.Sphere(
+        new THREE.Vector3(o.coordinates.x, o.coordinates.y, o.coordinates.z),
+        Math.max(o.scale.x, o.scale.y, o.scale.z) * 0.5
+      );
+      return raycaster.ray.intersectsSphere(sphere);
+    });
+
+    if (clickedBuiltBuilding) {
+      const commandGroupSystem = this.mapLogic.commandGroupSystem;
+      if (commandGroupSystem) {
+        // Визначаємо напрямок через планер і відповідно обираємо групу
+        const bm: any = this.mapLogic.buildingsManager;
+        const sm = bm?.storageManager || bm?.getStorageManager?.();
+        const plan = sm?.pickBuildingTransferAction?.(clickedBuiltBuilding.id);
+        const groupId = plan?.direction === 'from-building' ? 'building-collect' : 'building-refill';
+        selected.forEach(drone => {
+          commandGroupSystem.addCommandGroup(drone, groupId, {
+            objectId: drone,
+            targets: { buildingId: clickedBuiltBuilding.id },
+            parameters: {},
+            resolved: {}
+          });
+        });
+        return;
+      }
+    }
+
     // Перевіряємо ресурси та зарядки серед інтерактивних об'єктів
     const clickedResource = interactableObjects.find((o: TSceneObject) => {
       if (!o.tags?.includes('resource')) return false;

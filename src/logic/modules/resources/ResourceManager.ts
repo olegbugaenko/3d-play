@@ -575,12 +575,13 @@ export class ResourceManager implements SaveLoadManager, IResourceManager {
     this.clearHistory();
     
     // Додаємо початкові ресурси для нової гри
-    /* this.addResources([
-      { resourceId: 'stone', amount: 30, reason: 'Starting resources' },
-      { resourceId: 'ore', amount: 50, reason: 'Starting resources' },
-      { resourceId: 'energy', amount: 200, reason: 'Starting resources' },
-      { resourceId: 'biomass', amount: 20, reason: 'Starting resources' }
-    ]); */
+    this.addResources([
+      { resourceId: 'stone', amount: 100, reason: 'Starting resources (TEST)' },
+      { resourceId: 'ore', amount: 80, reason: 'Starting resources (TEST)' },
+      { resourceId: 'energy', amount: 300, reason: 'Starting resources (TEST)' },
+      { resourceId: 'biomass', amount: 50, reason: 'Starting resources (TEST)' }
+    ]);
+    console.log('[TEST] Added generous starting resources for testing');
   }
 
   /**

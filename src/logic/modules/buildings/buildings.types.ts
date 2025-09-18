@@ -3,6 +3,31 @@ import { CostFormula } from '@shared/types/common.types';
 import { BonusSourceModifier } from '@systems/modifiers-system';
 import { Requirement } from '@systems/requirements';
 
+// Типи доріг
+export interface RoadTypeData {
+  id: string;
+  name: string;
+  description: string;
+  width: number;         // ширина дороги в метрах
+  speedBonus: number;    // множник швидкості (1.5 = +50%)
+  cost: CostFormula;     // вартість за метр
+  ui: {
+    color?: string;      // колір для відображення
+    pattern?: string;    // патерн текстури
+  };
+  tags: string[];
+}
+
+// Інстанс дороги на карті
+export interface RoadInstance {
+  id: string;            // унікальний ID дороги
+  typeId: string;        // тип дороги
+  path: Vector3[];       // масив точок шляху
+  built: boolean;        // чи побудована дорога
+  totalLength: number;   // загальна довжина в метрах
+  constructionProgress?: number; // прогрес будівництва (0-1)
+}
+
 // UI налаштування будівлі
 export interface BuildingUI {
   defaultScale: Vector3;
@@ -37,9 +62,22 @@ export interface BuildingInstance {
   // Нові поля для планування будівництва
   constructionProgress?: number; // Прогрес будівництва (0-1)
   resourcesCollected?: Record<string, number>; // Зібрані ресурси для будівництва
+  
+  // НОВЕ: Внутрішні склади будівель
+  internalStorage?: Record<string, {
+    capacity: number;
+    current: number;
+    acceptsInput?: boolean;
+    providesOutput?: boolean;
+  }>;
+  
+  // НОВЕ: Стан функціонування
+  isFunctional?: boolean;
+  lastUpdateTime?: number;
 }
 
 // Дані для збереження/завантаження
 export interface BuildingsManagerSaveData {
   buildingInstances: BuildingInstance[];
+  roadInstances: RoadInstance[];
 }

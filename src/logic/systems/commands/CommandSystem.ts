@@ -141,7 +141,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
 
             // Виконуємо команду
             const result = executor.execute(); 
-            console.log(`[RUN-COMMAND]: ${executor.getCommand().type}`, this.commandQueues.get(`rover_1`), result);
+            // console.log(`[RUN-COMMAND]: ${executor.getCommand().type}`, this.commandQueues.get(`rover_1`), result);
             if (!result.success) {
                 console.warn(`Command execution failed for ${objectId}: ${result.message} [${result.code}]`);
                 

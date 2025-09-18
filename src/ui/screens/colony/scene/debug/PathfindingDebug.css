@@ -1,0 +1,131 @@
+.pathfinding-debug-toggle {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 1000;
+}
+
+.pathfinding-debug {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 10px;
+  border-radius: 5px;
+  z-index: 1000;
+  font-family: monospace;
+  font-size: 12px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.pathfinding-debug-controls h3 {
+  margin: 0 0 10px 0;
+  color: #ff6b35;
+}
+
+.controls-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.controls-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.controls-row input {
+  padding: 2px 4px;
+  font-size: 11px;
+  width: 80px;
+}
+
+.controls-row button {
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pathfinding-grid {
+  margin-top: 15px;
+}
+
+.grid-legend {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 10px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.legend-color {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #ccc;
+}
+
+.legend-color.passable {
+  background-color: #4CAF50;
+}
+
+.legend-color.blocked {
+  background-color: #F44336;
+}
+
+.legend-color.road-basic {
+  background-color: #8B4513;
+}
+
+.legend-color.road-fast {
+  background-color: #DAA520;
+}
+
+.grid-container {
+  position: relative;
+  width: 320px;
+  height: 320px;
+  border: 1px solid #666;
+  background: #333;
+  overflow: hidden;
+}
+
+.grid-cell {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.grid-cell.passable {
+  background-color: #4CAF50;
+}
+
+.grid-cell.blocked {
+  background-color: #F44336;
+}
+
+.grid-cell.road.road-basic {
+  background-color: #8B4513;
+  border: 1px solid #654321;
+}
+
+.grid-cell.road.road-fast {
+  background-color: #DAA520;
+  border: 1px solid #B8860B;
+}
+
+.grid-cell:hover {
+  transform: scale(2);
+  z-index: 10;
+  border-color: yellow;
+}

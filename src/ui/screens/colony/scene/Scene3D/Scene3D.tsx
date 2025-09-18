@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import * as THREE from 'three'
 import { CameraController } from '@ui/screens/colony/scene/CameraController'
 import { RendererManager } from './renderers/RendererManager'
+import { createUiLogicBridge } from '@ui/logic/UiLogicBridge'
 import { SelectionRenderer } from './renderers/SelectionRenderer'
 import { TerrainRenderer } from './renderers/TerrainRenderer'
 import { AreaSelectionRenderer } from '@ui/screens/colony/scene/AreaSelectionRenderer'
@@ -11,6 +12,7 @@ import { useBuildingPreview } from '@ui/screens/colony/scene/hooks/useBuildingPr
 import { useDebugInfo } from '@ui/screens/colony/scene/hooks/useDebugInfo'
 import { InteractionProvider } from '@ui/screens/colony/scene/context/InteractionContext'
 import { DebugPanel } from '@ui/screens/colony/scene/components/DebugPanel'
+import PathfindingDebug from '../debug/PathfindingDebug'
 
 import { CommandPanel } from '@ui/screens/colony'
 import { ISaveManager, IMapLogic } from '@interfaces/index';
@@ -22,7 +24,7 @@ import { DragSelection } from '../DragSelection'
 function useThreeCore() {
   const scene = useMemo(() => {
     const s = new THREE.Scene()
-    s.background = new THREE.Color('#6a5f3e')
+    s.background = new THREE.Color('#5a4f2e')
     // lights
     const ambient = new THREE.AmbientLight(0xf0f0c0, 0.6)
     const dir = new THREE.DirectionalLight(0xffffff, 0.8)
@@ -70,7 +72,8 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
   const mapLogicRef          = useRef<IMapLogic|null>(null)
 
   useEffect(() => {
-    rendererManagerRef.current = new RendererManager(scene, renderer)
+    const bridge = createUiLogicBridge(appMapLogic)
+    rendererManagerRef.current = new RendererManager(scene, renderer, bridge)
     mapLogicRef.current = appMapLogic // Використовуємо переданий MapLogic замість створювати новий
 
     selectionRendererRef.current = new SelectionRenderer(
@@ -96,7 +99,7 @@ function useMapAndManagers(scene: THREE.Scene, camera: THREE.PerspectiveCamera, 
         areaSelectionRendererRef.current?.dispose()
       }
     }
-  }, [scene, camera, renderer])
+  }, [scene, camera, renderer, appMapLogic])
 
   return {
     rendererManagerRef,
@@ -399,6 +402,7 @@ function useRenderLoop(
       tryCall('fire', 'updateAllFire')
       tryCall('explosion', 'updateAllExplosions')
       tryCall('electric-arc', 'updateAllArcs')
+      tryCall('aurora', 'updateEnvironmentEffects')
     }
 
     // СИНХРОНІЗАЦІЯ ОБ’ЄКТІВ → RendererManager
@@ -780,6 +784,9 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
          selectedCommand={selectedCommand}
          interactionManager={interactionManager}
        />
+
+       {/* Pathfinding Debug */}
+       <PathfindingDebug uiLogicBridge={createUiLogicBridge(mapLogicRef.current!)} />
 
 
 

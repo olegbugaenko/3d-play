@@ -15,6 +15,7 @@ import { SaveLoadManager, MapLogicSaveData } from '@save-load/save-load.types';
 import { DroneManager } from '@drones/DroneManager';
 import { BuildingsManager } from '@buildings/BuildingsManager';
 import { UpgradesManager } from '@upgrades/UpgradesManager';
+import { EnvironmentLogic } from '@systems/environment/EnvironmentLogic';
 import { Logger } from '@shared/ErrorService';
 import { Result, success, failure, match } from '@shared/Result';
 
@@ -68,6 +69,7 @@ export class MapLogic implements SaveLoadManager {
   public upgradesManager!: UpgradesManager;
   public buildingsManager!: BuildingsManager;
   public droneManager!: DroneManager;
+  public environment!: EnvironmentLogic;
 
   // Система детермінованої генерації
   private generationTracker!: MapGenerationTracker;
@@ -91,6 +93,7 @@ export class MapLogic implements SaveLoadManager {
     this.autoGroupMonitor = new AutoGroupMonitor(this);
     this.collectedRocks = new Set();
     this.collectedBiomass = new Set();
+    this.environment = new EnvironmentLogic();
   }
 
   setCommandSystems(commandSystem: CommandSystem, commandGroupSystem: CommandGroupSystem) {
@@ -613,6 +616,7 @@ export class MapLogic implements SaveLoadManager {
     this.autoGroupMonitor.update(dT);
     this.dynamics.moveObjects(dT);
     this.updateClouds(dT); // Оновлюємо систему хмар
+    this.updateEnvironment(); // Оновлюємо environment ефекти (полярне сяйво)
     const currentTime = performance.now();
     if (currentTime - this.lastExplosionTime >= this.explosionInterval) {
       this.lastExplosionTime = currentTime;
@@ -693,10 +697,10 @@ export class MapLogic implements SaveLoadManager {
   }
 
   private generateClouds() {
-    const cloudCount = 5;
+    const cloudCount = 2;
     for (let i = 0; i < cloudCount; i++) {
-      const x = (Math.random() - 0.5) * 100;
-      const z = (Math.random() - 0.5) * 100;
+      const x = (Math.random() - 0.5) * 150;
+      const z = (Math.random() - 0.5) * 150;
       const cloud: TSceneObject = {
         id: `dust_cloud_${i}`,
         type: 'cloud',
@@ -905,6 +909,15 @@ export class MapLogic implements SaveLoadManager {
     // Видаляємо хмари що закінчили життя
     for (const cloudId of cloudsToRemove) {
       this.activeClouds.delete(cloudId);
+    }
+  }
+
+  /**
+   * Оновлює environment ефекти (полярне сяйво, погода тощо)
+   */
+  public updateEnvironment(): void {
+    if (this.environment) {
+      this.environment.update();
     }
   }
 }
