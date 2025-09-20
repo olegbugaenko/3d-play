@@ -1,6 +1,6 @@
-import { IBuildingsManager } from '@logic/interfaces';
 import { CommandExecutor } from '../CommandExecutor';
 import { CommandResult, CommandFailureCode } from '../command.types';
+import { hasConstructionResources } from './utils/resource-helpers';
 
 export class BuildExecutor extends CommandExecutor {
     private buildProgress: number = 0;
@@ -47,7 +47,7 @@ export class BuildExecutor extends CommandExecutor {
         }
 
         // Перевіряємо чи є достатньо ресурсів для завершення будівництва
-        if (!this.hasEnoughResourcesForConstruction(buildingInstance, buildingsManager)) {
+        if (!hasConstructionResources(this.context, buildingId)) {
             return false;
         }
 
@@ -73,9 +73,9 @@ export class BuildExecutor extends CommandExecutor {
         }
 
         // Перевіряємо чи є достатньо ресурсів для будівництва
-        if (!this.hasEnoughResourcesForConstruction(buildingInstance, buildingsManager)) {
-            return { 
-                success: false, 
+        if (!hasConstructionResources(this.context, buildingId)) {
+            return {
+                success: false,
                 message: 'Insufficient resources for construction',
                 code: CommandFailureCode.INSUFFICIENT_RESOURCES
             };
@@ -143,46 +143,6 @@ export class BuildExecutor extends CommandExecutor {
         }
 
         return isCompleted;
-    }
-
-    // ========== Helper Methods ==========
-
-    /**
-     * Перевіряє чи є достатньо ресурсів для завершення будівництва
-     */
-    private hasEnoughResourcesForConstruction(buildingInstance: any, buildingsManager: any): boolean {
-        try {
-            // Отримуємо тип будівлі та її вартість
-            const buildingType = buildingsManager.getBuildingType(buildingInstance.typeId);
-            if (!buildingType) {
-                console.warn(`[BuildExecutor] Building type not found for ${buildingInstance.typeId}`);
-                return false;
-            }
-
-            const requiredResources = buildingType.cost(1);
-            if (!requiredResources) {
-                console.warn(`[BuildExecutor] No cost formula found for building ${buildingInstance.typeId}`);
-                return false;
-            }
-
-            // Перевіряємо чи всі потрібні ресурси зібрані
-            for (const [resourceId, requiredAmount] of Object.entries(requiredResources)) {
-                const collectedAmount = buildingInstance.resourcesCollected?.[resourceId] || 0;
-                const amount = Number(requiredAmount);
-                
-                if (collectedAmount < amount*(1 - 1.e-10)) {
-                    console.log(`[BuildExecutor] Insufficient resources for construction: ${resourceId} (need ${amount}, have ${collectedAmount})`);
-                    return false;
-                }
-            }
-
-            console.log(`[BuildExecutor] All resources available for construction of ${buildingInstance.typeId}`);
-            return true;
-
-        } catch (error) {
-            console.error(`[BuildExecutor] Error checking resources for construction:`, error);
-            return false;
-        }
     }
 
     /**
