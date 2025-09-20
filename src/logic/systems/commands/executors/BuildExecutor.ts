@@ -170,7 +170,7 @@ export class BuildExecutor extends CommandExecutor {
                 const collectedAmount = buildingInstance.resourcesCollected?.[resourceId] || 0;
                 const amount = Number(requiredAmount);
                 
-                if (collectedAmount < amount) {
+                if (collectedAmount < amount*(1 - 1.e-10)) {
                     console.log(`[BuildExecutor] Insufficient resources for construction: ${resourceId} (need ${amount}, have ${collectedAmount})`);
                     return false;
                 }

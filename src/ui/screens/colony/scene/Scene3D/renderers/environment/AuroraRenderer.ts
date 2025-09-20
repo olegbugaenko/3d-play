@@ -18,7 +18,7 @@ export class AuroraRenderer extends BaseRenderer {
   private effectMaterials: THREE.ShaderMaterial[] = [];
 
   // тюнінг
-  private readonly CROSS_PLANES = 3;
+  private readonly CROSS_PLANES = 2;
   private readonly SEG_X = 96;
   private readonly SEG_Y = 24;
   private readonly DEFAULT_TILT_DEG = -18;
@@ -314,11 +314,17 @@ void main(){
 function cloneEffect(e: AuroraEffect): AuroraEffect {
   return {
     id: e.id,
+    type: e.type,
     position: { x: e.position.x, y: e.position.y, z: e.position.z },
     width: e.width,
     height: e.height,
     intensity: e.intensity,
+    duration: e.duration,
+    startTime: e.startTime,
     primaryColor: { r: e.primaryColor.r, g: e.primaryColor.g, b: e.primaryColor.b },
     secondaryColor: { r: e.secondaryColor.r, g: e.secondaryColor.g, b: e.secondaryColor.b },
+    waveSpeed: e.waveSpeed,
+    waveAmplitude: e.waveAmplitude,
+    direction: e.direction,
   };
 }

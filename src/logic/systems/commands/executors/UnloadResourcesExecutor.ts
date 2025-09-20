@@ -41,6 +41,7 @@ export class UnloadResourcesExecutor extends CommandExecutor {
             return { success: false, message: 'Object not found' };
         }
 
+
         // 🚀 Обертаємо дрона до сховища (якщо є targetId)
         if (this.command.targetId) {
             this.rotateToTarget(this.command.targetId);
@@ -107,19 +108,39 @@ export class UnloadResourcesExecutor extends CommandExecutor {
             if (targetId) {
                 const target = this.context.scene.getObjectById(targetId);
                 if (target) {
+                    
                     // Перевіряємо тип цілі
                     if (target.tags?.includes('storage') && target.data?.isBuilt) {
-                        // Добудований склад - додаємо ресурси через ResourceManager
+                        // Добудований склад - вивантажуємо тільки ті ресурси що поміщаються
                         const resourceManager = this.context.mapLogic?.resources;
                         if (resourceManager) {
-                            const success = resourceManager.addResources(resourceChanges);
-                            if (success) {
-                                console.log(`[UnloadResourcesExecutor] Added ${resourceChanges.length} resources to storage`);
-                            } else {
-                                console.warn(`[UnloadResourcesExecutor] Failed to add resources to storage`);
+                            // Фільтруємо ресурси - залишаємо тільки ті що поміщаються
+                            const { canAddChanges, cantAddChanges } = this.filterResourcesByCapacity(resourceChanges);
+                            
+                            // Додаємо ресурси що поміщаються
+                            if (canAddChanges.length > 0) {
+                                const success = resourceManager.addResources(canAddChanges);
+                                if (!success) {
+                                    console.warn(`[UnloadResourcesExecutor] Failed to add resources to storage`);
+                                    // Якщо не вдалося додати - повертаємо назад
+                                    this.returnResourcesToDrone(object, canAddChanges);
+                                }
+                            }
+                            
+                            // Повертаємо ресурси що не поміщаються назад у дрон
+                            if (cantAddChanges.length > 0) {
+                                this.returnResourcesToDrone(object, cantAddChanges);
                             }
                         } else {
                             console.warn('[UnloadResourcesExecutor] ResourceManager not available');
+                        }
+                    } else if (target.tags?.includes('road')) {
+                        // Дорога - додаємо ресурси до будівництва сегментів
+                        const acceptedResources = this.addResourcesToRoadConstruction(target, resourceChanges);
+                        
+                        // Якщо є ресурси які не були прийняті - повертаємо їх назад у дрон
+                        if (acceptedResources.length < resourceChanges.length) {
+                            this.returnUnacceptedResources(object, resourceChanges, acceptedResources);
                         }
                     } else if (!target.data?.isBuilt) {
                         // Недобудова - додаємо ресурси до resourcesCollected (тільки потрібні)
@@ -177,7 +198,69 @@ export class UnloadResourcesExecutor extends CommandExecutor {
         if (!object) return true;
 
         // Команда завершена якщо немає ресурсів для вивантаження
-        return !this.hasResourcesToUnload(object);
+        if (!this.hasResourcesToUnload(object)) {
+            return true;
+        }
+
+        // Команда завершена тільки якщо ВСІ ресурси не можуть бути вивантажені (для storage)
+        if (this.command.targetId) {
+            const target = this.context.scene.getObjectById(this.command.targetId);
+            if (target?.tags?.includes('storage') && target.data?.isBuilt) {
+                const storage = object.data.storage as Record<string, number>;
+                const resourceChanges: ResourceChange[] = [];
+                
+                // Створюємо список ресурсів для перевірки
+                for (const [resourceId, amount] of Object.entries(storage)) {
+                    if (amount > 0) {
+                        resourceChanges.push({
+                            resourceId: resourceId as any,
+                            amount: amount,
+                            reason: 'check'
+                        });
+                    }
+                }
+                
+                const { canAddChanges } = this.filterResourcesByCapacity(resourceChanges);
+                if (canAddChanges.length === 0 && resourceChanges.length > 0) {
+                    return true; // Жоден ресурс не поміщається, завершуємо команду
+                }
+            } else if (target?.tags?.includes('road')) {
+                // Для доріг - завершуємо якщо сегмент не потребує більше ресурсів
+                const buildingsManager = this.context.mapLogic?.buildingsManager;
+                if (buildingsManager) {
+                    const roadInstance = buildingsManager.getRoadInfo(target.id);
+                    const segmentIndex = this.command.parameters?.segmentIndex;
+
+                    
+                    if (roadInstance && roadInstance.segments && segmentIndex !== undefined) {
+                        const segment = roadInstance.segments[segmentIndex];
+                        if (segment && segment.buildingState === 'completed') {
+                            return true; // Сегмент вже побудований
+                        }
+                        
+                        // Перевіряємо чи всі потрібні ресурси доставлено
+                        const requiredResources = buildingsManager.calculateRoadCost(target.id, segmentIndex);
+                        
+                        const deliveredResources = segment?.deliveredResources || {};
+                        
+                        let allResourcesDelivered = true;
+                        for (const [resourceId, required] of Object.entries(requiredResources)) {
+                            const delivered = deliveredResources[resourceId] || 0;
+                            if (delivered < required) {
+                                allResourcesDelivered = false;
+                                break;
+                            }
+                        }
+                        
+                        if (allResourcesDelivered) {
+                            return true; // Всі ресурси доставлено для сегмента
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -299,7 +382,6 @@ export class UnloadResourcesExecutor extends CommandExecutor {
             }
         }
 
-        console.log('AcceptedRS: ', resourceChanges, requiredResources);
                             
 
         const acceptedResources: ResourceChange[] = [];
@@ -335,7 +417,6 @@ export class UnloadResourcesExecutor extends CommandExecutor {
                         reason: change.reason
                     });
                     
-                    console.log(`[UnloadResourcesExecutor] Added ${amountToAdd} ${resourceId} to construction ${target.id} (${updatedResources[resourceId]}/${requiredAmount})`);
                 }
             }
         }
@@ -349,7 +430,102 @@ export class UnloadResourcesExecutor extends CommandExecutor {
             );
         }
 
-        console.log(`[UnloadResourcesExecutor] Added ${acceptedResources.length} needed resources to construction ${target.id}`);
+        return acceptedResources;
+    }
+
+    /**
+     * Додає ресурси до будівництва дороги (на конкретний сегмент)
+     */
+    private addResourcesToRoadConstruction(target: any, resourceChanges: ResourceChange[]): ResourceChange[] {
+        
+        const buildingsManager = this.context.mapLogic?.buildingsManager;
+        if (!buildingsManager) {
+            console.warn('[UnloadResourcesExecutor] BuildingsManager not found');
+            return [];
+        }
+
+        // Отримуємо дані про дорогу
+        const roadInstance = buildingsManager.getRoadInfo(target.id);
+        if (!roadInstance || !roadInstance.segments) {
+            console.warn('[UnloadResourcesExecutor] Road instance or segments not found');
+            return [];
+        }
+
+        // Знаходимо параметри команди з roadId та segmentIndex
+        const roadId = this.command.parameters?.roadId || target.id;
+        const segmentIndex = this.command.parameters?.segmentIndex;
+        
+        if (segmentIndex === undefined || segmentIndex < 0 || segmentIndex >= roadInstance.segments.length) {
+            console.warn('[UnloadResourcesExecutor] Invalid segment index:', segmentIndex);
+            return [];
+        }
+
+        const segment = roadInstance.segments[segmentIndex];
+        if (!segment || segment.buildingState === 'completed') {
+            console.warn('[UnloadResourcesExecutor] Segment not found or already completed');
+            return [];
+        }
+
+        // Ініціалізуємо deliveredResources якщо немає
+        if (!segment.deliveredResources) {
+            segment.deliveredResources = {};
+        }
+
+        // Отримуємо потрібні ресурси для сегмента через універсальний метод
+        const requiredResources = buildingsManager.calculateRoadCost(roadId, segmentIndex);
+        
+
+        const acceptedResources: ResourceChange[] = [];
+        let hasChanges = false;
+
+        for (const change of resourceChanges) {
+            const resourceId = change.resourceId;
+            const amount = change.amount;
+            
+            // Перевіряємо чи потрібен цей ресурс для сегмента
+            const requiredAmount = requiredResources[resourceId] || 0;
+            if (requiredAmount > 0) {
+                // Перевіряємо скільки вже доставлено
+                const currentDelivered = segment.deliveredResources[resourceId] || 0;
+                const stillNeeded = requiredAmount - currentDelivered;
+                
+                if (stillNeeded > 0) {
+                    // Додаємо тільки те що ще потрібно
+                    const amountToAdd = Math.min(amount, stillNeeded);
+                    
+                    // Оновлюємо deliveredResources
+                    segment.deliveredResources[resourceId] = currentDelivered + amountToAdd;
+                    hasChanges = true;
+                    
+                    acceptedResources.push({
+                        resourceId: change.resourceId,
+                        amount: amountToAdd,
+                        reason: `Added to road segment ${segmentIndex}`
+                    });
+                    
+                }
+            }
+        }
+
+        // Позначаємо об'єкт як змінений якщо є зміни
+        if (hasChanges) {
+            // Оновлюємо road.resourcesDelivered для HUD
+            if (!roadInstance.resourcesDelivered) {
+                (roadInstance as any).resourcesDelivered = {};
+            }
+            
+            for (const change of acceptedResources) {
+                const currentDelivered = (roadInstance as any).resourcesDelivered[change.resourceId] || 0;
+                (roadInstance as any).resourcesDelivered[change.resourceId] = currentDelivered + change.amount;
+            }
+            
+            // Оновлюємо дані об'єкта на сцені
+            if (target.data && target.data.segmentStates) {
+                target.data.segmentStates = roadInstance.segments;
+            }
+            this.context.scene.markObjectDirty?.(target.id);
+        }
+
         return acceptedResources;
     }
 
@@ -376,7 +552,6 @@ export class UnloadResourcesExecutor extends CommandExecutor {
                 }
                 object.data.storage[change.resourceId] += unacceptedAmount;
                 
-                console.log(`[UnloadResourcesExecutor] Returned ${unacceptedAmount} ${change.resourceId} back to drone ${object.id}`);
             }
         }
     }
@@ -395,7 +570,54 @@ export class UnloadResourcesExecutor extends CommandExecutor {
             }
             object.data.storage[resourceId] += amount;
             
-            console.log(`[UnloadResourcesExecutor] Returned ${amount} ${resourceId} back to drone ${object.id} (no target)`);
         }
+    }
+
+    /**
+     * Фільтрує ресурси на ті що поміщаються у складі та ті що не поміщаються
+     */
+    private filterResourcesByCapacity(resourceChanges: ResourceChange[]): { 
+        canAddChanges: ResourceChange[], 
+        cantAddChanges: ResourceChange[] 
+    } {
+        const resourceManager = this.context.mapLogic?.resources;
+        if (!resourceManager) {
+            return { canAddChanges: [], cantAddChanges: resourceChanges };
+        }
+
+        const canAddChanges: ResourceChange[] = [];
+        const cantAddChanges: ResourceChange[] = [];
+
+
+        // Розділяємо ресурси на ті що поміщаються та ті що не поміщаються
+        for (const change of resourceChanges) {
+            const currentAmount = resourceManager.getResourceAmount(change.resourceId as any);
+            const maxCapacity = resourceManager.getResourceCapacity(change.resourceId as any);
+            
+            // Обчислюємо скільки можемо додати
+            const availableSpace = Math.max(0, maxCapacity - currentAmount);
+            
+            if (availableSpace >= change.amount) {
+                // Весь ресурс поміщається
+                canAddChanges.push(change);
+            } else if (availableSpace > 0) {
+                // Частково поміщається - розділяємо
+                canAddChanges.push({
+                    resourceId: change.resourceId,
+                    amount: availableSpace,
+                    reason: change.reason
+                });
+                cantAddChanges.push({
+                    resourceId: change.resourceId,
+                    amount: change.amount - availableSpace,
+                    reason: change.reason
+                });
+            } else {
+                // Нічого не поміщається
+                cantAddChanges.push(change);
+            }
+        }
+
+        return { canAddChanges, cantAddChanges };
     }
 }

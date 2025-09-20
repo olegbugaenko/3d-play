@@ -18,7 +18,11 @@ export interface IEnvironmentEffect {
 export interface AuroraEffect extends IEnvironmentEffect {
   type: 'aurora';
   
+  // Позиція на фіксованій відстані 400 від центру з рандомізованим азимутальним кутом
+  position: Vector3; // x = cos(azimuth) * 400, z = sin(azimuth) * 400, y = random(10, 40)
+  
   // Кольори сяйва (RGB 0-1)
+  // Доступні кольори: зелений, блакитний, фіолетовий, жовтий, синій
   primaryColor: { r: number; g: number; b: number };
   secondaryColor: { r: number; g: number; b: number };
   
@@ -27,8 +31,8 @@ export interface AuroraEffect extends IEnvironmentEffect {
   waveAmplitude: number; // амплітуда хвиль
   
   // Розміри
-  width: number; // ширина сяйва
-  height: number; // висота сяйва
+  width: number; // ширина сяйва (350-750)
+  height: number; // висота сяйва (160-320)
   
   // Напрямок руху
   direction: number; // радіани
@@ -40,8 +44,8 @@ export interface AuroraEffect extends IEnvironmentEffect {
 export interface EnvironmentConfig {
   // Полярне сяйво
   aurora: {
-    minIntensity: number;
-    maxIntensity: number;
+    minIntensity: number; // 0.2 - мінімальна інтенсивність
+    maxIntensity: number; // 0.5 - максимальна інтенсивність
     minDuration: number; // секунди
     maxDuration: number;
     spawnChance: number; // 0.0 - 1.0 за хвилину

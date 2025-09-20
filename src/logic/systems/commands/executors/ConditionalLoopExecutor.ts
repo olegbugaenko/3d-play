@@ -20,12 +20,10 @@ export class ConditionalLoopExecutor extends CommandExecutor {
         const condition = this.command.parameters?.condition; // Оператор порівняння
         const value2 = this.command.parameters?.value2; // Значення для порівняння
 
-        console.log(`[ConditionalLoopExecutor] Checking condition:`, this.command.parameters, { value1, condition, value2 }, this.command);
 
         // Перевіряємо ліміт ітерацій
         const iterationCount = this.getIterationCount();
         if (iterationCount >= this.maxIterations) {
-            console.warn(`[ConditionalLoopExecutor] Max iterations (${this.maxIterations}) reached, forcing loop exit`);
             return { 
                 success: true, 
                 message: `Max iterations reached, proceeding to next commands`,
@@ -35,7 +33,6 @@ export class ConditionalLoopExecutor extends CommandExecutor {
 
         // Якщо умова не спрацювала - завершуємо цикл
         if (!this.evaluateCondition(value1, condition, value2)) {
-            console.log(`[ConditionalLoopExecutor] Loop condition false, exiting loop`);
             return { 
                 success: true, 
                 message: 'Loop condition false, proceeding to next commands',
@@ -49,7 +46,6 @@ export class ConditionalLoopExecutor extends CommandExecutor {
         // Ре-інсертимо поточну команду для наступної перевірки умови
         this.reinsertSelfForNextCheck();
         
-        console.log(`[ConditionalLoopExecutor] Loop condition true, inserted ${this.loopCommands.length} loop commands and re-inserted self for next check (iteration ${iterationCount + 1})`);
         
         return { 
             success: true, 
@@ -94,7 +90,6 @@ export class ConditionalLoopExecutor extends CommandExecutor {
 
         const numValue2 = Number(value2);
 
-        console.log(`[ConditionalLoopExecutor] Evaluating: ${numValue1} ${condition} ${numValue2}`);
 
         // Виконуємо порівняння
         switch (condition) {
@@ -185,7 +180,6 @@ export class ConditionalLoopExecutor extends CommandExecutor {
             if (reinsertedCommand.groupId) {
                 commandSystem.resolveCommandParameters(reinsertedCommand, this.context.objectId, true);
             }
-            console.log(`[ConditionalLoopExecutor] Re-inserted self for next check: ${reinsertedCommand.id}`);
         } else {
             console.error(`[ConditionalLoopExecutor] Failed to re-insert self for next check`);
         }
@@ -260,7 +254,6 @@ export class ConditionalLoopExecutor extends CommandExecutor {
                 }
             }
             
-            console.log(`[ConditionalLoopExecutor] Successfully inserted ${this.loopCommands.length} loop commands and resolved their parameters for ${this.context.objectId}. First: ${this.loopCommands[0]?.type}`);
         } catch (error) {
             console.error(`[ConditionalLoopExecutor] Error inserting loop commands:`, error);
         }

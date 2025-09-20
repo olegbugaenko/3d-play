@@ -323,6 +323,7 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
         biomass: (level: number) => 0.1 * level // Більше споживання на вищих рівнях
       }
     },
+    isConstuctuble: true,
     cost: bioGeneratorCostFormula
   }],
 
@@ -377,6 +378,7 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
         biomass: (level: number) => 0.3 * level // Базова швидкість виробництва біомаси
       }
     },
+    isConstuctuble: true,
     cost: bioIncubatorCostFormula
   }]
 ]);
@@ -422,11 +424,14 @@ export const ROADS_DB: Map<string, RoadTypeData> = new Map([
     width: 1.0,
     speedBonus: 1.5,
     cost: basicRoadCostFormula,
+    isSegmented: true, // будується сегментами
     ui: {
       color: '#8B4513', // коричневий
       pattern: 'basic'
     },
-    tags: ['road', 'infrastructure']
+    tags: ['road', 'infrastructure'],
+    isConstuctuble: true, // можна будувати через UI
+    requirements: [] // немає вимог для базової дороги
   }],
   
   ['reinforced_road', {
@@ -436,11 +441,14 @@ export const ROADS_DB: Map<string, RoadTypeData> = new Map([
     width: 1.5,
     speedBonus: 2.0,
     cost: reinforcedRoadCostFormula,
+    isSegmented: true, // будується сегментами
     ui: {
       color: '#696969', // темно-сірий
       pattern: 'reinforced'
     },
-    tags: ['road', 'infrastructure', 'advanced']
+    tags: ['road', 'infrastructure', 'advanced'],
+    isConstuctuble: true, // можна будувати через UI
+    requirements: [] // поки що немає вимог для посиленої дороги
   }]
 ]);
 

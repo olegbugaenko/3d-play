@@ -584,6 +584,65 @@ export class PathfindingSystem {
     return true;
   }
 
+  /**
+   * Перевіряє, чи є пряма видимість/прохідність між двома світовими точками
+   * для АГЕНТА (радіус береться з obstacleSize, а id — для exclude).
+   *
+   * @param start world-позиція старту (x,z беруться)
+   * @param end   world-позиція фінішу (x,z беруться)
+   * @param obj   агент (джерело радіуса та excludeId)
+   * @param safety додатковий “запас” до радіуса
+   * @param snapToPassable якщо true — привʼязати обидві точки до найближчих
+   *                       прохідних клітинок (рекомендується)
+   */
+  public hasLineOfSightWorldForObj(
+    start: { x: number; z: number },
+    end:   { x: number; z: number },
+    r: number,
+    safety = 0.05,
+    snapToPassable = true
+  ): boolean {
+    return this.hasLineOfSightWorld(start.x, start.z, end.x, end.z, r, safety, undefined, snapToPassable);
+  }
+
+  /**
+   * Базова перевірка в світових координатах з явним радіусом.
+   * Використовує існуючий hasLineOfSight( Cell, Cell, r, safety, excludeId ).
+   *
+   * @param ax,az, bx,bz  світові координати відрізка
+   * @param r              радіус агента
+   * @param safety         запас до радіуса
+   * @param excludeId      (опц.) id, який слід ігнорувати в динаміці
+   * @param snapToPassable якщо true — шукати найближчі прохідні клітини для кінців
+   */
+  public hasLineOfSightWorld(
+    ax: number, az: number,
+    bx: number, bz: number,
+    r: number,
+    safety = 0.05,
+    excludeId?: string,
+    snapToPassable = true
+  ): boolean {
+    const g = this.grid;
+
+    // точки повинні бути всередині гріда
+    if (!g.pointInGrid(ax, az) || !g.pointInGrid(bx, bz)) return false;
+
+
+    let a = g.worldToCell(ax, az);
+    let b = g.worldToCell(bx, bz);
+    
+
+    if (snapToPassable) {
+      const aPass = this.findNearestPassable(a.i, a.j, r, safety, 40);
+      const bPass = this.findNearestPassable(b.i, b.j, r, safety, 40);
+      if (!aPass || !bPass) return false;
+      a = aPass; b = bPass;
+    }
+
+    return this.hasLineOfSight(a, b, r, safety, excludeId);
+  }
+
   getPassabilityVisualizationData(
     centerX: number,
     centerZ: number,

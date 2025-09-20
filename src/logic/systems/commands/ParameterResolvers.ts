@@ -464,4 +464,120 @@ export class ParameterResolvers {
       resourcesToUnload: unloadResourcesMap
     };
   }
+
+  /**
+   * Отримує інстанс дороги по ID
+   */
+  getRoadInstance(roadId: string): any {
+    const buildingsManager = this.mapLogic.buildingsManager;
+    if (!buildingsManager) {
+      console.error('[ParameterResolvers] BuildingsManager not found');
+      return null;
+    }
+
+    const roadInstance = buildingsManager.getRoadInfo(roadId);
+    if (!roadInstance) {
+      console.error(`[ParameterResolvers] Road instance not found: ${roadId}`);
+      return null;
+    }
+
+    return roadInstance;
+  }
+
+  /**
+   * Отримує наступний недобудований сегмент дороги
+   */
+  getNextUnbuiltRoadSegment(roadId: string): any {
+    const roadInstance = this.getRoadInstance(roadId);
+    if (!roadInstance || !roadInstance.segments) {
+      return null;
+    }
+
+    const unbuiltIndex = roadInstance.segments.findIndex((s: any) => s.buildingState !== 'completed');
+    if (unbuiltIndex === -1) {
+      return null; // Всі сегменти побудовані
+    }
+
+    return {
+      id: `${roadId}-segment-${unbuiltIndex}`,
+      index: unbuiltIndex,
+      segment: roadInstance.segments[unbuiltIndex]
+    };
+  }
+
+  /**
+   * Отримує потрібні ресурси для сегмента дороги
+   */
+  getRoadSegmentRequiredResources(roadId: string, segmentIndex: number): Record<string, number> {
+    const buildingsManager = this.mapLogic.buildingsManager;
+    if (!buildingsManager) {
+      return {};
+    }
+
+    // Використовуємо універсальний метод з BuildingsManager
+    return buildingsManager.calculateRoadCost(roadId, segmentIndex);
+  }
+
+  /**
+   * Отримує позицію сегмента дороги (центр сегмента)
+   */
+  getRoadSegmentPosition(roadId: string, segmentIndex: number): Vector3 | null {
+    const roadInstance = this.getRoadInstance(roadId);
+    if (!roadInstance || !roadInstance.segments || !roadInstance.segments[segmentIndex]) {
+      return null;
+    }
+
+    const segment = roadInstance.segments[segmentIndex];
+    
+    // Якщо є startPoint та endPoint - беремо центр між ними
+    if (segment.startPoint && segment.endPoint) {
+      const centerX = (segment.startPoint.x + segment.endPoint.x) / 2;
+      const centerY = (segment.startPoint.y + segment.endPoint.y) / 2;
+      const centerZ = (segment.startPoint.z + segment.endPoint.z) / 2;
+      
+      return new Vector3(centerX, centerY, centerZ);
+    }
+
+    // Інакше спробуємо отримати з path дороги
+    if (roadInstance.path && roadInstance.path.length > segmentIndex + 1) {
+      const startPoint = roadInstance.path[segmentIndex];
+      const endPoint = roadInstance.path[segmentIndex + 1];
+      
+      const centerX = (startPoint.x + endPoint.x) / 2;
+      const centerY = (startPoint.y + endPoint.y) / 2;
+      const centerZ = (startPoint.z + endPoint.z) / 2;
+      
+      return new Vector3(centerX, centerY, centerZ);
+    }
+
+    return null;
+  }
+
+  /**
+   * Обчислює відсутні ресурси для сегмента дороги
+   */
+  getMissingResourcesForRoadSegment(roadId: string, segmentIndex: number): Record<string, number> {
+    const requiredResources = this.getRoadSegmentRequiredResources(roadId, segmentIndex);
+    const roadInstance = this.getRoadInstance(roadId);
+    
+    if (!roadInstance || !roadInstance.segments || !roadInstance.segments[segmentIndex]) {
+      return {};
+    }
+
+    const segment = roadInstance.segments[segmentIndex];
+    const deliveredResources = segment.deliveredResources || {};
+    const missingResources: Record<string, number> = {};
+
+    // Обчислюємо різницю між потрібними та доставленими ресурсами
+    for (const [resourceId, required] of Object.entries(requiredResources)) {
+      const delivered = deliveredResources[resourceId] || 0;
+      const missing = Math.max(0, required - delivered);
+      
+      if (missing > 0) {
+        missingResources[resourceId] = missing;
+      }
+    }
+
+    return missingResources;
+  }
 }

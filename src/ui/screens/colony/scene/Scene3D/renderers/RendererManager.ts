@@ -56,7 +56,11 @@ export class RendererManager {
         this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Хмари
         this.registerRenderer('smoke', new SmokeRenderer(this.scene, this.renderer)); // Дим (GPU)
         this.registerRenderer('fire', new FireRenderer(this.scene, this.renderer)); // Вогонь (GPU)
-        this.registerRenderer('road', new RoadRenderer(this.scene)); // Дороги
+        const roadRenderer = new RoadRenderer(this.scene);
+        if (this.bridge && (roadRenderer as any).setUiLogicBridge) {
+            (roadRenderer as any).setUiLogicBridge(this.bridge as any);
+        }
+        this.registerRenderer('road', roadRenderer); // Дороги
         this.registerRenderer('aurora', new AuroraRenderer(this.scene, this.bridge || undefined)); // Полярне сяйво
         //this.registerRenderer('explosion', new ExplosionRenderer(this.scene, this.renderer)); // Вибухи (GPU)
         //this.registerRenderer('electric-arc', new ElectricArcRenderer(this.scene));

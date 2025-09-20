@@ -1,5 +1,5 @@
 import { IMapLogic } from '@interfaces/IMapLogic';
-import { AuroraEffect } from '@environment/environment.types';
+import { AuroraEffect } from '@logic/systems/environment/environment.types';
 
 export interface UiLogicBridge {
   // Storage info for buildings (used by HUD overlays)
@@ -21,6 +21,13 @@ export interface UiLogicBridge {
     centerZ: number, 
     radius: number
   ): Array<{x: number, z: number, isRoad: boolean, speedBonus: number}> | null;
+  // Roads aggregates for HUD
+  getRoadAggregates(roadId: string): {
+    builtSegments: number;
+    totalSegments: number;
+    totalRequired: Record<string, number>;
+    totalDelivered: Record<string, number>;
+  } | null;
   // Environment effects
   getAuroraEffects(): AuroraEffect[];
 }
@@ -55,6 +62,11 @@ export function createUiLogicBridge(mapLogic: IMapLogic): UiLogicBridge {
       const pathfinder = scene?.pathfinder;
       if (!pathfinder?.getRoadsVisualizationData) return null;
       return pathfinder.getRoadsVisualizationData(centerX, centerZ, radius);
+    },
+    getRoadAggregates: (roadId: string) => {
+      const bm: any = (mapLogic as any).buildingsManager;
+      if (!bm?.getRoadAggregates) return null;
+      return bm.getRoadAggregates(roadId);
     },
     getAuroraEffects: () => {
       const environment: any = (mapLogic as any).environment;

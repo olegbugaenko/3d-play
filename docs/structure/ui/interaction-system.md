@@ -1,3 +1,40 @@
+### Interaction System (Selection → Interactables → Commands)
+
+Цей документ описує, як працюють інтеракції в Colony Scene UI.
+
+## Вибір юнітів (Selection)
+- Логіка у `src/logic/systems/scene/selection/SelectionLogic.ts`.
+- Виділені обʼєкти зберігаються у `SelectionLogic.selectedObjects`.
+- Метод `findInteractableObjects()` повертає список обʼєктів сцени, з якими можна взаємодіяти, виходячи з команд підтримуваних вибраними юнітами.
+
+## Фільтрація по доступних командах
+- `findInteractableObjects()` збирає множину доступних команд у вибраних юнітів (`commandType` масив на обʼєкті сцени юніта).
+- Далі викликається `SceneLogic.getVisibleObjects({ filterByCommands })` – сцена повертає тільки ті обʼєкти, що мають відповідний `targetType`.
+- Узгодження: якщо в юніта є команда `build`, інтерактивним вважається будь‑який обʼєкт з `targetType`, що містить `'build'`.
+
+## Позначення інтерактивних цілей (targetType)
+- Кожен обʼєкт сцени може мати поле `targetType: string[]`.
+- Приклад: недобудовані будівлі мають `targetType: ['build']`, тому ПКМ запускає групу команд будівництва.
+- НОВЕ: недобудовані/заплановані дороги також отримують `targetType: ['build']`, щоб їх можна було будувати дронами через ПКМ.
+  - Це виставляється у `BuildingsManager.addRoadToScene()` залежно від стану дороги (не збудована, є сегменти у стані відмінному від `completed`, або `plannedOnly: true`).
+
+## Обробка ПКМ (SelectionHandler)
+- `SelectionHandler.handleRightClick()`:
+  - визначає, що під курсором (raycast на список інтерактивних обʼєктів);
+  - якщо клік по недобудованій будівлі – стартує `construction` групу команд;
+  - якщо клік по недобудованій дорозі – стартує `road-construction` групу команд.
+
+## Дороги – агреговане табло (HUD)
+- Відображається через `RoadRenderer`, використовує `UiLogicBridge.getRoadAggregates()`.
+- Показує: `Segments built/total` та delivered/required по кожному ресурсу.
+- Зʼявляється тільки для доріг з незавершеними сегментами.
+
+## Розширення
+- Щоб зробити новий інтерактивний тип:
+  - дайте юніту нову команду в `commandType`;
+  - на обʼєкт сцени повісьте відповідний `targetType`;
+  - додайте групу команд у `command-groups-db.ts` і executor.
+
 ## Interaction System - Детальна структура
 **Розташування:** `src/ui/screens/colony/scene/interaction/`
 **Призначення:** Система взаємодії користувача з 3D сценою та об'єктами.

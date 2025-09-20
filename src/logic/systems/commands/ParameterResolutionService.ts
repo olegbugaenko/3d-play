@@ -169,6 +169,29 @@ export class ParameterResolutionService {
       case 'validate':
         return null;
       
+      case 'getRoadInstance':
+        const roadId = resolvedArgs[0];
+        return this.parameterResolvers.getRoadInstance(roadId);
+      
+      case 'getNextUnbuiltRoadSegment':
+        const roadIdForSegment = resolvedArgs[0];
+        return this.parameterResolvers.getNextUnbuiltRoadSegment(roadIdForSegment);
+      
+      case 'getRoadSegmentRequiredResources':
+        const roadIdForResources = resolvedArgs[0];
+        const segmentIndex = resolvedArgs[1];
+        return this.parameterResolvers.getRoadSegmentRequiredResources(roadIdForResources, segmentIndex);
+      
+      case 'getMissingResourcesForRoadSegment':
+        const roadIdForMissing = resolvedArgs[0];
+        const segmentIndexForMissing = resolvedArgs[1];
+        return this.parameterResolvers.getMissingResourcesForRoadSegment(roadIdForMissing, segmentIndexForMissing);
+      
+      case 'getRoadSegmentPosition':
+        const roadIdForPosition = resolvedArgs[0];
+        const segmentIndexForPosition = resolvedArgs[1];
+        return this.parameterResolvers.getRoadSegmentPosition(roadIdForPosition, segmentIndexForPosition);
+      
       default:
         console.warn(`Unknown getter type: ${param.getterType}`);
         return null;

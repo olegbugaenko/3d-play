@@ -22,8 +22,8 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = ({ game, onSelectBu
     // Виводимо ID будівлі в дебаг панель
     console.log('Selected building for construction:', typeId);
     
-    // Отримуємо повні дані про будівлю
-    const buildingData = game.buildingsManager.getBuildingType(typeId);
+    // Отримуємо повні дані про конструкцію (будівлю або дорогу)
+    const buildingData = game.buildingsManager.getConstructionType(typeId);
     console.log('Building data:', buildingData);
     
     // Закриваємо модалку після вибору будівлі
@@ -81,7 +81,7 @@ export const useBuildingsMenuButton = (game: any, onSelectBuilding?: (typeId: st
   const handleSelectBuilding = (typeId: string) => {
     console.log('Selected building for construction:', typeId);
     
-    const buildingData = game.buildingsManager.getBuildingType(typeId);
+    const buildingData = game.buildingsManager.getConstructionType(typeId);
     console.log('Building data:', buildingData);
     
     setIsBuildingsModalOpen(false);

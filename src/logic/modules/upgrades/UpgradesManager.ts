@@ -363,7 +363,7 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
     
     // 🚀 TEST: Додаємо тестові апгрейди для швидкого тесту storage індикації
     console.log('[TEST] Adding test upgrades for storage testing...');
-    this.forceUnlockUpgrade('construction');
+    this.forceUnlockUpgrade('building_constructions');
     this.forceUnlockUpgrade('bioModule');
     this.forceUnlockUpgrade('repairKit');
     // TEMP: set miningEfficiency1 to level 5 for testing

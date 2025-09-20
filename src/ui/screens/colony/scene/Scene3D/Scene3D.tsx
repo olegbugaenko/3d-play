@@ -14,7 +14,7 @@ import { InteractionProvider } from '@ui/screens/colony/scene/context/Interactio
 import { DebugPanel } from '@ui/screens/colony/scene/components/DebugPanel'
 import PathfindingDebug from '../debug/PathfindingDebug'
 
-import { CommandPanel } from '@ui/screens/colony'
+import { CommandPanel, SegmentedConstructionPanel } from '@ui/screens/colony'
 import { ISaveManager, IMapLogic } from '@interfaces/index';
 import { TSceneObject } from '@logic/systems/scene/scene.types'
 import { VerticalMenuWithContext } from '../components/VerticalMenuWithContext'
@@ -797,6 +797,9 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
         game={game}
         cameraController={controller}
       />
+
+      {/* Segmented Construction Panel */}
+      <SegmentedConstructionPanel />
 
        {/* Drag Selection Rectangle */}
        <DragSelection />

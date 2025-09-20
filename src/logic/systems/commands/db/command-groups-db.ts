@@ -94,6 +94,244 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     ]
   },
 
+  // Дороги → Будівництво
+  {
+    id: 'road-construction',
+    name: 'Road Construction',
+    description: 'Builds a road by gathering resources and constructing segments',
+    startCondition: null,
+    endCondition: null,
+    loopCondition: null,
+    isLoop: false,
+    ui: {
+      scope: 'build',
+      category: 'road',
+      name: 'Build Road',
+      description: 'Gather resources and build road segments'
+    },
+    resolveParametersPipeline: [
+      // ID дороги
+      {
+        id: 'roadId',
+        getterType: 'literal',
+        args: [{type: 'var', value: 'targets.roadId'}],
+        resolveWhen: 'before-command'
+      },
+      // Базові дані про дорогу
+      {
+        id: 'roadInstance',
+        getterType: 'getRoadInstance',
+        args: [{type: 'var', value: 'targets.roadId'}],
+        resolveWhen: 'before-command'
+      },
+      // Наступний сегмент для будівництва
+      {
+        id: 'nextSegment',
+        getterType: 'getNextUnbuiltRoadSegment',
+        args: [{type: 'var', value: 'targets.roadId'}],
+        resolveWhen: 'before-command'
+      },
+      // Потрібні ресурси для сегмента
+      {
+        id: 'requiredResources',
+        getterType: 'getRoadSegmentRequiredResources',
+        args: [
+          {type: 'var', value: 'targets.roadId'},
+          {type: 'var', value: 'resolved.nextSegment.index'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      // Відсутні ресурси для сегмента
+      {
+        id: 'missingResources',
+        getterType: 'getMissingResourcesForRoadSegment',
+        args: [
+          {type: 'var', value: 'targets.roadId'},
+          {type: 'var', value: 'resolved.nextSegment.index'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'missingSum',
+        getterType: 'getValuesSum',
+        args: [{type: 'var', value: 'resolved.missingResources'}],
+        resolveWhen: 'before-command'
+      },
+      // Ресурси які потрібно вивантажити (непотрібні для будівництва)
+      {
+        id: 'resourcesToUnload',
+        getterType: 'getUnnecessaryResources',
+        args: [
+          {type: 'var', value: 'objectId'},
+          {type: 'var', value: 'resolved.requiredResources'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      // Найближчий склад
+      {
+        id: 'closestStorageId',
+        getterType: 'getClosestStorage',
+        args: [{type: 'lit', value: {maxDistance: 200}}],
+        resolveWhen: 'before-command'
+      },
+      {
+        id: 'storagePosition',
+        getterType: 'getObjectAccessPoint',
+        args: [
+          {type: 'var', value: 'resolved.closestStorageId'},
+          {type: 'var', value: 'objectId'}
+        ],
+        resolveWhen: 'before-command'
+      },
+      // Позиція сегмента дороги
+      {
+        id: 'segmentPosition',
+        getterType: 'getRoadSegmentPosition',
+        args: [
+          {type: 'var', value: 'targets.roadId'},
+          {type: 'var', value: 'resolved.nextSegment.index'}
+        ],
+        resolveWhen: 'before-command'
+      }
+    ],
+    tasksPipeline: (context): Command[] => [
+      // 1. Цикл збору ресурсів (conditional-loop)
+      {
+        id: `road-construction-resource-loop-${Date.now()}`,
+        type: 'conditional-loop',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: {
+          // Універсальні параметри умови
+          condition: '>',
+          value2: 1.e-10,
+          // Команди циклу для збору ресурсів
+          loopCommands: [
+            // A) Рухаємося до складу
+            {
+              id: `move-to-storage-${Date.now()}`,
+              type: 'move-to',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: { priority: 'high' },
+              status: 'pending',
+              priority: 1,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                position: 'storagePosition'
+              }
+            },
+            // B) Вивантажуємо непотрібні ресурси
+            {
+              id: `unload-unnecessary-${Date.now()}`,
+              type: 'unload-resources',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: {},
+              status: 'pending',
+              priority: 2,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                targetId: 'closestStorageId',
+                resourcesToUnload: 'resourcesToUnload'
+              }
+            },
+            // C) Завантажуємо потрібні ресурси
+            {
+              id: `load-needed-resources-${Date.now()}`,
+              type: 'load-resources',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: {},
+              status: 'pending',
+              priority: 3,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                targetId: 'closestStorageId',
+                resources: 'missingResources'
+              }
+            },
+            // D) Рухаємося до сегмента дороги
+            {
+              id: `move-to-road-segment-${Date.now()}`,
+              type: 'move-to',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: { priority: 'high' },
+              status: 'pending',
+              priority: 4,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                position: 'segmentPosition'
+              }
+            },
+            // E) Вивантажуємо ресурси на сегмент дороги
+            {
+              id: `unload-to-road-segment-${Date.now()}`,
+              type: 'unload-resources',
+              targetId: undefined,
+              position: { x: 0, y: 0, z: 0 },
+              parameters: {
+                roadId: context.targets?.roadId,
+                segmentIndex: context.resolved?.nextSegment?.index
+              },
+              status: 'pending',
+              priority: 5,
+              createdAt: Date.now(),
+              resolvedParamsMapping: {
+                targetId: 'roadId',
+                resourcesToUnload: 'missingResources'
+              }
+            }
+          ]
+        },
+        status: 'pending',
+        priority: 1,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          value1: 'missingSum',
+          missingResources: 'missingResources',
+          requiredResources: 'requiredResources',
+          closestStorageId: 'closestStorageId',
+          roadInstance: 'roadInstance'
+        }
+      },
+      // 2. Рух до сегмента дороги для будівництва
+      {
+        id: `final-move-to-road-segment-${Date.now()}`,
+        type: 'move-to',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: { priority: 'high' },
+        status: 'pending',
+        priority: 2,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          position: 'segmentPosition'
+        }
+      },
+      // 3. Власне будівництво сегмента дороги
+      {
+        id: `build-road-segment-${Date.now()}`,
+        type: 'build-road',
+        targetId: undefined,
+        position: { x: 0, y: 0, z: 0 },
+        parameters: {
+          roadId: context.targets?.roadId,
+          segmentIndex: context.resolved?.nextSegment?.index
+        },
+        status: 'pending',
+        priority: 3,
+        createdAt: Date.now(),
+        resolvedParamsMapping: {
+          roadId: 'roadId',
+          segmentIndex: 'nextSegment.index',
+          position: 'segmentPosition'
+        }
+      }
+    ]
+  },
+
   // Building → Refill group (storage -> building)
   {
     id: 'building-refill',
@@ -1138,7 +1376,7 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         parameters: {
           // Універсальні параметри умови
           condition: '>',
-          value2: 0,
+          value2: 1.e-10,
           // Команди циклу для збору ресурсів
           loopCommands: [
             // A) Рухаємося до складу

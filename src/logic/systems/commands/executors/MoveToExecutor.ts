@@ -69,7 +69,6 @@ export class MoveToExecutor extends CommandExecutor {
             this.pathPlanned = true;
             // Застосовуємо у з вейпойнту, так як він уже враховує висоту террейну
             this.command.position.y = this.waypoints[this.waypoints.length - 1].y;
-            console.warn('Path planned: ', path, this.waypoints);
 
             return true;
         } catch (error) {
@@ -146,7 +145,6 @@ export class MoveToExecutor extends CommandExecutor {
         }
         
         const distance = currentPos.distanceTo(currentTarget);
-        // console.log('Moving: ', currentTarget, this.currentWaypointIndex, this.waypoints, distance);
 
         // Якщо досягли поточної точки - переходимо до наступної
         if (distance <= this.arrivalDistance) {
@@ -197,7 +195,6 @@ export class MoveToExecutor extends CommandExecutor {
             const roadSpeedBonus = pathfindingSystem.getSpeedBonusAtWorld(currentPos.x, currentPos.z);
             if (roadSpeedBonus > 1.0) {
                 speed *= roadSpeedBonus;
-                console.log(`Road speed bonus: ${roadSpeedBonus}x, new speed: ${speed} at (${currentPos.x.toFixed(1)}, ${currentPos.z.toFixed(1)})`);
             }
         }
         
@@ -210,7 +207,6 @@ export class MoveToExecutor extends CommandExecutor {
         object.speed.y = direction.y * speed;
         object.speed.z = direction.z * speed;
 
-        // Додаємо логування для дебагу
         
         // Обертаємо об'єкт в напрямку руху (якщо можна)
         if (object.data?.rotatable) {

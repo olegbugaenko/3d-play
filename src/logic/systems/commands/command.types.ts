@@ -68,4 +68,4 @@ export interface CommandContext {
     mapLogic?: IMapLogic; // MapLogic instance for executors to access resources and other logic
 }
 
-export type CommandType = 'move-to' | 'collect-resource' | 'unload-resources' | 'load-resources' | 'wait' | 'attack' | 'build' | 'charge' | 'conditional-loop';
+export type CommandType = 'move-to' | 'collect-resource' | 'unload-resources' | 'load-resources' | 'wait' | 'attack' | 'build' | 'build-road' | 'charge' | 'conditional-loop';

@@ -1,6 +1,6 @@
 import { Command, CommandType, CommandContext, CommandStatus, CommandFailureCode, CommandResult } from './command.types';
 import { CommandExecutor } from './CommandExecutor';
-import { MoveToExecutor, CollectResourceExecutor, UnloadResourcesExecutor, LoadResourcesExecutor, BuildExecutor, ConditionalLoopExecutor, ChargeExecutor } from './executors';
+import { MoveToExecutor, CollectResourceExecutor, UnloadResourcesExecutor, LoadResourcesExecutor, BuildExecutor, ConditionalLoopExecutor, ChargeExecutor, BuildRoadExecutor } from './executors';
 import { CommandQueue } from './CommandQueue';
 import { ICommandQueue } from '@interfaces/ICommandQueue';
 import { SaveLoadManager, CommandSystemSaveData } from '../save-load/save-load.types';
@@ -91,8 +91,14 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             case 'move-to':
                 executor = new MoveToExecutor(command, context);
                 break;
+            case 'build-road':
+                executor = new BuildRoadExecutor(command, context);
+                break;
             case 'collect-resource':
                 executor = new CollectResourceExecutor(command, context);
+                break;
+            case 'build-road':
+                executor = new BuildRoadExecutor(command, context);
                 break;
             case 'unload-resources':
                 executor = new UnloadResourcesExecutor(command, context);
@@ -141,7 +147,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
 
             // Виконуємо команду
             const result = executor.execute(); 
-            // console.log(`[RUN-COMMAND]: ${executor.getCommand().type}`, this.commandQueues.get(`rover_1`), result);
+            console.log(`[RUN-COMMAND]: ${executor.getCommand().type}`, this.commandQueues.get(`rover_1`), result);
             if (!result.success) {
                 console.warn(`Command execution failed for ${objectId}: ${result.message} [${result.code}]`);
                 

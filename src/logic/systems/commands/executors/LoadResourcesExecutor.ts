@@ -142,6 +142,30 @@ export class LoadResourcesExecutor extends CommandExecutor {
             }
         }
 
+        // ПЕРЕВІРКА НА ФЕЙЛ: Якщо нічого не завантажили І дрон не має жодного з потрібних ресурсів
+        if (totalLoaded === 0 && !this.hasSomethingLoaded(object, requiredResources)) {
+            // Перевіряємо чи можемо ще щось взяти зі складу
+            const target = this.context.scene.getObjectById(this.command.targetId);
+            let canLoadAnything = false;
+            
+            if (target?.tags?.includes('storage')) {
+                // Глобальний склад
+                canLoadAnything = this.hasAnyRequiredResourcesInGlobalStorage(requiredResources);
+            } else if (target) {
+                // Будівля з внутрішнім складом
+                canLoadAnything = this.hasAnyRequiredResourcesInTarget(target, requiredResources);
+            }
+            
+            if (!canLoadAnything) {
+                console.log(`[LoadResourcesExecutor] Cannot load anything and drone has no useful resources - failing command`);
+                return {
+                    success: false,
+                    message: 'No resources available to load and drone has nothing useful',
+                    data: { loaded: 0, progress: this.loadProgress }
+                };
+            }
+        }
+
         this.lastLoadTime = currentTime;
         this.loadProgress = this.calculateLoadProgress(object, requiredResources);
 
@@ -177,6 +201,12 @@ export class LoadResourcesExecutor extends CommandExecutor {
         // Якщо в джерелі закінчились ресурси, а дрон щось завантажив - завершуємо успішно
         if (target && this.hasSomethingLoaded(object, requiredResources) && !this.hasAnyRequiredResourcesInTarget(target, requiredResources)) {
             console.log(`[LoadResourcesExecutor] No more resources available in target, completing with what was loaded for ${object.id}`);
+            return true;
+        }
+
+        // АНАЛОГІЧНА ЛОГІКА ДЛЯ ГЛОБАЛЬНОГО СКЛАДУ (target з тегом 'storage')
+        if (target?.tags?.includes('storage') && this.hasSomethingLoaded(object, requiredResources) && !this.hasAnyRequiredResourcesInGlobalStorage(requiredResources, object.data?.storage)) {
+            console.log(`[LoadResourcesExecutor] No more resources available in global storage, completing with what was loaded for ${object.id}`);
             return true;
         }
 
@@ -301,6 +331,24 @@ export class LoadResourcesExecutor extends CommandExecutor {
         for (const [resourceId] of Object.entries(requiredResources)) {
             const availableAmount = this.getResourceAmount(target, resourceId);
             if (availableAmount > 0) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    private hasAnyRequiredResourcesInGlobalStorage(requiredResources: Record<string, number>, alreadyLoaded?: Record<string, number>): boolean {
+        const resourceManager = this.context.mapLogic?.resources;
+        if (!resourceManager) return false;
+
+        for (const [resourceId] of Object.entries(requiredResources)) {
+            const availableAmount = resourceManager.getResourceAmount(resourceId);
+            const loaded = alreadyLoaded?.[resourceId] ?? 0;
+            if(loaded && (requiredResources[resourceId] - loaded < 1.e-8)) {
+                continue;
+            }
+            if (availableAmount > 1.e-8) {
                 return true;
             }
         }

@@ -9,6 +9,7 @@ export const COMMAND_COSTS: Record<CommandType, { powerPerSecond: number }> = {
   'collect-resource': { powerPerSecond: 1 },  // Добування ресурсів
   'unload-resources': { powerPerSecond: 0.5 }, // Розвантаження
   'build': { powerPerSecond: 2.5 },             // Будівництво
+  'build-road': { powerPerSecond: 2.0 },        // Будівництво дороги
   'wait': { powerPerSecond: 0.0 },              // Очікування не споживає
   'attack': { powerPerSecond: 2.0 },            // Атака (висока затратність)
   'charge': { powerPerSecond: 0.0 }             // Зарядка не споживає

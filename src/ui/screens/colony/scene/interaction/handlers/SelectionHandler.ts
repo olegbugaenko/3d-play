@@ -235,6 +235,34 @@ export class SelectionHandler extends InteractionHandler {
       return;
     }
 
+    console.log('interactableObjects: ', interactableObjects, interactableObjects.find(o => o.tags?.includes('road')));
+
+    // Перевіряємо незавершені дороги (інтерсектимось з реальним мешем дороги)
+    for (const o of interactableObjects) {
+      if (!o.tags?.includes('road')) continue;
+      const isPlanned = o.data?.plannedOnly === true || (o.data?.segmentStates || []).some((s: any) => s.buildingState !== 'completed');
+      if (!isPlanned) continue;
+      const mesh = this.rendererManager.getMeshById(o.id);
+      if (!mesh) continue;
+      const hits = raycaster.intersectObject(mesh, true);
+      if (hits && hits.length > 0) {
+        const hit = hits[0];
+        const head = { x: hit.point.x, y: hit.point.y, z: hit.point.z };
+        const commandGroupSystem = this.mapLogic.commandGroupSystem;
+        if (commandGroupSystem) {
+          selected.forEach((drone: string) => {
+            commandGroupSystem.addCommandGroup(drone, 'road-construction', {
+              objectId: drone,
+              targets: { roadId: o.id },
+              resolved: { roadHeadPosition: head },
+              parameters: {}
+            });
+          });
+        }
+        return;
+      }
+    }
+
     // Перевіряємо побудовані будівлі з internal storage
     const clickedBuiltBuilding = interactableObjects.find((o: TSceneObject) => {
       if (!o.tags?.includes('building')) return false;

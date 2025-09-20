@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 import { InteractionHandler } from '../InteractionHandler';
 import { BuildingPreview } from '@ui/screens/colony/scene/renderers/BuildingPreview';
+import { RoadPreview } from '@ui/screens/colony/scene/renderers/RoadPreview';
 import { orientOnSurfaceEulerXYZ } from '@logic/utils/vector-math';
 
 export class BuildingHandler extends InteractionHandler {
   private buildingPreview: BuildingPreview;
+  private roadPreview: RoadPreview;
   private selectedBuildingData: any = null;
   private isInBuildingMode: boolean = false;
   
@@ -13,6 +15,15 @@ export class BuildingHandler extends InteractionHandler {
   private lastWorldPos = new THREE.Vector3();
   private readonly THROTTLE_MS = 16; // ~60 FPS
   private readonly MIN_WORLD_DISTANCE = 0.2; // Мінімальна відстань у світових координатах
+  
+
+  // Сегментований режим (дороги, ЛЕПи, тощо)
+  private isSegmentedMode: boolean = false;
+  private segmentedPath: THREE.Vector3[] = []; // поточний шлях сегментованої будівлі
+  
+  // Snap до існуючих доріг
+  private snapData: { startSnap?: any, endSnap?: any } = {};
+  private busyEdges: Set<string> = new Set(); // roadId|segmentIndex|edgeIndex
 
   constructor(
     scene: THREE.Scene, 
@@ -23,6 +34,11 @@ export class BuildingHandler extends InteractionHandler {
   ) {
     super(scene, camera, mapLogic, emit);
     this.buildingPreview = buildingPreview;
+    
+    // Передаємо terrainManager та buildingsManager в RoadPreview
+    const terrainManager = mapLogic?.scene?.getTerrainManager?.();
+    const buildingsManager = mapLogic?.buildingsManager;
+    this.roadPreview = new RoadPreview(scene, terrainManager, buildingsManager);
   }
 
   onEnter(): void {
@@ -42,18 +58,25 @@ export class BuildingHandler extends InteractionHandler {
     this.isInBuildingMode = false;
     // Приховуємо превью будівлі
     this.buildingPreview.hide();
+    // Приховуємо превью дороги
+    this.roadPreview.hide();
   }
 
   onMouseDown(event: MouseEvent): void {
     // В режимі будівництва обробляємо тільки ліву кнопку миші
-    if (event.button === 0 && this.selectedBuildingData) {
-      this.handleLeftClick(event);
+    console.log('this.isSegmMode: ', this.isSegmentedMode, this.selectedBuildingData, 'isInBuildingMode:', this.isInBuildingMode);
+    if (event.button === 0 && this.selectedBuildingData && this.isInBuildingMode) {
+      if (this.isSegmentedMode) {
+        this.handleSegmentedClick(event); // ПРОСТІШЕ: один клік = один сегмент
+      } else {
+        this.handleLeftClick(event);
+      }
     }
   }
 
   onMouseMove(event: MouseEvent): void {
     // Оновлюємо позицію превью будівлі при руху миші
-    if (this.selectedBuildingData) {
+    if (this.selectedBuildingData && this.isInBuildingMode) {
       const now = performance.now();
       
       const raycaster = this.getRaycaster(event);
@@ -62,6 +85,55 @@ export class BuildingHandler extends InteractionHandler {
       if (tm) {
         // Спочатку обчислюємо нову позицію
         const newWorldPos = this.performImprovedRaycast(raycaster, tm);
+
+        // Для сегментованого режиму - показуємо превью наступної точки
+        if (this.isSegmentedMode) {
+          // Шукаємо найближче ребро існуючої дороги
+          const nearestEdge = this.mapLogic.buildingsManager.findNearestRoadEdge(
+            { x: newWorldPos.x, y: newWorldPos.y, z: newWorldPos.z },
+            undefined, // поки що не виключаємо жодну дорогу
+            3.0 // радіус пошуку 3м
+          );
+          
+          // Snap логіка: якщо відстань < 1м - snap до центру ребра
+          let snapPosition = newWorldPos;
+          let currentSnap: any = null;
+          
+          if (nearestEdge && nearestEdge.distance < 1.0) {
+            snapPosition = new THREE.Vector3(
+              nearestEdge.edgePoint.x,
+              nearestEdge.edgePoint.y,
+              nearestEdge.edgePoint.z
+            );
+            currentSnap = {
+              roadId: nearestEdge.roadId,
+              segmentIndex: nearestEdge.segmentIndex,
+              edgeIndex: nearestEdge.edgeIndex,
+              edgeName: nearestEdge.edgeName,
+              edgePoint: { x: nearestEdge.edgePoint.x, y: nearestEdge.edgePoint.y, z: nearestEdge.edgePoint.z },
+              cursorPoint: { x: newWorldPos.x, y: newWorldPos.y, z: newWorldPos.z }
+            };
+            console.log(`🧲 SNAP to road edge:`, {
+              roadId: nearestEdge.roadId,
+              edge: nearestEdge.edgeName,
+              distance: nearestEdge.distance.toFixed(2) + 'm'
+            });
+          } else if (nearestEdge) {
+            // При великій кількості логів це гальмує, тому замовчуємо подробиці
+          }
+          
+          // В PREVIEW більше не зберігаємо snap дані, аби не перетирати кліки
+
+          if (this.segmentedPath.length === 0) {
+            // БЕЗ сегментів: показуємо стартову точку (з урахуванням snap)
+            this.roadPreview.showStartPoint(snapPosition, this.selectedBuildingData);
+          } else {
+            // Є сегменти: показуємо весь шлях ПЛЮС наступну точку (з урахуванням snap)
+            const previewPath = [...this.segmentedPath, snapPosition];
+            this.roadPreview.showPath(previewPath, this.selectedBuildingData);
+          }
+          // НЕ робимо return - панель має оновлюватися!
+        }
         
         // Перевіряємо чи зміна позиції суттєва
         const distance = this.lastWorldPos.distanceTo(newWorldPos);
@@ -132,8 +204,8 @@ private raycastHeightfield(
   }
 ): THREE.Vector3 | null {
   const tMax = opts?.tMax ?? 2000;
-  const eps  = opts?.eps  ?? 1e-3;
-  const maxIters = opts?.maxIters ?? 24;
+  const eps  = opts?.eps  ?? 1e-4; // ПОКРАЩЕНО: більша точність
+  const maxIters = opts?.maxIters ?? 32; // ПОКРАЩЕНО: більше ітерацій
 
   // Якщо промінь майже вгору — шанс перетину з ґрунтом малий
   if (dir.y >= 0 && origin.y > (tm.maxHeight ?? origin.y)) return null;
@@ -198,10 +270,6 @@ private raycastHeightfield(
       const h = tm.getHeightAt(hit.x, hit.z);
       if (h !== undefined) hit.y = h;
 
-      // 3) Анти-джиттер: згладжування від кадру до кадру
-      if (opts?.lastHit && opts?.smoothAlpha !== undefined) {
-        hit.lerp(opts.lastHit, THREE.MathUtils.clamp(1 - opts.smoothAlpha, 0, 0.95));
-      }
       return hit;
     }
     // підтримуємо знак у [a,b]
@@ -226,7 +294,7 @@ private raycastHeightfield(
    */
   private performStandardRaycast(origin: THREE.Vector3, dir: THREE.Vector3, tm: any): THREE.Vector3 {
     const maxDist = 1000;
-    const step = 10;
+    const step = 2; // ПОКРАЩЕНО: менший крок для більшої точності
     
     let bestPoint = new THREE.Vector3();
     let bestError = Infinity;
@@ -240,6 +308,11 @@ private raycastHeightfield(
         if (error < bestError) {
           bestError = error;
           bestPoint.set(point.x, height, point.z);
+        }
+        
+        // ПОКРАЩЕНО: якщо знайшли дуже точний хіт - зупиняємося
+        if (error < 0.1) {
+          break;
         }
       }
     }
@@ -289,13 +362,24 @@ private raycastHeightfield(
     return new THREE.Euler(0, 0, 0, 'XYZ');
   }
 
-  onMouseUp(_event: MouseEvent): void {
-    // В режимі будівництва не обробляємо mouseup
+  onMouseUp(event: MouseEvent): void {
+    // Тільки для звичайних будівель
+    if (event.button === 0 && !this.isSegmentedMode && this.isInBuildingMode) {
+      // Логіка для звичайних будівель якщо потрібна
+    }
   }
 
   onContextMenu(_event: MouseEvent): void {
     // В режимі будівництва правий клік скасовує режим
+    if (!this.isInBuildingMode) return; // якщо не в режимі будівництва - ігноруємо
+    
     console.log('Right click in building mode - canceling building mode');
+    
+    if (this.isSegmentedMode && this.segmentedPath.length > 0) {
+      // ВИПРАВЛЕНО: видаляємо останній сегмент замість завершення
+      this.removeLastSegment();
+      return;
+    }
     
     // Приховуємо превью будівлі
     this.buildingPreview.hide();
@@ -313,14 +397,22 @@ private raycastHeightfield(
     this.selectedBuildingData = buildingData;
     console.log('BuildingHandler: Selected building data:', buildingData);
     
+    // Визначаємо чи це сегментована будівля (дороги, ЛЕПи тощо)
+    this.isSegmentedMode = buildingData?.isSegmented === true;
+    console.log('BuildingHandler: Segmented mode:', this.isSegmentedMode);
+    
+    // Скидаємо стан сегментованого режиму
+    this.segmentedPath = [];
+    
     // Якщо ми вже в режимі будівництва, показуємо превью одразу
-    if (this.selectedBuildingData) {
-      // Початкова позиція без орієнтації - буде оновлена при руху миші
+    if (this.selectedBuildingData && !this.isSegmentedMode) {
+      // Для звичайних будівель показуємо превью одразу
       this.buildingPreview.show(
         { x: 0, y: 0, z: 0 },
         this.selectedBuildingData
       );
     }
+    // Для сегментованих будівель превью буде показано при початку перетягування
   }
 
   getBuildingState(): { isInBuildingMode: boolean; selectedBuilding: any } {
@@ -328,6 +420,31 @@ private raycastHeightfield(
       isInBuildingMode: this.isInBuildingMode,
       selectedBuilding: this.selectedBuildingData
     };
+  }
+
+  getSegmentedState(): { 
+    isSegmentedMode: boolean; 
+    segmentedPath: THREE.Vector3[];
+    canConfirm: boolean;
+  } {
+    return {
+      isSegmentedMode: this.isSegmentedMode,
+      segmentedPath: this.segmentedPath,
+      canConfirm: this.canConfirmRoadConstruction()
+    };
+  }
+
+  private canConfirmRoadConstruction(): boolean {
+    if (!this.isSegmentedMode || this.segmentedPath.length < 2) {
+      return false;
+    }
+
+    // Перевіряємо чи всі сегменти валідні
+    const buildingsManager = this.mapLogic?.buildingsManager;
+    if (!buildingsManager) return false;
+
+    const simplePath = this.segmentedPath.map(p => ({ x: p.x, y: p.y, z: p.z }));
+    return buildingsManager.canBuildRoadAt(simplePath, this.selectedBuildingData?.id || 'basic_road');
   }
 
   private handleLeftClick(event: MouseEvent): void {
@@ -389,13 +506,142 @@ private raycastHeightfield(
     // Приховуємо превью будівлі
     this.buildingPreview.hide();
     
-    // Скидаємо вибір будівлі
+    // Скидаємо всі стани будівництва
     this.selectedBuildingData = null;
     this.isInBuildingMode = false;
+    this.isSegmentedMode = false;
+    this.segmentedPath = [];
     
     // Повертаємося до режиму вибору
     if (this.emit) {
       this.emit('modeChange', { from: 'building', to: 'selection' });
     }
+  }
+
+  // ──────────────────────────────
+  //     Сегментований режим
+  // ──────────────────────────────
+
+  private handleSegmentedClick(event: MouseEvent): void {
+    const raycaster = this.getRaycaster(event);
+    const tm = this.mapLogic.scene.getTerrainManager();
+    
+    if (!tm) return;
+    
+    const point = this.performImprovedRaycast(raycaster, tm);
+    
+    // Шукаємо найближче ребро для snap
+    const nearestEdge = this.mapLogic.buildingsManager.findNearestRoadEdge(
+      { x: point.x, y: point.y, z: point.z },
+      undefined,
+      3.0
+    );
+    
+    // Snap логіка: якщо відстань < 1м - використовуємо snap позицію
+    let finalPoint = point;
+    if (nearestEdge && nearestEdge.distance < 1.0) {
+      finalPoint = new THREE.Vector3(
+        nearestEdge.edgePoint.x,
+        nearestEdge.edgePoint.y,
+        nearestEdge.edgePoint.z
+      );
+      console.log(`🧲 CLICKED with SNAP to road edge ${nearestEdge.edgeName}`);
+    }
+    
+    // Додаємо snap точку до шляху
+    this.segmentedPath.push(finalPoint.clone());
+
+    // Фіксуємо snap дані по кліку (не в onMouseMove)
+    if (nearestEdge && nearestEdge.distance < 1.0) {
+      const clickedSnap = {
+        roadId: nearestEdge.roadId,
+        segmentIndex: nearestEdge.segmentIndex,
+        edgeIndex: nearestEdge.edgeIndex,
+        edgeName: nearestEdge.edgeName,
+        edgePoint: { x: nearestEdge.edgePoint.x, y: nearestEdge.edgePoint.y, z: nearestEdge.edgePoint.z },
+        cursorPoint: { x: point.x, y: point.y, z: point.z }
+      };
+      if (this.segmentedPath.length === 1) {
+        this.snapData.startSnap = clickedSnap;
+        this.busyEdges.add(`${nearestEdge.roadId}|${nearestEdge.segmentIndex}|${nearestEdge.edgeIndex}`);
+      } else {
+        this.snapData.endSnap = clickedSnap;
+        this.busyEdges.add(`${nearestEdge.roadId}|${nearestEdge.segmentIndex}|${nearestEdge.edgeIndex}`);
+      }
+    }
+    
+    console.log('Added point', this.segmentedPath.length, 'at:', finalPoint);
+    console.log('Path points:', this.segmentedPath.map((p, i) => `${i}: (${p.x.toFixed(1)}, ${p.z.toFixed(1)})`));
+    
+    // Оновлюємо превью
+    this.roadPreview.showPath(this.segmentedPath, this.selectedBuildingData);
+  }
+
+  private removeLastSegment(): void {
+    if (this.segmentedPath.length > 0) {
+      this.segmentedPath.pop();
+      console.log('Removed last point. Path now has', this.segmentedPath.length, 'points');
+      
+      if (this.segmentedPath.length > 0) {
+        this.roadPreview.showPath(this.segmentedPath, this.selectedBuildingData);
+      } else {
+        this.roadPreview.hide();
+      }
+    }
+  }
+
+
+
+  public finishSegmentedBuilding(): void {
+    if (this.segmentedPath.length < 2) {
+      console.warn('Cannot create segmented building - need at least 2 points');
+      this.cancelSegmentedBuilding();
+      return;
+    }
+    
+    console.log('Creating segmented building with path:', this.segmentedPath);
+    
+    // Перевіряємо чи можна побудувати дорогу
+    const buildingsManager = this.mapLogic?.buildingsManager;
+    if (!buildingsManager) {
+      console.error('BuildingsManager not found');
+      this.cancelSegmentedBuilding();
+      return;
+    }
+
+    const simplePath = this.segmentedPath.map(p => ({ x: p.x, y: p.y, z: p.z }));
+    if (!buildingsManager.canBuildRoadAt(simplePath, this.selectedBuildingData?.id || 'basic_road')) {
+      console.warn('Cannot build road - invalid path');
+      this.cancelSegmentedBuilding();
+      return;
+    }
+    
+    // Створюємо дорогу з недобудованими сегментами (з snap даними!)
+    const roadId = buildingsManager.createPlannedRoad(
+      this.selectedBuildingData.id, 
+      simplePath, 
+      this.snapData // Передаємо snap дані!
+    );
+    
+    if (roadId) {
+      console.log('Successfully created planned road:', roadId);
+    } else {
+      console.error('Failed to create planned road');
+    }
+    
+    // Скидаємо стан і виходимо з режиму
+    this.cancelSegmentedBuilding();
+  }
+
+  public cancelSegmentedBuilding(): void {
+    this.segmentedPath = [];
+    this.isSegmentedMode = false; // скидаємо режим сегментованого будівництва
+    this.snapData = {}; // очищаємо snap дані
+    this.busyEdges.clear();
+    
+    // Приховуємо превью дороги
+    this.roadPreview.hide();
+    
+    this.exitBuildingMode();
   }
 }

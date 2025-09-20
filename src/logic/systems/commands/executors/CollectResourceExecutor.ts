@@ -62,6 +62,10 @@ export class CollectResourceExecutor extends CommandExecutor {
             return { success: false, message: 'Resource depleted' };
         }
 
+        if (this.isGlobalStorageFull(1.e-8)) {
+            return { success: false, message: 'Storage is full' };
+        }
+
         // Ініціалізуємо storage якщо не існує
         if (!object.data.storage) {
             object.data.storage = {};
@@ -84,6 +88,11 @@ export class CollectResourceExecutor extends CommandExecutor {
         // Перевіряємо чи бак не повний
         if (currentAmount >= maxCapacity) {
             return { success: true, message: 'Storage is full' };
+        }
+
+        // Перевіряємо чи є місце у глобальному складі
+        if (this.isGlobalStorageFull(currentAmount)) {
+            return { success: true, message: 'Global storage is full, need to unload first' };
         }
 
         // Додаємо ресурс з урахуванням складності
@@ -128,6 +137,7 @@ export class CollectResourceExecutor extends CommandExecutor {
         // 1. Бак повний
         // 2. Ресурс закінчився
         // 3. Об'єкт не може більше збирати
+        // 4. Глобальний склад повний і дрон має ресурси
 
         if (!this.resourceType) {
             return true; // Немає типу ресурсу - завершуємо
@@ -140,6 +150,11 @@ export class CollectResourceExecutor extends CommandExecutor {
             return true; // Бак повний
         }
 
+        // Перевіряємо чи є місце у глобальному складі
+        if (this.isGlobalStorageFull(currentAmount)) {
+            return true; // Глобальний склад повний, треба розвантажити
+        }
+
         if (this.command.targetId) {
             const targetResource = this.context.scene.getObjectById(this.command.targetId);
             if (!targetResource || !targetResource.data?.resourceAmount || targetResource.data.resourceAmount <= 0) {
@@ -148,5 +163,29 @@ export class CollectResourceExecutor extends CommandExecutor {
         }
 
         return false;
+    }
+
+    /**
+     * Перевіряє чи глобальний склад повний для даного типу ресурсу
+     * Враховує що дрон уже має ресурси і їх треба буде розвантажити
+     */
+    private isGlobalStorageFull(currentAmount: number): boolean {
+        if (!this.resourceType || currentAmount <= 0) {
+            return false;
+        }
+
+        const resourceManager = this.context.mapLogic?.resources;
+        if (!resourceManager) {
+            return false;
+        }
+
+        const currentGlobalAmount = resourceManager.getResourceAmount(this.resourceType as any);
+        const maxGlobalCapacity = resourceManager.getResourceCapacity(this.resourceType as any);
+        
+        // Перевіряємо чи після розвантаження дрона склад не переповниться
+        const afterUnload = currentGlobalAmount + currentAmount;
+
+        
+        return afterUnload >= maxGlobalCapacity;
     }
 }

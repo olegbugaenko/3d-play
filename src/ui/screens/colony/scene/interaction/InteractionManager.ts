@@ -129,13 +129,6 @@ export class InteractionManager {
     }
   }
 
-  getBuildingState(): { isInBuildingMode: boolean; selectedBuilding: any } {
-    const buildingHandler = this.handlers.get('building');
-    if (buildingHandler && 'getBuildingState' in buildingHandler) {
-      return (buildingHandler as any).getBuildingState();
-    }
-    return { isInBuildingMode: false, selectedBuilding: null };
-  }
 
   getCurrentMode(): InteractionMode {
     return this.currentMode;
@@ -171,6 +164,39 @@ export class InteractionManager {
       if (index > -1) {
         listeners.splice(index, 1);
       }
+    }
+  }
+
+
+  // Методи для отримання стану будівництва (для UI)
+  getBuildingState(): any {
+    const buildingHandler = this.handlers.get('building') as any;
+    return buildingHandler?.getBuildingState?.() || { 
+      isInBuildingMode: false, 
+      selectedBuilding: null 
+    };
+  }
+
+  getSegmentedState(): any {
+    const buildingHandler = this.handlers.get('building') as any;
+    return buildingHandler?.getSegmentedState?.() || {
+      isSegmentedMode: false,
+      segmentedPath: [],
+      canConfirm: false
+    };
+  }
+
+  finishSegmentedBuilding(): void {
+    const buildingHandler = this.handlers.get('building') as any;
+    if (buildingHandler?.finishSegmentedBuilding) {
+      buildingHandler.finishSegmentedBuilding();
+    }
+  }
+
+  cancelSegmentedBuilding(): void {
+    const buildingHandler = this.handlers.get('building') as any;
+    if (buildingHandler?.cancelSegmentedBuilding) {
+      buildingHandler.cancelSegmentedBuilding();
     }
   }
 
