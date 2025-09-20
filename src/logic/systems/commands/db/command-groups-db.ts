@@ -186,85 +186,94 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     ],
     plan: sequence('road-construction-plan', [
       loop(
-        'road-resource-loop',
+        'road-construction-loop',
         ctx => {
-          const missingSum = ctx.getResolvedValue<number>('missingSum') || 0;
-          return missingSum > 1e-10;
+          const nextSegment = ctx.getResolvedValue<unknown>('nextSegment');
+          return nextSegment != null;
         },
         [
-          action('move-to-storage', ctx =>
-            buildCommand(ctx, 'move-to', {
-              priority: 1,
-              parameters: { priority: 'high' },
-              resolvedParamsMapping: {
-                position: 'storagePosition'
-              }
-            })
+          loop(
+            'road-resource-loop',
+            ctx => {
+              const missingSum = ctx.getResolvedValue<number>('missingSum') || 0;
+              return missingSum > 1e-10;
+            },
+            [
+              action('move-to-storage', ctx =>
+                buildCommand(ctx, 'move-to', {
+                  priority: 1,
+                  parameters: { priority: 'high' },
+                  resolvedParamsMapping: {
+                    position: 'storagePosition'
+                  }
+                })
+              ),
+              action('unload-unnecessary', ctx =>
+                buildCommand(ctx, 'unload-resources', {
+                  priority: 2,
+                  resolvedParamsMapping: {
+                    targetId: 'closestStorageId',
+                    resourcesToUnload: 'resourcesToUnload'
+                  }
+                })
+              ),
+              action('load-needed-resources', ctx =>
+                buildCommand(ctx, 'load-resources', {
+                  priority: 3,
+                  resolvedParamsMapping: {
+                    targetId: 'closestStorageId',
+                    resources: 'missingResources'
+                  }
+                })
+              ),
+              action('move-to-road-segment', ctx =>
+                buildCommand(ctx, 'move-to', {
+                  priority: 4,
+                  parameters: { priority: 'high' },
+                  resolvedParamsMapping: {
+                    position: 'segmentPosition'
+                  }
+                })
+              ),
+              action('unload-to-road-segment', ctx =>
+                buildCommand(ctx, 'unload-resources', {
+                  priority: 5,
+                  parameters: {
+                    roadId: ctx.context.targets?.roadId,
+                    segmentIndex: ctx.context.resolved?.nextSegment?.index
+                  },
+                  resolvedParamsMapping: {
+                    targetId: 'roadId',
+                    resourcesToUnload: 'missingResources'
+                  }
+                })
+              )
+            ]
           ),
-          action('unload-unnecessary', ctx =>
-            buildCommand(ctx, 'unload-resources', {
+          action('final-move-to-road-segment', ctx =>
+            buildCommand(ctx, 'move-to', {
               priority: 2,
-              resolvedParamsMapping: {
-                targetId: 'closestStorageId',
-                resourcesToUnload: 'resourcesToUnload'
-              }
-            })
-          ),
-          action('load-needed-resources', ctx =>
-            buildCommand(ctx, 'load-resources', {
-              priority: 3,
-              resolvedParamsMapping: {
-                targetId: 'closestStorageId',
-                resources: 'missingResources'
-              }
-            })
-          ),
-          action('move-to-road-segment', ctx =>
-            buildCommand(ctx, 'move-to', {
-              priority: 4,
               parameters: { priority: 'high' },
               resolvedParamsMapping: {
                 position: 'segmentPosition'
               }
             })
           ),
-          action('unload-to-road-segment', ctx =>
-            buildCommand(ctx, 'unload-resources', {
-              priority: 5,
+          action('build-road-segment', ctx =>
+            buildCommand(ctx, 'build-road', {
+              priority: 3,
               parameters: {
                 roadId: ctx.context.targets?.roadId,
                 segmentIndex: ctx.context.resolved?.nextSegment?.index
               },
               resolvedParamsMapping: {
-                targetId: 'roadId',
-                resourcesToUnload: 'missingResources'
+                roadId: 'roadId',
+                segmentIndex: 'nextSegment.index',
+                position: 'segmentPosition'
               }
             })
           )
         ]
-      ),
-      action('final-move-to-road-segment', ctx =>
-        buildCommand(ctx, 'move-to', {
-          priority: 2,
-          parameters: { priority: 'high' },
-          resolvedParamsMapping: {
-            position: 'segmentPosition'
-          }
-        })
-      ),
-      action('build-road-segment', ctx =>
-        buildCommand(ctx, 'build-road', {
-          priority: 3,
-          parameters: {
-            roadId: ctx.context.targets?.roadId,
-            segmentIndex: ctx.context.resolved?.nextSegment?.index
-          },
-          resolvedParamsMapping: {
-            roadId: 'roadId',
-            segmentIndex: 'nextSegment.index',
-            position: 'segmentPosition'
-          }
-        })
       )
     ])
   },
