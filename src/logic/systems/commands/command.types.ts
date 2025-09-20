@@ -10,13 +10,6 @@ export interface Command {
     priority: number;
     createdAt: number;
     groupId?: string; // ID групи команд (опціонально)
-
-    // Шаблони для динамічної резолюції параметрів
-    parameterTemplates?: {
-        position?: ParameterTemplate;
-        targetId?: ParameterTemplate;
-        [key: string]: ParameterTemplate | undefined;
-    };
     // Явне мапінг параметрів з resolvePipeline
     resolvedParamsMapping?: {
         [commandField: string]: string; // поле команди -> ID параметра з resolvePipeline
@@ -24,12 +17,6 @@ export interface Command {
     
     // Коди фейлу при яких група команд має перезапуститися
     groupRestartCodes?: CommandFailureCode[];
-}
-
-export interface ParameterTemplate {
-    type: 'resolved';
-    parameterId: string;
-    resolveWhen: 'group-start' | 'before-command';
 }
 
 /**
@@ -68,4 +55,4 @@ export interface CommandContext {
     mapLogic?: IMapLogic; // MapLogic instance for executors to access resources and other logic
 }
 
-export type CommandType = 'move-to' | 'collect-resource' | 'unload-resources' | 'load-resources' | 'wait' | 'attack' | 'build' | 'build-road' | 'charge' | 'conditional-loop';
+export type CommandType = 'move-to' | 'collect-resource' | 'unload-resources' | 'load-resources' | 'wait' | 'attack' | 'build' | 'build-road' | 'charge';

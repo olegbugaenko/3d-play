@@ -37,23 +37,24 @@ export class ParameterResolutionService {
         // Перевіряємо чи це валідація
         if (param.getterType === 'validate') {
           const validationResult = this.validateParameter(param, context, resolvedParameters);
+          resolvedParameters[param.id] = validationResult;
+          if (!context.resolved) {
+            context.resolved = {};
+          }
+          context.resolved = { ...context.resolved, ...resolvedParameters };
           if (!validationResult.success) {
             console.warn(`Validation failed for ${param.id}: ${validationResult.message}`);
-            // Повертаємо результат валідації для обробки в CommandGroupSystem
-            resolvedParameters[param.id] = validationResult;
-            continue;
           }
+          continue;
         }
 
         const value = this.resolveParameter(param, context);
         console.warn(`Resolving param: ${param.id}: `, param, value);
-        if (value !== null && value !== undefined) {
-          resolvedParameters[param.id] = value;
+        resolvedParameters[param.id] = value ?? null;
+        if (!context.resolved) {
+          context.resolved = {};
         }
-        if(!context.resolved) {
-            context.resolved = {}
-        }
-        context.resolved = {...context.resolved, ...resolvedParameters};
+        context.resolved = { ...context.resolved, ...resolvedParameters };
       } catch (error) {
         console.error(`Failed to resolve parameter ${param.id}:`, error);
         // Для критичних параметрів (requiredResources, missingResources) фейлимо групу
