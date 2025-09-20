@@ -1,18 +1,32 @@
 import { Command, CommandType, CommandContext, CommandStatus, CommandFailureCode, CommandResult } from './command.types';
 import { CommandExecutor } from './CommandExecutor';
-import { MoveToExecutor, CollectResourceExecutor, UnloadResourcesExecutor, LoadResourcesExecutor, BuildExecutor, ConditionalLoopExecutor, ChargeExecutor, BuildRoadExecutor } from './executors';
+import {
+    MoveToExecutor,
+    CollectResourceExecutor,
+    UnloadResourcesExecutor,
+    LoadResourcesExecutor,
+    BuildExecutor,
+    ChargeExecutor,
+    BuildRoadExecutor
+} from './executors';
 import { CommandQueue } from './CommandQueue';
 import { ICommandQueue } from '@interfaces/ICommandQueue';
 import { SaveLoadManager, CommandSystemSaveData } from '../save-load/save-load.types';
 import { ICommandSystem, IMapLogic } from '@interfaces/index';
+import type { CommandScheduler } from './CommandScheduler';
 
 export class CommandSystem implements SaveLoadManager, ICommandSystem {
     private commandQueues: Map<string, ICommandQueue> = new Map();
     private executors: Map<string, CommandExecutor> = new Map();
     private mapLogic: IMapLogic;
+    private scheduler?: CommandScheduler;
 
     constructor(mapLogic: IMapLogic) {
         this.mapLogic = mapLogic;
+    }
+
+    setScheduler(scheduler: CommandScheduler): void {
+        this.scheduler = scheduler;
     }
 
     /**
@@ -36,8 +50,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
     /**
      * Додає команду для об'єкта
      */
-    addAutoresolveCommand(objectId: string, command: Command, resolved: Record<string, any> | undefined): void {
-        this.applyResolvedParameters(command, resolved);
+    addAutoresolveCommand(objectId: string, command: Command, _resolved: Record<string, any> | undefined): void {
         this.addCommand(objectId, command);
     }
 
@@ -73,11 +86,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
      * Створює executor для команди
      */
     private createExecutor(objectId: string, command: Command): void {
-        // Розв'язуємо динамічні параметри перед створенням executor
-        if (command.groupId && command.parameterTemplates) {
-            this.resolveCommandParameters(command, objectId);
-        }
-
         const context: CommandContext = {
             objectId,
             scene: this.mapLogic.scene, // SceneLogic через MapLogic
@@ -97,9 +105,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             case 'collect-resource':
                 executor = new CollectResourceExecutor(command, context);
                 break;
-            case 'build-road':
-                executor = new BuildRoadExecutor(command, context);
-                break;
             case 'unload-resources':
                 executor = new UnloadResourcesExecutor(command, context);
                 break;
@@ -108,9 +113,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
                 break;
             case 'build':
                 executor = new BuildExecutor(command, context);
-                break;
-            case 'conditional-loop':
-                executor = new ConditionalLoopExecutor(command, context);
                 break;
             case 'charge':
                 executor = new ChargeExecutor(command, context);
@@ -129,238 +131,56 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
      * Оновлює всі команди (викликається кожен кадр)
      */
     update(deltaTime: number): void {
-        // Оновлюємо всі активні executors
         for (const [objectId, executor] of this.executors) {
             const context = executor.getContext();
             context.deltaTime = deltaTime;
 
-            // Перевіряємо чи достатньо power для виконання команди
             if (!executor.hasEnoughPower()) {
-                console.warn(`Insufficient power for command execution on ${objectId}`);
                 executor.updateCommandStatus('failed');
+                const failedCommand = executor.getCommand();
                 this.removeExecutor(objectId);
+                this.scheduler?.onCommandFailed(objectId, failedCommand, {
+                    success: false,
+                    message: 'INSUFFICIENT_POWER',
+                    code: CommandFailureCode.INSUFFICIENT_POWER
+                });
                 continue;
             }
 
-            // Споживаємо power під час виконання команди
             executor.consumePower(deltaTime);
 
-            // Виконуємо команду
-            const result = executor.execute(); 
-            console.log(`[RUN-COMMAND]: ${executor.getCommand().type}`, this.commandQueues.get(`rover_1`), result);
+            const result = executor.execute();
             if (!result.success) {
-                console.warn(`Command execution failed for ${objectId}: ${result.message} [${result.code}]`);
-                
-                // Перевіряємо чи потрібно restart групи на основі коду фейлу
-                const command = executor.getCommand();
-                if(result.code === CommandFailureCode.OBJECT_STUCK) {
-                    console.warn(`Stuck with following pipeline: `, this.commandQueues.get(objectId), executor.getContext());
-                }
-                if (result.code && command.groupId && command.groupRestartCodes?.includes(result.code)) {
-                    console.warn('Restarting group', command.groupId, command);
-                    // Спробуємо restart групи
-                    const restartSuccess = this.restartCommandGroup(objectId, command.groupId);
-                    if (restartSuccess) {
-                        continue;
-                    } else {
-                        console.warn(`Failed to restart command group ${command.groupId}, marking as failed`);
-                    }
-                }
-                
+                const failedCommand = executor.getCommand();
                 executor.updateCommandStatus('failed');
                 this.removeExecutor(objectId);
+                const queue = this.commandQueues.get(objectId);
+                if (queue) {
+                    queue.removeCompletedCommand();
+                }
+                this.scheduler?.onCommandFailed(objectId, failedCommand, result);
                 continue;
             }
 
-
-            // Перевіряємо чи завершена команда
             if (executor.completeCheck()) {
-                // console.log(`[RUN-COMMAND COMPLETE]: ${executor.getCommand().type}`, executor.getCommand());
+                const completedCommand = executor.getCommand();
                 executor.updateCommandStatus('completed');
-                
-                // Отримуємо чергу команд
                 const queue = this.commandQueues.get(objectId);
                 if (queue) {
-                    // Перевіряємо чи це команда з групи та чи має група isLoop
-                    const completedCommand = executor.getCommand();
-                    if (completedCommand.groupId) {
-                        const group = this.mapLogic.commandGroupSystem?.getGroupState(objectId, completedCommand.groupId);
-                        if (group) {
-                            const groupDefinition = this.mapLogic.commandGroupSystem?.getCommandGroupDefinition(completedCommand.groupId);
-                            if (groupDefinition?.isLoop) {
-                                // Дублюємо завершену команду в кінець черги
-                                const duplicatedCommand = this.duplicateCommandForLoop(completedCommand);
-                                queue.addCommand(duplicatedCommand);
-                                // Команда дубльована для циклічної групи
-                            }
-                        }
-                    }
-                    
-                    // Видаляємо завершену команду з черги
                     queue.removeCompletedCommand();
-                    
-                    // Перевіряємо чи є ще команди
                     if (queue.getLength() > 0) {
-                        // Створюємо новий executor для наступної команди
                         const nextCommand = queue.getCurrentCommand();
                         if (nextCommand) {
                             this.createExecutor(objectId, nextCommand);
                         }
                     } else {
-                        // Черга порожня - видаляємо executor
                         this.removeExecutor(objectId);
                     }
                 } else {
-                    // Черга не знайдена - видаляємо executor
                     this.removeExecutor(objectId);
                 }
-            }
-        }
-    }
 
-    /**
-     * Дублює команду для циклічного повторення
-     */
-    private duplicateCommandForLoop(command: Command): Command {
-        const duplicatedCommand: Command = {
-            ...command,
-            id: `${command.id}_loop_${Date.now()}`,
-            status: 'pending' as const,
-            createdAt: Date.now()
-        };
-
-        // Якщо команда має шаблони параметрів - перерозв'язуємо
-        if (duplicatedCommand.groupId && duplicatedCommand.parameterTemplates) {
-            // Отримуємо objectId з контексту команди
-            const objectId = this.getObjectIdFromCommand(command);
-            if (objectId) {
-                this.resolveCommandParameters(duplicatedCommand, objectId);
-            }
-        }
-
-        return duplicatedCommand;
-    }
-
-    /**
-     * Отримує objectId з команди (через контекст executor)
-     */
-    private getObjectIdFromCommand(command: Command): string | null {
-        // Шукаємо executor для цієєї команди
-        for (const [objectId, executor] of this.executors) {
-            if (executor.getCommand().id === command.id) {
-                return objectId;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Розв'язує динамічні параметри команди
-     */
-    private resolveCommandParameters(command: Command, objectId: string, persistContextResolved: boolean = false): void {
-        if (!command.groupId || !command.parameterTemplates) {
-            return;
-        }
-
-        // Отримуємо стан групи
-        const groupState = this.mapLogic.commandGroupSystem?.getGroupState(objectId, command.groupId);
-        if (!groupState) {
-            console.warn('[CommandSystem] Group state not found for:', objectId, command.groupId, this.mapLogic.commandGroupSystem?.activeGroups);
-            return;
-        }
-
-        // Отримуємо визначення групи
-        const groupDefinition = this.mapLogic.commandGroupSystem?.getCommandGroupDefinition(command.groupId);
-        if (!groupDefinition?.resolveParametersPipeline) {
-            console.warn('[CommandSystem] Group definition or resolveParametersPipeline not found for:', command.groupId);
-            return;
-        }
-
-
-
-        // Розв'язуємо параметри перед командою
-        const resolvedParameters = this.mapLogic.commandGroupSystem?.parameterResolutionService?.resolveParameters(
-            groupDefinition.resolveParametersPipeline,
-            groupState.context,
-            'before-command'
-        );
-
-
-
-        if (resolvedParameters) {
-            let resolvedParamsToApply = resolvedParameters;
-            if(persistContextResolved && groupState.context.resolved) {
-                resolvedParamsToApply = {
-                    ...groupState.context.resolved,
-                    ...resolvedParamsToApply
-                }
-            }
-            // Застосовуємо розв'язані параметри до команди
-            this.applyResolvedParameters(command, resolvedParamsToApply);
-        }
-    }
-
-    /**
-     * Генерує parameterTemplates для команди на основі визначення групи
-     */
-    private generateParameterTemplatesForCommand(command: Command, _objectId: string): void {
-        if (!command.groupId) {
-            return;
-        }
-
-        // Отримуємо визначення групи
-        const groupDefinition = this.mapLogic.commandGroupSystem?.getCommandGroupDefinition(command.groupId);
-        if (!groupDefinition?.resolveParametersPipeline) {
-            return;
-        }
-
-        // Використовуємо існуючий метод з CommandGroupSystem замість дублювання
-        command.parameterTemplates = this.mapLogic.commandGroupSystem.createParameterTemplates(
-            command, 
-            groupDefinition.resolveParametersPipeline
-        );
-        
-
-    }
-
-    /**
-     * Застосовує розв'язані параметри до команди
-     */
-    private applyResolvedParameters(command: Command, resolvedParameters: Record<string, any> | undefined): void {
-        if (!command.parameterTemplates) {
-            return;
-        }
-
-        if(!resolvedParameters) {
-            return;
-        }
-
-        // Застосовуємо position
-        if (command.parameterTemplates.position && resolvedParameters[command.parameterTemplates.position.parameterId]) {
-            const value = resolvedParameters[command.parameterTemplates.position.parameterId];
-            if (value && typeof value === 'object' && value.x !== undefined) {
-                command.position = { x: value.x, y: value.y, z: value.z };
-            }
-        }
-
-        // Застосовуємо targetId
-        if (command.parameterTemplates.targetId && resolvedParameters[command.parameterTemplates.targetId.parameterId]) {
-            const value = resolvedParameters[command.parameterTemplates.targetId.parameterId];
-            command.targetId = value?.id || value;
-        }
-
-        // Застосовуємо інші параметри з resolvedParamsMapping
-        if (command.resolvedParamsMapping) {
-            for (const [commandField, parameterId] of Object.entries(command.resolvedParamsMapping)) {
-                if (resolvedParameters[parameterId] !== undefined) {
-                    // Ініціалізуємо parameters якщо потрібно
-                    if (!command.parameters) {
-                        command.parameters = {};
-                    }
-                    // Застосовуємо значення
-                    command.parameters[commandField] = resolvedParameters[parameterId];
-                    console.log(`[CommandSystem] Applied resolved parameter: ${commandField} = ${parameterId} =`, resolvedParameters[parameterId]);
-                }
+                this.scheduler?.onCommandCompleted(objectId, completedCommand);
             }
         }
     }
@@ -463,47 +283,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
         return this.executors.size;
     }
 
-    /**
-     * Перезапускає групу команд з новими параметрами
-     */
-    private restartCommandGroup(objectId: string, groupId: string): boolean {
-        try {
-            // Отримуємо стан групи
-            const groupState = this.mapLogic?.commandGroupSystem?.getGroupState(objectId, groupId);
-            if (!groupState) {
-                console.warn(`Group state not found for ${groupId} on ${objectId}`);
-                return false;
-            }
-
-            // Отримуємо визначення групи
-            const groupDefinition = this.mapLogic?.commandGroupSystem?.getCommandGroupDefinition(groupId);
-            if (!groupDefinition) {
-                console.warn(`Group definition not found for ${groupId}`);
-                return false;
-            }
-
-            // Очищаємо поточні команди цієї групи
-            this.clearCommandsByGroup(objectId, groupId);
-
-            // Перезапускаємо групу з новим контекстом
-            const restartSuccess = this.mapLogic?.commandGroupSystem?.addCommandGroup(
-                objectId,
-                groupId,
-                groupState.context
-            );
-
-            if (restartSuccess) {
-                return true;
-            } else {
-                console.warn(`Failed to restart command group ${groupId} for ${objectId}`);
-                return false;
-            }
-        } catch (error) {
-            console.error(`Error restarting command group ${groupId} for ${objectId}:`, error);
-            return false;
-        }
-    }
-
     // ==================== SaveLoadManager Implementation ====================
     
     save(): CommandSystemSaveData {
@@ -582,27 +361,17 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
                         const restoredCommand: Command = {
                             id: command.id,
                             type: command.type as CommandType,
-                            targetId: undefined,
-                            position: { x: 0, y: 0, z: 0 }, // Буде оновлено під час виконання
+                            targetId: command.targetId,
+                            position: command.position || { x: 0, y: 0, z: 0 },
                             parameters: command.parameters || {},
                             status: 'pending' as CommandStatus,
-                            priority: 1,
+                            priority: command.priority || 1,
                             createdAt: Date.now(),
                             groupId: command.groupId,
-                            resolvedParamsMapping: command.resolvedParamsMapping, // Відновлюємо мапінг параметрів
-                            groupRestartCodes: command.groupRestartCodes // Відновлюємо статус коди для restart
+                            resolvedParamsMapping: command.resolvedParamsMapping,
+                            groupRestartCodes: command.groupRestartCodes
                         };
-                        
-                        // Якщо команда має groupId - генеруємо parameterTemplates та резолвимо параметри
-                        if (restoredCommand.groupId) {
-                            
-                            // Генеруємо parameterTemplates на основі збереженого resolvedParamsMapping
-                            this.generateParameterTemplatesForCommand(restoredCommand, objectId);
-                            
-                            // Резолвимо параметри
-                            this.resolveCommandParameters(restoredCommand, objectId, true);
-                        }
-                        
+
                         this.addCommand(objectId, restoredCommand);
                     } else {
                         console.warn('[CommandSystem] Invalid command type:', command.type);
@@ -643,7 +412,7 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
      * Перевіряє чи є тип команди валідним
      */
     private isValidCommandType(type: string): type is CommandType {
-        return ['move-to', 'collect-resource', 'unload-resources', 'wait', 'attack', 'build', 'charge', 'load-resources', 'conditional-loop'].includes(type);
+        return ['move-to', 'collect-resource', 'unload-resources', 'wait', 'attack', 'build', 'charge', 'load-resources', 'build-road'].includes(type);
     }
 
     // ==================== ICommandSystem Implementation ====================
@@ -678,8 +447,8 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             case 'build':
                 executor = new BuildExecutor(command, context);
                 break;
-            case 'conditional-loop':
-                executor = new ConditionalLoopExecutor(command, context);
+            case 'build-road':
+                executor = new BuildRoadExecutor(command, context);
                 break;
             case 'charge':
                 executor = new ChargeExecutor(command, context);

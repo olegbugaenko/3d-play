@@ -734,6 +734,7 @@ export class MapLogic implements SaveLoadManager {
     });
     if (miners.length === 0) { Logger.warn('MapLogic', 'No valid miners selected'); return; }
     miners.forEach((minerId) => {
+      this.commandGroupSystem.interruptObjectCommands(minerId);
       const context: CommandGroupContext = { objectId: minerId, targets: { resource: resourceId }, parameters: { amount: 100 } };
       const ok = this.commandGroupSystem.addCommandGroup(minerId, 'collect-resource', context);
       if (!ok) Logger.error('MapLogic', `Failed to start mining command group for ${minerId}`, { minerId });
@@ -748,6 +749,7 @@ export class MapLogic implements SaveLoadManager {
     });
     if (chargeableObjects.length === 0) { Logger.warn('MapLogic', 'No valid chargeable objects selected'); return; }
     chargeableObjects.forEach((objectId) => {
+      this.commandGroupSystem.interruptObjectCommands(objectId);
       const context: CommandGroupContext = { objectId, targets: {}, parameters: {} };
       const ok = this.commandGroupSystem.addCommandGroup(objectId, 'charge-group', context);
       if (!ok) Logger.error('MapLogic', `Failed to start charging command group for ${objectId}`, { objectId });
