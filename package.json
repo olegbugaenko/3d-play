@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:commands": "node scripts/run-collect-resource-regression.mjs"
   },
   "dependencies": {
     "@types/three": "^0.158.0",

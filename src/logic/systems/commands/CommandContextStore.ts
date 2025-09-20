@@ -88,5 +88,15 @@ export class CommandContextStore {
     }
     record.context = context;
     record.resolvedCache = context.resolved ? { ...context.resolved } : {};
+    if (!record.pipeline) {
+      return;
+    }
+
+    const resolved = this.resolutionService.resolveParameters(record.pipeline, record.context, 'group-start');
+    record.resolvedCache = mergeResolved(record.resolvedCache, resolved);
+    if (!record.context.resolved) {
+      record.context.resolved = {};
+    }
+    record.context.resolved = mergeResolved(record.context.resolved, resolved);
   }
 }
