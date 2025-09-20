@@ -1,4 +1,4 @@
-import { Command } from './command.types';
+import { PlanNode } from './plans/plan.types';
 
 // Контекст для групи команд
 export interface CommandGroupContext {
@@ -36,9 +36,6 @@ export interface LoopConditions {
   powerThreshold?: number;          // Мінімальний power для продовження
   healthThreshold?: number;         // Мінімальний health для продовження
 }
-
-// Пайплайн команд
-export type CommandGroupPipeline = (context: CommandGroupContext) => Command[];
 
 // Типи аргументів для резолюції параметрів
 export type ParameterArgType = 'var' | 'lit';
@@ -86,7 +83,7 @@ export interface CommandGroup {
   loopConditions?: LoopConditions; // Розширені умови циклічності
   autoExecute?: AutoExecuteConfig; // Автоматичне виконання
   resolveParametersPipeline?: ResolveParametersPipeline[]; // Пайплайн резолюції параметрів
-  tasksPipeline: CommandGroupPipeline;
+  plan: PlanNode;
   ui?: CommandGroupUI; // UI метадані
   requirements?: Requirement[]; // Додаємо реквайрменти
 }
@@ -100,4 +97,5 @@ export interface CommandGroupState {
   startTime: number;
   context: CommandGroupContext;
   resolvedParameters?: Record<string, any>; // Розв'язані параметри
+  planInstanceId?: string;
 }

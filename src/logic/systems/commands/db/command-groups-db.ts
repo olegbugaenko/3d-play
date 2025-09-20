@@ -1,5 +1,7 @@
 import { CommandGroup } from '../command-group.types';
-import { Command, CommandFailureCode } from '../command.types';
+import { CommandFailureCode } from '../command.types';
+import { sequence, loop, action } from '../plans/PlanBuilder';
+import { buildCommand } from '../plans/PlanCommandFactory';
 
 // База даних груп команд
 export const COMMAND_GROUPS: CommandGroup[] = [
@@ -37,61 +39,49 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (context): Command[] => [
-      {
-        id: `move-to-resource-${Date.now()}`,
-        type: 'move-to',
-        targetId: context.targets.resource,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'high' },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'resourcePosition'  // position команди = resourcePosition з resolved
-        }
-      },
-      {
-        id: `collect-resource-${Date.now()}`,
-        type: 'collect-resource',
-        targetId: context.targets.resource,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {
-          amount: context.parameters.amount || 100
-        },
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        // Без resolvedParamsMapping - беремо все з контексту
-        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND, CommandFailureCode.TARGET_INACCESSIBLE]
-      },
-      {
-        id: `return-to-base-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'low' },
-        status: 'pending',
-        priority: 3,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'storagePosition'  // position команди = storagePosition з resolved
-        }
-      },
-      {
-        id: `unload-resources-${Date.now()}`,
-        type: 'unload-resources',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {},
-        status: 'pending',
-        priority: 4,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'closestStorageId'  // targetId команди = closestStorageId з resolved
-        }
-      }
-    ]
+    plan: sequence('collect-resource-plan', [
+      action('move-to-resource', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 1,
+          parameters: { priority: 'high' },
+          targetId: ctx.context.targets.resource,
+          resolvedParamsMapping: {
+            position: 'resourcePosition'
+          }
+        })
+      ),
+      action('collect-resource', ctx =>
+        buildCommand(ctx, 'collect-resource', {
+          priority: 2,
+          targetId: ctx.context.targets.resource,
+          parameters: {
+            amount: ctx.context.parameters?.amount || 100
+          },
+          groupRestartCodes: [
+            CommandFailureCode.RESOURCE_FINISHED,
+            CommandFailureCode.RESOURCE_NOT_FOUND,
+            CommandFailureCode.TARGET_INACCESSIBLE
+          ]
+        })
+      ),
+      action('return-to-base', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 3,
+          parameters: { priority: 'low' },
+          resolvedParamsMapping: {
+            position: 'storagePosition'
+          }
+        })
+      ),
+      action('unload-resources', ctx =>
+        buildCommand(ctx, 'unload-resources', {
+          priority: 4,
+          resolvedParamsMapping: {
+            targetId: 'closestStorageId'
+          }
+        })
+      )
+    ])
   },
 
   // Дороги → Будівництво
@@ -194,142 +184,89 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (context): Command[] => [
-      // 1. Цикл збору ресурсів (conditional-loop)
-      {
-        id: `road-construction-resource-loop-${Date.now()}`,
-        type: 'conditional-loop',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {
-          // Універсальні параметри умови
-          condition: '>',
-          value2: 1.e-10,
-          // Команди циклу для збору ресурсів
-          loopCommands: [
-            // A) Рухаємося до складу
-            {
-              id: `move-to-storage-${Date.now()}`,
-              type: 'move-to',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: { priority: 'high' },
-              status: 'pending',
+    plan: sequence('road-construction-plan', [
+      loop(
+        'road-resource-loop',
+        ctx => {
+          const missingSum = ctx.getResolvedValue<number>('missingSum') || 0;
+          return missingSum > 1e-10;
+        },
+        [
+          action('move-to-storage', ctx =>
+            buildCommand(ctx, 'move-to', {
               priority: 1,
-              createdAt: Date.now(),
+              parameters: { priority: 'high' },
               resolvedParamsMapping: {
                 position: 'storagePosition'
               }
-            },
-            // B) Вивантажуємо непотрібні ресурси
-            {
-              id: `unload-unnecessary-${Date.now()}`,
-              type: 'unload-resources',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: {},
-              status: 'pending',
+            })
+          ),
+          action('unload-unnecessary', ctx =>
+            buildCommand(ctx, 'unload-resources', {
               priority: 2,
-              createdAt: Date.now(),
               resolvedParamsMapping: {
                 targetId: 'closestStorageId',
                 resourcesToUnload: 'resourcesToUnload'
               }
-            },
-            // C) Завантажуємо потрібні ресурси
-            {
-              id: `load-needed-resources-${Date.now()}`,
-              type: 'load-resources',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: {},
-              status: 'pending',
+            })
+          ),
+          action('load-needed-resources', ctx =>
+            buildCommand(ctx, 'load-resources', {
               priority: 3,
-              createdAt: Date.now(),
               resolvedParamsMapping: {
                 targetId: 'closestStorageId',
                 resources: 'missingResources'
               }
-            },
-            // D) Рухаємося до сегмента дороги
-            {
-              id: `move-to-road-segment-${Date.now()}`,
-              type: 'move-to',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: { priority: 'high' },
-              status: 'pending',
+            })
+          ),
+          action('move-to-road-segment', ctx =>
+            buildCommand(ctx, 'move-to', {
               priority: 4,
-              createdAt: Date.now(),
+              parameters: { priority: 'high' },
               resolvedParamsMapping: {
                 position: 'segmentPosition'
               }
-            },
-            // E) Вивантажуємо ресурси на сегмент дороги
-            {
-              id: `unload-to-road-segment-${Date.now()}`,
-              type: 'unload-resources',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: {
-                roadId: context.targets?.roadId,
-                segmentIndex: context.resolved?.nextSegment?.index
-              },
-              status: 'pending',
+            })
+          ),
+          action('unload-to-road-segment', ctx =>
+            buildCommand(ctx, 'unload-resources', {
               priority: 5,
-              createdAt: Date.now(),
+              parameters: {
+                roadId: ctx.context.targets?.roadId,
+                segmentIndex: ctx.context.resolved?.nextSegment?.index
+              },
               resolvedParamsMapping: {
                 targetId: 'roadId',
                 resourcesToUnload: 'missingResources'
               }
-            }
-          ]
-        },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          value1: 'missingSum',
-          missingResources: 'missingResources',
-          requiredResources: 'requiredResources',
-          closestStorageId: 'closestStorageId',
-          roadInstance: 'roadInstance'
-        }
-      },
-      // 2. Рух до сегмента дороги для будівництва
-      {
-        id: `final-move-to-road-segment-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'high' },
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'segmentPosition'
-        }
-      },
-      // 3. Власне будівництво сегмента дороги
-      {
-        id: `build-road-segment-${Date.now()}`,
-        type: 'build-road',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {
-          roadId: context.targets?.roadId,
-          segmentIndex: context.resolved?.nextSegment?.index
-        },
-        status: 'pending',
-        priority: 3,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          roadId: 'roadId',
-          segmentIndex: 'nextSegment.index',
-          position: 'segmentPosition'
-        }
-      }
-    ]
+            })
+          )
+        ]
+      ),
+      action('final-move-to-road-segment', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 2,
+          parameters: { priority: 'high' },
+          resolvedParamsMapping: {
+            position: 'segmentPosition'
+          }
+        })
+      ),
+      action('build-road-segment', ctx =>
+        buildCommand(ctx, 'build-road', {
+          priority: 3,
+          parameters: {
+            roadId: ctx.context.targets?.roadId,
+            segmentIndex: ctx.context.resolved?.nextSegment?.index
+          },
+          resolvedParamsMapping: {
+            roadId: 'roadId',
+            segmentIndex: 'nextSegment.index',
+            position: 'segmentPosition'
+          }
+        })
+      )
+    ])
   },
 
   // Building → Refill group (storage -> building)
@@ -355,31 +292,38 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       { id: 'validatePositions2', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.buildingPosition' } ], resolveWhen: 'before-command' },
       { id: 'planResourcesToUnload', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.resourcesToUnload' } ], resolveWhen: 'before-command' },
     ],
-    tasksPipeline: (context): Command[] => {
-      const resources = context.resolved?.plan?.resources || {};
-      return [
-        {
-          id: `move-to-storage-${Date.now()}`,
-          type: 'move-to', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { priority:'high' }, status:'pending', priority:1, createdAt: Date.now(),
+    plan: sequence('building-refill-plan', [
+      action('move-to-storage', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 1,
+          parameters: { priority: 'high' },
           resolvedParamsMapping: { position: 'storagePosition' }
-        },
-        {
-          id: `load-from-storage-${Date.now()}`,
-          type: 'load-resources', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { resources }, status:'pending', priority:2, createdAt: Date.now(),
+        })
+      ),
+      action('load-from-storage', ctx =>
+        buildCommand(ctx, 'load-resources', {
+          priority: 2,
+          parameters: { resources: ctx.context.resolved?.plan?.resources || {} },
           resolvedParamsMapping: { targetId: 'closestStorageId' }
-        },
-        {
-          id: `move-to-building-${Date.now()}`,
-          type: 'move-to', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { priority:'high' }, status:'pending', priority:3, createdAt: Date.now(),
+        })
+      ),
+      action('move-to-building', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 3,
+          parameters: { priority: 'high' },
           resolvedParamsMapping: { position: 'buildingPosition' }
-        },
-        {
-          id: `unload-to-building-${Date.now()}`,
-          type: 'unload-resources', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { }, status:'pending', priority:4, createdAt: Date.now(),
-          resolvedParamsMapping: { targetId: 'buildingId', resourcesToUnload: 'planResourcesToUnload' }
-        }
-      ];
-    }
+        })
+      ),
+      action('unload-to-building', ctx =>
+        buildCommand(ctx, 'unload-resources', {
+          priority: 4,
+          resolvedParamsMapping: {
+            targetId: 'buildingId',
+            resourcesToUnload: 'planResourcesToUnload'
+          }
+        })
+      )
+    ])
   },
 
   // Building → Collect group (building -> storage)
@@ -400,32 +344,36 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       { id: 'validatePlan', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.plan' } ], resolveWhen: 'before-command' },
       { id: 'planResourcesToUnload', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.resourcesToUnload' } ], resolveWhen: 'before-command' },
     ],
-    tasksPipeline: (context): Command[] => {
-      const resources = context.resolved?.plan?.resources || {};
-      const resourcesToUnload = context.resolved?.plan?.resourcesToUnload || {};
-      return [
-        {
-          id: `move-to-building-${Date.now()}`,
-          type: 'move-to', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { priority:'high' }, status:'pending', priority:1, createdAt: Date.now(),
+    plan: sequence('building-collect-plan', [
+      action('move-to-building', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 1,
+          parameters: { priority: 'high' },
           resolvedParamsMapping: { position: 'buildingPosition' }
-        },
-        {
-          id: `load-from-building-${Date.now()}`,
-          type: 'load-resources', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { resources }, status:'pending', priority:2, createdAt: Date.now(),
+        })
+      ),
+      action('load-from-building', ctx =>
+        buildCommand(ctx, 'load-resources', {
+          priority: 2,
+          parameters: { resources: ctx.context.resolved?.plan?.resources || {} },
           resolvedParamsMapping: { targetId: 'buildingId' }
-        },
-        {
-          id: `move-to-storage-${Date.now()}`,
-          type: 'move-to', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { priority:'low' }, status:'pending', priority:3, createdAt: Date.now(),
+        })
+      ),
+      action('move-to-storage', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 3,
+          parameters: { priority: 'low' },
           resolvedParamsMapping: { position: 'storagePosition' }
-        },
-        {
-          id: `unload-to-storage-${Date.now()}`,
-          type: 'unload-resources', targetId: undefined, position: {x:0,y:0,z:0}, parameters: { resourcesToUnload }, status:'pending', priority:4, createdAt: Date.now(),
+        })
+      ),
+      action('unload-to-storage', ctx =>
+        buildCommand(ctx, 'unload-resources', {
+          priority: 4,
+          parameters: { resourcesToUnload: ctx.context.resolved?.plan?.resourcesToUnload || {} },
           resolvedParamsMapping: { targetId: 'closestStorageId', resourcesToUnload: 'planResourcesToUnload' }
-        }
-      ];
-    }
+        })
+      )
+    ])
   },
   
   {
@@ -453,34 +401,21 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (_context): Command[] => [
-      {
-        id: `move-to-charging-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 }, // Placeholder, to be resolved
-        parameters: { priority: 'high' },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'chargingStationPosition'
-        }
-      },
-      {
-        id: `charge-${Date.now()}`,
-        type: 'charge',
-        targetId: undefined, // Placeholder, to be resolved
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {},
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'chargingStationId'
-        }
-      }
-    ]
+    plan: sequence('charge-plan', [
+      action('move-to-charging', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 1,
+          parameters: { priority: 'high' },
+          resolvedParamsMapping: { position: 'chargingStationPosition' }
+        })
+      ),
+      action('charge', ctx =>
+        buildCommand(ctx, 'charge', {
+          priority: 2,
+          resolvedParamsMapping: { targetId: 'chargingStationId' }
+        })
+      )
+    ])
   },
 
   // Автоматична група зарядки
@@ -518,34 +453,21 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'group-start'
       }
     ],
-    tasksPipeline: (_context): Command[] => [
-      {
-        id: `auto-move-to-charging-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'critical' },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'chargingStationPosition'
-        }
-      },
-      {
-        id: `auto-charge-${Date.now()}`,
-        type: 'charge',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {},
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'chargingStationId'
-        }
-      }
-    ]
+    plan: sequence('auto-charge-plan', [
+      action('auto-move-to-charging', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 1,
+          parameters: { priority: 'critical' },
+          resolvedParamsMapping: { position: 'chargingStationPosition' }
+        })
+      ),
+      action('auto-charge', ctx =>
+        buildCommand(ctx, 'charge', {
+          priority: 2,
+          resolvedParamsMapping: { targetId: 'chargingStationId' }
+        })
+      )
+    ])
   },
 
   // Група для збору каменю у радіусі
@@ -638,61 +560,47 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (_context): Command[] => [
-      {
-        id: `move-to-resource-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'high' },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'firstResourcePosition'
-        }
+    plan: loop(
+      'gather-stone-loop',
+      ctx => {
+        const validation = ctx.getResolvedValue<{ success: boolean }>('validateResourcesExist');
+        return !validation || validation.success;
       },
-      {
-        id: `collect-resource-${Date.now()}`,
-        type: 'collect-resource',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { amount: 100 },
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'firstResourceId'
-        },
-        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND, CommandFailureCode.TARGET_INACCESSIBLE]
-      },
-      {
-        id: `return-to-storage-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'low' },
-        status: 'pending',
-        priority: 3,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'storagePosition'
-        }
-      },
-      {
-        id: `unload-resources-${Date.now()}`,
-        type: 'unload-resources',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {},
-        status: 'pending',
-        priority: 4,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'closestStorageId'
-        }
-      }
-    ]
+      [
+        action('move-to-resource', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 1,
+            parameters: { priority: 'high' },
+            resolvedParamsMapping: { position: 'firstResourcePosition' }
+          })
+        ),
+        action('collect-resource', ctx =>
+          buildCommand(ctx, 'collect-resource', {
+            priority: 2,
+            parameters: { amount: 100 },
+            resolvedParamsMapping: { targetId: 'firstResourceId' },
+            groupRestartCodes: [
+              CommandFailureCode.RESOURCE_FINISHED,
+              CommandFailureCode.RESOURCE_NOT_FOUND,
+              CommandFailureCode.TARGET_INACCESSIBLE
+            ]
+          })
+        ),
+        action('return-to-storage', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 3,
+            parameters: { priority: 'low' },
+            resolvedParamsMapping: { position: 'storagePosition' }
+          })
+        ),
+        action('unload-resources', ctx =>
+          buildCommand(ctx, 'unload-resources', {
+            priority: 4,
+            resolvedParamsMapping: { targetId: 'closestStorageId' }
+          })
+        )
+      ]
+    )
   },
 
   // Група для збору руди у радіусі
@@ -792,61 +700,47 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (_context): Command[] => [
-      {
-        id: `move-to-resource-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'high' },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'firstResourcePosition'
-        }
+    plan: loop(
+      'gather-ore-loop',
+      ctx => {
+        const validation = ctx.getResolvedValue<{ success: boolean }>('validateResourcesExist');
+        return !validation || validation.success;
       },
-      {
-        id: `collect-resource-${Date.now()}`,
-        type: 'collect-resource',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { amount: 100 },
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'firstResourceId'
-        },
-        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND, CommandFailureCode.TARGET_INACCESSIBLE]
-      },
-      {
-        id: `return-to-storage-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'low' },
-        status: 'pending',
-        priority: 3,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'storagePosition'
-        }
-      },
-      {
-        id: `unload-resources-${Date.now()}`,
-        type: 'unload-resources',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {},
-        status: 'pending',
-        priority: 4,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'closestStorageId'
-        }
-      }
-    ]
+      [
+        action('move-to-resource', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 1,
+            parameters: { priority: 'high' },
+            resolvedParamsMapping: { position: 'firstResourcePosition' }
+          })
+        ),
+        action('collect-resource', ctx =>
+          buildCommand(ctx, 'collect-resource', {
+            priority: 2,
+            parameters: { amount: 100 },
+            resolvedParamsMapping: { targetId: 'firstResourceId' },
+            groupRestartCodes: [
+              CommandFailureCode.RESOURCE_FINISHED,
+              CommandFailureCode.RESOURCE_NOT_FOUND,
+              CommandFailureCode.TARGET_INACCESSIBLE
+            ]
+          })
+        ),
+        action('return-to-storage', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 3,
+            parameters: { priority: 'low' },
+            resolvedParamsMapping: { position: 'storagePosition' }
+          })
+        ),
+        action('unload-resources', ctx =>
+          buildCommand(ctx, 'unload-resources', {
+            priority: 4,
+            resolvedParamsMapping: { targetId: 'closestStorageId' }
+          })
+        )
+      ]
+    )
   },
 
   // Універсальна група для збору ресурсів у радіусі (залишаємо для загального використання)
@@ -924,61 +818,46 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (_context): Command[] => [
-      {
-        id: `move-to-resource-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'high' },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'firstResourcePosition'
-        }
+    plan: loop(
+      'gather-resource-loop',
+      ctx => {
+        const validation = ctx.getResolvedValue<{ success: boolean }>('validateResourcesExist');
+        return !validation || validation.success;
       },
-      {
-        id: `collect-resource-${Date.now()}`,
-        type: 'collect-resource',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { amount: 100 },
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'firstResourceId'
-        },
-        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
-      },
-      {
-        id: `return-to-storage-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'low' },
-        status: 'pending',
-        priority: 3,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'storagePosition'
-        }
-      },
-      {
-        id: `unload-resources-${Date.now()}`,
-        type: 'unload-resources',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {},
-        status: 'pending',
-        priority: 4,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'closestStorageId'
-        }
-      }
-    ]
+      [
+        action('move-to-resource', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 1,
+            parameters: { priority: 'high' },
+            resolvedParamsMapping: { position: 'firstResourcePosition' }
+          })
+        ),
+        action('collect-resource', ctx =>
+          buildCommand(ctx, 'collect-resource', {
+            priority: 2,
+            parameters: { amount: 100 },
+            resolvedParamsMapping: { targetId: 'firstResourceId' },
+            groupRestartCodes: [
+              CommandFailureCode.RESOURCE_FINISHED,
+              CommandFailureCode.RESOURCE_NOT_FOUND
+            ]
+          })
+        ),
+        action('return-to-storage', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 3,
+            parameters: { priority: 'low' },
+            resolvedParamsMapping: { position: 'storagePosition' }
+          })
+        ),
+        action('unload-resources', ctx =>
+          buildCommand(ctx, 'unload-resources', {
+            priority: 4,
+            resolvedParamsMapping: { targetId: 'closestStorageId' }
+          })
+        )
+      ]
+    )
   },
 
   // Група для збору біомаси у радіусі
@@ -1078,61 +957,46 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (_context): Command[] => [
-      {
-        id: `move-to-resource-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'high' },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'firstResourcePosition'
-        }
+    plan: loop(
+      'gather-biomass-loop',
+      ctx => {
+        const validation = ctx.getResolvedValue<{ success: boolean }>('validateResourcesExist');
+        return !validation || validation.success;
       },
-      {
-        id: `collect-resource-${Date.now()}`,
-        type: 'collect-resource',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { amount: 100 },
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'firstResourceId'
-        },
-        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
-      },
-      {
-        id: `return-to-storage-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'low' },
-        status: 'pending',
-        priority: 3,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'storagePosition'
-        }
-      },
-      {
-        id: `unload-resources-${Date.now()}`,
-        type: 'unload-resources',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {},
-        status: 'pending',
-        priority: 4,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'closestStorageId'
-        }
-      }
-    ]
+      [
+        action('move-to-resource', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 1,
+            parameters: { priority: 'high' },
+            resolvedParamsMapping: { position: 'firstResourcePosition' }
+          })
+        ),
+        action('collect-resource', ctx =>
+          buildCommand(ctx, 'collect-resource', {
+            priority: 2,
+            parameters: { amount: 100 },
+            resolvedParamsMapping: { targetId: 'firstResourceId' },
+            groupRestartCodes: [
+              CommandFailureCode.RESOURCE_FINISHED,
+              CommandFailureCode.RESOURCE_NOT_FOUND
+            ]
+          })
+        ),
+        action('return-to-storage', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 3,
+            parameters: { priority: 'low' },
+            resolvedParamsMapping: { position: 'storagePosition' }
+          })
+        ),
+        action('unload-resources', ctx =>
+          buildCommand(ctx, 'unload-resources', {
+            priority: 4,
+            resolvedParamsMapping: { targetId: 'closestStorageId' }
+          })
+        )
+      ]
+    )
   },
 
   {
@@ -1224,61 +1088,46 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (_context): Command[] => [
-      {
-        id: `move-to-resource-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'high' },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'firstResourcePosition'
-        }
+    plan: loop(
+      'gather-all-loop',
+      ctx => {
+        const validation = ctx.getResolvedValue<{ success: boolean }>('validateResourcesExist');
+        return !validation || validation.success;
       },
-      {
-        id: `collect-resource-${Date.now()}`,
-        type: 'collect-resource',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { amount: 100 },
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'firstResourceId'
-        },
-        groupRestartCodes: [CommandFailureCode.RESOURCE_FINISHED, CommandFailureCode.RESOURCE_NOT_FOUND]
-      },
-      {
-        id: `return-to-storage-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'low' },
-        status: 'pending',
-        priority: 3,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'storagePosition'
-        }
-      },
-      {
-        id: `unload-resources-${Date.now()}`,
-        type: 'unload-resources',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {},
-        status: 'pending',
-        priority: 4,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          targetId: 'closestStorageId'
-        }
-      }
-    ]
+      [
+        action('move-to-resource', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 1,
+            parameters: { priority: 'high' },
+            resolvedParamsMapping: { position: 'firstResourcePosition' }
+          })
+        ),
+        action('collect-resource', ctx =>
+          buildCommand(ctx, 'collect-resource', {
+            priority: 2,
+            parameters: { amount: 100 },
+            resolvedParamsMapping: { targetId: 'firstResourceId' },
+            groupRestartCodes: [
+              CommandFailureCode.RESOURCE_FINISHED,
+              CommandFailureCode.RESOURCE_NOT_FOUND
+            ]
+          })
+        ),
+        action('return-to-storage', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 3,
+            parameters: { priority: 'low' },
+            resolvedParamsMapping: { position: 'storagePosition' }
+          })
+        ),
+        action('unload-resources', ctx =>
+          buildCommand(ctx, 'unload-resources', {
+            priority: 4,
+            resolvedParamsMapping: { targetId: 'closestStorageId' }
+          })
+        )
+      ]
+    )
   },
 
   // Група для будівництва
@@ -1366,135 +1215,72 @@ export const COMMAND_GROUPS: CommandGroup[] = [
         resolveWhen: 'before-command'
       }
     ],
-    tasksPipeline: (context): Command[] => [
-      // 1. Цикл збору ресурсів (conditional-loop)
-      {
-        id: `construction-resource-loop-${Date.now()}`,
-        type: 'conditional-loop',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {
-          // Універсальні параметри умови
-          condition: '>',
-          value2: 1.e-10,
-          // Команди циклу для збору ресурсів
-          loopCommands: [
-            // A) Рухаємося до складу
-            {
-              id: `move-to-storage-${Date.now()}`,
-              type: 'move-to',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: { priority: 'high' },
-              status: 'pending',
+    plan: sequence('construction-plan', [
+      loop(
+        'construction-resource-loop',
+        ctx => {
+          const missingSum = ctx.getResolvedValue<number>('missingSum') || 0;
+          return missingSum > 1e-10;
+        },
+        [
+          action('move-to-storage', ctx =>
+            buildCommand(ctx, 'move-to', {
               priority: 1,
-              createdAt: Date.now(),
-              resolvedParamsMapping: {
-                position: 'storagePosition'
-              }
-            },
-            // B) Вивантажуємо непотрібні ресурси
-            {
-              id: `unload-unnecessary-${Date.now()}`,
-              type: 'unload-resources',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: {},
-              status: 'pending',
+              parameters: { priority: 'high' },
+              resolvedParamsMapping: { position: 'storagePosition' }
+            })
+          ),
+          action('unload-unnecessary', ctx =>
+            buildCommand(ctx, 'unload-resources', {
               priority: 2,
-              createdAt: Date.now(),
               resolvedParamsMapping: {
                 targetId: 'closestStorageId',
                 resourcesToUnload: 'resourcesToUnload'
               }
-            },
-            // C) Завантажуємо потрібні ресурси
-            {
-              id: `load-needed-resources-${Date.now()}`,
-              type: 'load-resources',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: {},
-              status: 'pending',
+            })
+          ),
+          action('load-needed-resources', ctx =>
+            buildCommand(ctx, 'load-resources', {
               priority: 3,
-              createdAt: Date.now(),
               resolvedParamsMapping: {
                 targetId: 'closestStorageId',
-                resources: 'missingResources'  // Завантажуємо потрібні ресурси
+                resources: 'missingResources'
               }
-            },
-            // D) Рухаємося до будівлі
-            {
-              id: `move-to-construction-${Date.now()}`,
-              type: 'move-to',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: { priority: 'high' },
-              status: 'pending',
+            })
+          ),
+          action('move-to-construction', ctx =>
+            buildCommand(ctx, 'move-to', {
               priority: 4,
-              createdAt: Date.now(),
-              resolvedParamsMapping: {
-                position: 'buildingPosition'
-              }
-            },
-            // E) Вивантажуємо ресурси на будівлю
-            {
-              id: `unload-to-construction-${Date.now()}`,
-              type: 'unload-resources',
-              targetId: undefined,
-              position: { x: 0, y: 0, z: 0 },
-              parameters: {
-                buildingId: context.targets?.buildingId
-              },
-              status: 'pending',
+              parameters: { priority: 'high' },
+              resolvedParamsMapping: { position: 'buildingPosition' }
+            })
+          ),
+          action('unload-to-construction', ctx =>
+            buildCommand(ctx, 'unload-resources', {
               priority: 5,
-              createdAt: Date.now(),
+              parameters: { buildingId: ctx.context.targets?.buildingId },
               resolvedParamsMapping: {
-                targetId: 'buildingId',  // Встановлюємо ціль - будівлю
-                resourcesToUnload: 'missingResources'  // Вивантажуємо тільки потрібні ресурси
+                targetId: 'buildingId',
+                resourcesToUnload: 'missingResources'
               }
-            }
-          ]
-        },
-        status: 'pending',
-        priority: 1,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          value1: 'missingSum',
-          missingResources: 'missingResources',
-          requiredResources: 'requiredResources',
-          closestStorageId: 'closestStorageId',
-          buildingInstance: 'buildingInstance'
-        }
-      },
-      // 2. Рух до будівлі для будівництва
-      {
-        id: `final-move-to-construction-${Date.now()}`,
-        type: 'move-to',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: { priority: 'high' },
-        status: 'pending',
-        priority: 2,
-        createdAt: Date.now(),
-        resolvedParamsMapping: {
-          position: 'buildingPosition'
-        }
-      },
-      // 3. Власне будівництво
-      {
-        id: `build-structure-${Date.now()}`,
-        type: 'build',
-        targetId: undefined,
-        position: { x: 0, y: 0, z: 0 },
-        parameters: {
-          buildingId: context.targets?.buildingId
-        },
-        status: 'pending',
-        priority: 3,
-        createdAt: Date.now()
-      }
-    ]
+            })
+          )
+        ]
+      ),
+      action('final-move-to-construction', ctx =>
+        buildCommand(ctx, 'move-to', {
+          priority: 2,
+          parameters: { priority: 'high' },
+          resolvedParamsMapping: { position: 'buildingPosition' }
+        })
+      ),
+      action('build-structure', ctx =>
+        buildCommand(ctx, 'build', {
+          priority: 3,
+          parameters: { buildingId: ctx.context.targets?.buildingId }
+        })
+      )
+    ])
   }
 ];
 
