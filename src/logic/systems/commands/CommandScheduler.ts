@@ -134,6 +134,7 @@ export class CommandScheduler {
   private restartRuntime(runtime: PlanRuntime): void {
     runtime.instance.resetToInitialState();
     this.contextStore.reset(runtime.instance.id, runtime.instance.getContext());
+    this.contextStore.resolveForTiming(runtime.instance.id, 'group-start');
     this.callbacks.onPlanRestarted?.(runtime);
     this.dispatchNext(runtime);
   }
