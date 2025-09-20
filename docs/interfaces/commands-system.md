@@ -143,6 +143,23 @@ export interface ParameterArg {
 export type ParameterArgType = 'var' | 'lit';
 ```
 
+## Commands: Parameter Resolution
+**Файл(и):** `src/logic/systems/commands/ParameterResolutionService.ts`, `src/logic/systems/commands/ParameterResolvers/`
+**Призначення:** Пайплайн резолюції параметрів груп команд із чітким API кешування та реєстром резольверів.
+
+### Ключові сутності
+- `ParameterResolutionService` — координує виконання `ResolveParametersPipeline`, делегуючи виклики через реєстр резольверів та оновлюючи контекст через `ResolvedParametersStore`.
+- `ResolvedParametersStore` (`src/logic/systems/commands/ResolvedParametersStore.ts`) — інкапсулює стан `context.resolved`, зберігаючи останні значення та маркер їхнього походження (`'group-start' | 'before-command'`).
+- `IParameterResolver` (`src/logic/systems/commands/ParameterResolvers/IParameterResolver.ts`) — контракт для модулів, що обробляють конкретні `getterType`. Реалізації (`ObjectResolver`, `StorageResolver`, `ResourceResolver`, `BuildingResolver`, `BuildingTransferResolver`, `RoadResolver`, `LiteralResolver`) використовують `ParameterResolverToolkit` для доступу до карти.
+- `ParameterResolverRegistry` (`src/logic/systems/commands/ParameterResolvers/ParameterResolverRegistry.ts`) — зіставляє `getterType` із конкретною реалізацією інтерфейсу, що спрощує додавання нових резольверів.
+
+### Поведінка кешу resolved
+- Параметри з `resolveWhen: 'group-start'` обчислюються один раз на старті групи; подальші виклики повертають кешоване значення без повторних запитів до карти.
+- Параметри з `resolveWhen: 'before-command'` виконуються на кожній ітерації, але результат зберігається у `context.resolved` для читання іншими сервісами.
+- `context.resolved` не мутується напряму: усі оновлення здійснює `ResolvedParametersStore`, що гарантує єдину точку істини та синхронізацію кешу `CommandContextStore`.
+
+---
+
 ---
 
 ## Commands: ICommandSystem

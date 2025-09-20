@@ -1,14 +1,11 @@
 import { CommandGroupContext, ResolveParametersPipeline } from './command-group.types';
 import { ParameterResolutionService } from './ParameterResolutionService';
+import { ResolvedParametersStore } from './ResolvedParametersStore';
 
 interface ContextRecord {
   context: CommandGroupContext;
   pipeline?: ResolveParametersPipeline[];
   resolvedCache: Record<string, any>;
-}
-
-function mergeResolved(target: Record<string, any>, source: Record<string, any>): Record<string, any> {
-  return { ...target, ...source };
 }
 
 export class CommandContextStore {
@@ -20,9 +17,8 @@ export class CommandContextStore {
   }
 
   register(instanceId: string, context: CommandGroupContext, pipeline?: ResolveParametersPipeline[]): void {
-    const clonedContext = context;
     const record: ContextRecord = {
-      context: clonedContext,
+      context,
       pipeline,
       resolvedCache: context.resolved ? { ...context.resolved } : {}
     };
@@ -30,11 +26,7 @@ export class CommandContextStore {
 
     if (pipeline) {
       const resolved = this.resolutionService.resolveParameters(pipeline, context, 'group-start');
-      record.resolvedCache = mergeResolved(record.resolvedCache, resolved);
-      if (!record.context.resolved) {
-        record.context.resolved = {};
-      }
-      record.context.resolved = mergeResolved(record.context.resolved, resolved);
+      this.updateResolvedCache(record, resolved, 'group-start');
     }
   }
 
@@ -53,12 +45,8 @@ export class CommandContextStore {
     }
 
     const resolved = this.resolutionService.resolveParameters(record.pipeline, record.context, timing);
-    record.resolvedCache = mergeResolved(record.resolvedCache, resolved);
-    if (!record.context.resolved) {
-      record.context.resolved = {};
-    }
-    record.context.resolved = mergeResolved(record.context.resolved, resolved);
-    return record.context.resolved;
+    this.updateResolvedCache(record, resolved, timing);
+    return record.context.resolved ?? {};
   }
 
   getResolvedValue<T = any>(instanceId: string, path: string): T | undefined {
@@ -93,10 +81,23 @@ export class CommandContextStore {
     }
 
     const resolved = this.resolutionService.resolveParameters(record.pipeline, record.context, 'group-start');
-    record.resolvedCache = mergeResolved(record.resolvedCache, resolved);
-    if (!record.context.resolved) {
-      record.context.resolved = {};
+    this.updateResolvedCache(record, resolved, 'group-start');
+  }
+
+  private updateResolvedCache(
+    record: ContextRecord,
+    resolved: Record<string, any>,
+    source: 'group-start' | 'before-command'
+  ): void {
+    if (Object.keys(resolved).length > 0) {
+      const store = new ResolvedParametersStore(record.context);
+      store.merge(resolved, source);
+      record.resolvedCache = store.snapshot();
+      return;
     }
-    record.context.resolved = mergeResolved(record.context.resolved, resolved);
+
+    if (record.context.resolved) {
+      record.resolvedCache = { ...record.context.resolved };
+    }
   }
 }
