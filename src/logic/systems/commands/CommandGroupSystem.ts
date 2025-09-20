@@ -114,6 +114,7 @@ export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem 
     return true;
   }
 
+
   interruptObjectCommands(objectId: string): void {
     const activeStates = this.getActiveGroupsForObject(objectId);
     if (activeStates.length > 0) {
