@@ -3,212 +3,180 @@ import { CommandGroup, CommandGroupContext, CommandGroupState } from './command-
 import { getCommandGroup, COMMAND_GROUPS } from './db/command-groups-db';
 import { ParameterResolutionService } from './ParameterResolutionService';
 import { SaveLoadManager } from '../save-load/save-load.types';
-import { ICommandGroupSystem, ICommandSystem, IMapLogic } from '@interfaces/index';
+import { ICommandGroupSystem, IMapLogic } from '@interfaces/index';
 import { GameContainer } from '@core/game/GameContainer';
+import { CommandContextStore } from './CommandContextStore';
+import { CommandScheduler, PlanRuntime } from './CommandScheduler';
+import { PlanInstance } from './plans/PlanInstance';
+import type { CommandSystem } from './CommandSystem';
+
+function createGroupKey(objectId: string, groupId: string): string {
+  return `${objectId}-${groupId}`;
+}
+
+function cloneContext(context: CommandGroupContext): CommandGroupContext {
+  return JSON.parse(JSON.stringify(context));
+}
 
 export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem {
-  private commandSystem: ICommandSystem;
-  private activeGroups: Map<string, CommandGroupState> = new Map();
-  public parameterResolutionService: ParameterResolutionService;
-  private container: GameContainer;
+  private readonly commandSystem: CommandSystem;
+  private readonly parameterResolutionService: ParameterResolutionService;
+  private readonly contextStore: CommandContextStore;
+  private readonly scheduler: CommandScheduler;
+  private readonly container: GameContainer;
+  private readonly activeGroups: Map<string, CommandGroupState> = new Map();
+  private readonly planInstances: Map<string, PlanInstance> = new Map();
 
-  constructor(commandSystem: ICommandSystem, mapLogic: IMapLogic, container: GameContainer) {
+  constructor(commandSystem: CommandSystem, mapLogic: IMapLogic, container: GameContainer) {
     this.commandSystem = commandSystem;
     this.parameterResolutionService = new ParameterResolutionService(mapLogic);
+    this.contextStore = new CommandContextStore(this.parameterResolutionService);
+    this.scheduler = new CommandScheduler(this.commandSystem, this.contextStore, {
+      onPlanCompleted: runtime => this.handlePlanCompleted(runtime),
+      onPlanFailed: runtime => this.handlePlanFailed(runtime),
+      onPlanRestarted: runtime => this.handlePlanRestarted(runtime),
+      onPlanCancelled: runtime => this.handlePlanCancelled(runtime)
+    });
+    this.commandSystem.setScheduler(this.scheduler);
     this.container = container;
   }
 
-  // Запуск групи команд
-  addCommandGroup(
-    objectId: string,
-    groupId: string,
-    context: CommandGroupContext
-  ): boolean {
+  private prepareContext(objectId: string, context: CommandGroupContext): CommandGroupContext {
+    const prepared: CommandGroupContext = {
+      objectId,
+      targets: context.targets ? { ...context.targets } : {},
+      parameters: context.parameters ? { ...context.parameters } : {},
+      resolved: context.resolved ? { ...context.resolved } : {}
+    };
+    return prepared;
+  }
+
+  private createPlanInstance(objectId: string, group: CommandGroup, context: CommandGroupContext): PlanInstance {
+    const instanceId = `${objectId}-${group.id}-${Date.now()}`;
+    const clonedContext = cloneContext(context);
+    const planContext = { ...clonedContext, objectId } as CommandGroupContext;
+    const instance = new PlanInstance({
+      id: instanceId,
+      groupId: group.id,
+      objectId,
+      root: group.plan,
+      context: planContext,
+      store: this.contextStore
+    });
+    this.planInstances.set(instanceId, instance);
+    return instance;
+  }
+
+  addCommandGroup(objectId: string, groupId: string, context: CommandGroupContext): boolean {
     const group = getCommandGroup(groupId);
-    if (!group) {
+    if (!group || !group.plan) {
       console.error(`Command group '${groupId}' not found`);
       return false;
     }
 
-    // Перевіряємо startCondition якщо є
-    if (group.startCondition && !group.startCondition(context)) {
-      console.error(`Start condition failed for group '${groupId}'`);
+    const preparedContext = this.prepareContext(objectId, context);
+
+    if (group.startCondition && !group.startCondition(preparedContext)) {
+      console.warn(`Start condition failed for group '${groupId}'`);
       return false;
     }
 
-    // Розв'язуємо параметри на початку групи
-    let resolvedParameters: Record<string, any> = {};
-    if (group.resolveParametersPipeline) {
-      try {
-        resolvedParameters = this.parameterResolutionService.resolveParameters(
-          group.resolveParametersPipeline,
-          context,
-          'all'
-        );
-        
-        // Перевіряємо валідації
-        const validationFailed = this.checkValidations(resolvedParameters);
-        if (validationFailed) {
-          console.warn(`Validation failed for group ${groupId}, cancelling group`);
-          return false;
-        }
-      } catch (error) {
-        console.error(`Parameter resolution failed for group ${groupId}:`, error);
-        return false;
-      }
-    }
-
-    // Створюємо стан групи
-    const groupState: CommandGroupState = {
+    const state: CommandGroupState = {
       groupId,
       objectId,
       status: 'active',
       currentTaskIndex: 0,
       startTime: Date.now(),
-      context,
-      resolvedParameters
+      context: preparedContext,
+      resolvedParameters: preparedContext.resolved
     };
 
-    const groupKey = `${objectId}-${groupId}`;
-    this.activeGroups.set(groupKey, groupState);
-    
-    console.warn(`GROUP ADDED! NOW there are ${this.activeGroups.size} groups: `, this.activeGroups, resolvedParameters);
+    const instance = this.createPlanInstance(objectId, group, preparedContext);
+    state.planInstanceId = instance.id;
 
-    // Генеруємо команди з пайплайну
-    const commands = group.tasksPipeline({
-      ...context,
-      resolved: resolvedParameters
-    });
-    
-    // Додаємо groupId та resolvedParameters до кожної команди
-    commands.forEach(cmd => {
-      cmd.groupId = groupId;
-      
-      // Додаємо шаблони параметрів для динамічної резолюції
-      if (group.resolveParametersPipeline) {
-        cmd.parameterTemplates = this.createParameterTemplates(cmd, group.resolveParametersPipeline);
-      }
-    });
+    const groupKey = createGroupKey(objectId, groupId);
+    this.activeGroups.set(groupKey, state);
 
-    // Додаємо команди до черги об'єкта
-    commands.forEach(cmd => {
-      this.commandSystem.addAutoresolveCommand(objectId, cmd, context.resolved);
-    });
-
-
-
-            // Група команд запущена
+    this.scheduler.registerPlan(instance, group, objectId);
     return true;
   }
 
-
-
-  // Зупинка групи команд
   cancelCommandGroup(objectId: string, groupId: string): boolean {
-    const groupKey = `${objectId}-${groupId}`;
-    const groupState = this.activeGroups.get(groupKey);
-    
-    if (!groupState) {
-      console.error(`Command group '${groupId}' not found for object ${objectId}`);
+    const groupKey = createGroupKey(objectId, groupId);
+    const state = this.activeGroups.get(groupKey);
+    if (!state) {
       return false;
     }
 
-    // Змінюємо статус на cancelled
-    groupState.status = 'cancelled';
-    
-    // Видаляємо всі команди цієї групи з черги
-    this.commandSystem.clearCommandsByGroup(objectId, groupId);
-
-            // Група команд скасована
+    state.status = 'cancelled';
+    this.scheduler.cancelPlan(groupKey);
+    this.activeGroups.delete(groupKey);
     return true;
   }
 
-  // Отримання стану групи
+  interruptObjectCommands(objectId: string): void {
+    const activeStates = this.getActiveGroupsForObject(objectId);
+    if (activeStates.length > 0) {
+      for (const state of activeStates) {
+        this.cancelCommandGroup(objectId, state.groupId);
+      }
+    }
+
+    this.commandSystem.clearCommands(objectId);
+  }
+
   getGroupState(objectId: string, groupId: string): CommandGroupState | undefined {
-    const groupKey = `${objectId}-${groupId}`;
-    return this.activeGroups.get(groupKey);
+    return this.activeGroups.get(createGroupKey(objectId, groupId));
   }
 
-  // Отримання всіх активних груп для об'єкта
   getActiveGroupsForObject(objectId: string): CommandGroupState[] {
-    return Array.from(this.activeGroups.values())
-      .filter(state => state.objectId === objectId && state.status === 'active');
+    return Array.from(this.activeGroups.values()).filter(state => state.objectId === objectId);
   }
 
-  // Отримання визначення групи команд
   getCommandGroupDefinition(groupId: string): CommandGroup | undefined {
     return getCommandGroup(groupId);
   }
 
-  /**
-   * Розв'язує параметри для завантаженої групи команд
-   */
-  private resolveParametersForLoadedGroup(groupState: CommandGroupState): void {
-    const { groupId, objectId, context } = groupState;
-    
-    // Отримуємо визначення групи
-    const groupDefinition = this.getCommandGroupDefinition(groupId);
-    if (!groupDefinition?.resolveParametersPipeline) {
+  private handlePlanCompleted(runtime: PlanRuntime): void {
+    const state = this.activeGroups.get(runtime.groupKey);
+    if (!state) {
       return;
     }
-
-    // Розв'язуємо параметри згідно з пайплайном
-    const resolvedParameters = this.parameterResolutionService.resolveParameters(
-      groupDefinition.resolveParametersPipeline,
-      context,
-      'all'
-    );
-
-    console.warn('RsAL: ', resolvedParameters, objectId);
-
-    // Оновлюємо стан групи з розв'язаними параметрами
-    groupState.resolvedParameters = resolvedParameters;
-    groupState.context.resolved = resolvedParameters;
+    state.status = 'completed';
+    this.activeGroups.delete(runtime.groupKey);
+    this.planInstances.delete(runtime.instance.id);
   }
 
-  /**
-   * Перевіряє валідації в resolved параметрах
-   */
-  private checkValidations(resolvedParameters: Record<string, any>): boolean {
-    for (const [paramId, value] of Object.entries(resolvedParameters)) {
-      // Перевіряємо чи це результат валідації
-      if (value && typeof value === 'object' && 'success' in value && !value.success) {
-        console.warn(`Validation failed for parameter ${paramId}: ${value.message} (${value.code})`);
-        return true; // Валідація фейлилась
-      }
+  private handlePlanFailed(runtime: PlanRuntime): void {
+    const state = this.activeGroups.get(runtime.groupKey);
+    if (!state) {
+      return;
     }
-    return false; // Всі валідації пройшли
+    state.status = 'failed';
+    this.activeGroups.delete(runtime.groupKey);
+    this.planInstances.delete(runtime.instance.id);
   }
 
-  /**
-   * Створює шаблони параметрів для команди
-   */
-  public createParameterTemplates(
-    command: Command, 
-    resolvePipeline: any[]
-  ): Record<string, any> {
-    const templates: Record<string, any> = {};
-
-    // Якщо команда має явне мапінг параметрів - використовуємо його
-    if (command.resolvedParamsMapping) {
-      for (const [commandField, resolvedParamId] of Object.entries(command.resolvedParamsMapping)) {
-        // Перевіряємо чи існує параметр з таким ID в resolvePipeline
-        const paramExists = resolvePipeline.some(param => param.id === resolvedParamId);
-        if (paramExists) {
-          templates[commandField] = {
-            type: 'resolved',
-            parameterId: resolvedParamId,
-            resolveWhen: 'before-command'
-          };
-        }
-      }
-      return templates;
+  private handlePlanRestarted(runtime: PlanRuntime): void {
+    const state = this.activeGroups.get(runtime.groupKey);
+    if (!state) {
+      return;
     }
-
-    return templates;
+    state.status = 'active';
+    state.currentTaskIndex = 0;
+    state.startTime = Date.now();
+    const context = this.contextStore.getContext(runtime.instance.id);
+    if (context) {
+      state.context = cloneContext(context);
+      state.resolvedParameters = context.resolved;
+    }
   }
 
-  // Очищення завершених груп
+  private handlePlanCancelled(runtime: PlanRuntime): void {
+    this.activeGroups.delete(runtime.groupKey);
+    this.planInstances.delete(runtime.instance.id);
+  }
+
   cleanupCompletedGroups(): void {
     for (const [key, state] of this.activeGroups.entries()) {
       if (state.status === 'completed' || state.status === 'cancelled' || state.status === 'failed') {
@@ -217,74 +185,51 @@ export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem 
     }
   }
 
-  // Оновлення стану груп (викликається кожен кадр)
   update(_deltaTime: number): void {
-    // Тут можна додати логіку для відстеження прогресу груп
-    // Наприклад, оновлювати currentTaskIndex на основі виконаних команд
-    
     this.cleanupCompletedGroups();
   }
 
-  // ==================== SaveLoadManager Implementation ====================
-  
   save(): any {
     const activeGroups: any[] = [];
-    
-    // Зберігаємо стан всіх активних груп
-    this.activeGroups.forEach((groupState, groupKey) => {
-      if (groupState.status === 'active') {
+    this.activeGroups.forEach((state, key) => {
+      if (state.status === 'active') {
         activeGroups.push({
-          groupKey,
-          groupId: groupState.groupId,
-          objectId: groupState.objectId,
-          status: groupState.status,
-          currentTaskIndex: groupState.currentTaskIndex,
-          startTime: groupState.startTime,
-          context: groupState.context,
-          resolvedParameters: groupState.resolvedParameters
+          groupKey: key,
+          groupId: state.groupId,
+          objectId: state.objectId,
+          context: state.context,
+          resolvedParameters: state.resolvedParameters
         });
       }
     });
-    
     return { activeGroups };
   }
-  
+
   load(data: any): void {
-    if (data.activeGroups) {
-      data.activeGroups.forEach((groupData: any) => {
-        const { groupId, objectId, context, resolvedParameters } = groupData;
-        
-        // Відновлюємо стан групи
-        const groupState: CommandGroupState = {
-          groupId,
-          objectId,
-          status: 'active',
-          currentTaskIndex: groupData.currentTaskIndex || 0,
-          startTime: groupData.startTime || Date.now(),
-          context: context || {},
-          resolvedParameters: resolvedParameters || {}
-        };
-        
-        const groupKey = `${objectId}-${groupId}`;
-        this.activeGroups.set(groupKey, groupState);
-        
-        // Запускаємо resolvePipeline для відновлення параметрів
-        this.resolveParametersForLoadedGroup(groupState);
-      });
+    if (!data?.activeGroups) {
+      return;
     }
+
+    data.activeGroups.forEach((groupData: any) => {
+      const context: CommandGroupContext = {
+        objectId: groupData.objectId,
+        targets: groupData.context?.targets ?? {},
+        parameters: groupData.context?.parameters ?? {},
+        resolved: groupData.resolvedParameters ?? {}
+      };
+      this.addCommandGroup(groupData.objectId, groupData.groupId, context);
+    });
   }
-  
+
   reset(): void {
     this.activeGroups.clear();
+    this.planInstances.forEach(instance => {
+      this.contextStore.unregister(instance.id);
+    });
+    this.planInstances.clear();
   }
 
-  // ==================== ICommandGroupSystem Implementation ====================
-
-  /**
-   * Виконує групу команд (реалізація інтерфейсу)
-   */
   executeCommandGroup(groupId: string, objectIds: string[]): boolean {
-    // Для кожної цілі запускаємо групу команд
     let success = true;
     for (const objectId of objectIds) {
       const context: CommandGroupContext = {
@@ -300,11 +245,7 @@ export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem 
     return success;
   }
 
-  /**
-   * Додає команду до групи (реалізація інтерфейсу)
-   */
   addCommandToGroup(groupId: string, command: Command, objectIds: string[]): boolean {
-    // Додаємо команду для кожної цілі
     let success = true;
     for (const objectId of objectIds) {
       command.groupId = groupId;
@@ -313,28 +254,19 @@ export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem 
     return success;
   }
 
-  /**
-   * Отримує групу команд (реалізація інтерфейсу)
-   */
   getCommandGroup(groupId: string): CommandGroup | undefined {
     return getCommandGroup(groupId);
   }
 
-  /**
-   * Отримує всі групи команд (реалізація інтерфейсу)
-   */
   getAllCommandGroups(): Map<string, CommandGroup> {
-    // Повертаємо всі доступні групи з БД
     const result = new Map<string, CommandGroup>();
-    // Тут можна додати логіку для отримання всіх груп
+    COMMAND_GROUPS.forEach(group => {
+      result.set(group.id, group);
+    });
     return result;
   }
 
-  /**
-   * Отримує активні групи (реалізація інтерфейсу)
-   */
   getActiveGroups(): Map<string, CommandGroup> {
-    // Конвертуємо CommandGroupState в CommandGroup
     const result = new Map<string, CommandGroup>();
     this.activeGroups.forEach((state, key) => {
       const group = getCommandGroup(state.groupId);
@@ -345,56 +277,32 @@ export class CommandGroupSystem implements SaveLoadManager, ICommandGroupSystem 
     return result;
   }
 
-  /**
-   * Перевіряє чи група команд розблокована
-   */
   public isUnlocked(groupId: string): boolean {
     const group = getCommandGroup(groupId);
     if (!group || !group.requirements || group.requirements.length === 0) {
-      return true; // Якщо нема реквайрментів - група автоматично доступна
+      return true;
     }
-    
-    // Перевіряємо реквайрменти через RequirementsSystem
     const requirementsSystem = this.container.get('requirementsSystem') as any;
     const result = requirementsSystem.checkRequirements(group.requirements);
     return result.satisfied;
   }
 
-  /**
-   * Отримує список доступних груп команд для UI
-   */
   public getAvailableCommandGroups(): CommandGroup[] {
-    // Отримуємо всі групи та фільтруємо по реквайрментах
-    const allGroups = COMMAND_GROUPS || [];
-    return allGroups.filter((group: CommandGroup) => this.isUnlocked(group.id));
+    return COMMAND_GROUPS.filter(group => this.isUnlocked(group.id));
   }
 
-  /**
-   * Отримує доступні групи команд з UI метаданими
-   */
   public getAvailableUIGroups(): CommandGroup[] {
     return this.getAvailableCommandGroups().filter(group => group.ui);
   }
 
-  /**
-   * Отримує доступні групи команд по scope
-   */
   public getAvailableGroupsByScope(scope: 'gather' | 'build' | 'none'): CommandGroup[] {
     return this.getAvailableCommandGroups().filter(group => group.ui?.scope === scope);
   }
 
-  /**
-   * Отримує доступні групи команд по scope та категорії
-   */
   public getAvailableGroupsByScopeAndCategory(scope: 'gather' | 'build' | 'none', category: string): CommandGroup[] {
-    return this.getAvailableCommandGroups().filter(group => 
-      group.ui?.scope === scope && group.ui?.category === category
-    );
+    return this.getAvailableCommandGroups().filter(group => group.ui?.scope === scope && group.ui?.category === category);
   }
 
-  /**
-   * Оновлює систему груп команд (реалізація інтерфейсу)
-   */
   tick(dT: number): void {
     this.update(dT);
   }
