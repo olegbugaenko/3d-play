@@ -14,31 +14,18 @@ export interface Command {
     priority: number;
     createdAt: number;
     groupId?: string; // ID групи команд (опціонально)
-
-    // Шаблони для динамічної резолюції параметрів
-    parameterTemplates?: {
-        position?: ParameterTemplate;
-        targetId?: ParameterTemplate;
-        [key: string]: ParameterTemplate | undefined;
-    };
     // Явне мапінг параметрів з resolvePipeline
     resolvedParamsMapping?: {
         [commandField: string]: string; // поле команди -> ID параметра з resolvePipeline
     };
-    
+
     // Коди фейлу при яких група команд має перезапуститися
     groupRestartCodes?: CommandFailureCode[];
 }
 
 export type CommandStatus = 'pending' | 'executing' | 'completed' | 'failed' | 'cancelled';
 
-export type CommandType = 'move-to' | 'collect-resource' | 'unload-resources' | 'load-resources' | 'wait' | 'attack' | 'build' | 'charge' | 'conditional-loop';
-
-export interface ParameterTemplate {
-    type: 'resolved';
-    parameterId: string;
-    resolveWhen: 'group-start' | 'before-command';
-}
+export type CommandType = 'move-to' | 'collect-resource' | 'unload-resources' | 'load-resources' | 'wait' | 'attack' | 'build' | 'build-road' | 'charge';
 
 export enum CommandFailureCode {
   RESOURCE_FINISHED = 'RESOURCE_FINISHED',
@@ -88,10 +75,22 @@ export interface CommandGroup {
   loopConditions?: LoopConditions; // Розширені умови циклічності
   autoExecute?: AutoExecuteConfig; // Автоматичне виконання
   resolveParametersPipeline?: ResolveParametersPipeline[]; // Пайплайн резолюції параметрів
-  tasksPipeline: CommandGroupPipeline;
+  plan: PlanNode;
   ui?: CommandGroupUI; // UI метадані
   requirements?: Requirement[]; // Додаємо реквайрменти
 }
+
+// Дерево плану визначено у src/logic/systems/commands/plans/plan.types.ts
+export type PlanNode = SequenceNode | ParallelNode | LoopNode | ConditionNode | ActionNode;
+
+### Планові вузли
+- `SequenceNode` — послідовно обходить дочірні вузли; використовується для опису стандартних пайплайнів команд.
+- `ParallelNode` — декларує гілки, що можуть виконуватися паралельно; наразі інтерпретується як послідовність, але залишає місце для подальшого розширення.
+- `LoopNode` — повторює тіло, поки умова (`PlanCondition`) повертає `true`. Дозволяє реалізовувати вкладені цикли без ручної вставки команд.
+- `ConditionNode` — обирає одну з гілок (`then` / `otherwise`) на основі предиката.
+- `ActionNode` — кінцевий вузол, який породжує конкретну `Command` через фабрику (див. `PlanCommandFactory`).
+
+Додатковий контекст та допоміжні будівники (sequence/loop/action тощо) розміщені у `src/logic/systems/commands/plans/`.
 
 export interface CommandGroupContext {
   objectId: string;
@@ -117,6 +116,7 @@ export interface CommandGroupState {
   startTime: number;
   context: CommandGroupContext;
   resolvedParameters?: Record<string, any>; // Розв'язані параметри
+  planInstanceId?: string;
 }
 
 export interface CommandGroupUI {
@@ -127,8 +127,6 @@ export interface CommandGroupUI {
 }
 
 export type CommandGroupCondition = (context: CommandGroupContext) => boolean;
-
-export type CommandGroupPipeline = (context: CommandGroupContext) => Command[];
 
 export interface ResolveParametersPipeline {
   id: string;
