@@ -235,7 +235,11 @@ export class SelectionHandler extends InteractionHandler {
       return;
     }
 
-    console.log('interactableObjects: ', interactableObjects, interactableObjects.find(o => o.tags?.includes('road')));
+    console.log(
+      'interactableObjects: ',
+      interactableObjects,
+      interactableObjects.find((o: TSceneObject) => o.tags?.includes('road'))
+    );
 
     // Перевіряємо незавершені дороги (інтерсектимось з реальним мешем дороги)
     for (const o of interactableObjects) {
@@ -251,6 +255,7 @@ export class SelectionHandler extends InteractionHandler {
         const commandGroupSystem = this.mapLogic.commandGroupSystem;
         if (commandGroupSystem) {
           selected.forEach((drone: string) => {
+            commandGroupSystem.interruptObjectCommands?.(drone);
             commandGroupSystem.addCommandGroup(drone, 'road-construction', {
               objectId: drone,
               targets: { roadId: o.id },
@@ -286,7 +291,8 @@ export class SelectionHandler extends InteractionHandler {
         const sm = bm?.storageManager || bm?.getStorageManager?.();
         const plan = sm?.pickBuildingTransferAction?.(clickedBuiltBuilding.id);
         const groupId = plan?.direction === 'from-building' ? 'building-collect' : 'building-refill';
-        selected.forEach(drone => {
+        selected.forEach((drone: string) => {
+          commandGroupSystem.interruptObjectCommands?.(drone);
           commandGroupSystem.addCommandGroup(drone, groupId, {
             objectId: drone,
             targets: { buildingId: clickedBuiltBuilding.id },
@@ -383,6 +389,7 @@ export class SelectionHandler extends InteractionHandler {
 
     for (const drone of selectedUnits) {
       try {
+        commandGroupSystem.interruptObjectCommands?.(drone);
         // Запускаємо групу команд будівництва
         const success = commandGroupSystem.addCommandGroup(
           drone,
