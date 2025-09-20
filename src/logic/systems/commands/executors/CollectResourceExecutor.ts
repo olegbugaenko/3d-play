@@ -1,17 +1,23 @@
 import { CommandExecutor } from '../CommandExecutor';
 import { CommandResult, CommandFailureCode } from '../command.types';
 import { RESOURCES_DB } from '@resources/resources-db';
+import {
+    ensureDroneStorage,
+    getDroneCapacity,
+    getGlobalFreeCapacity,
+    isGlobalStorageFull
+} from './utils/resource-helpers';
 
 export class CollectResourceExecutor extends CommandExecutor {
     private resourceType: string | null = null;
 
-    getEnergyUpkeep() {
+    getEnergyUpkeep(): number {
         const object = this.context.scene.getObjectById(this.context.objectId);
-        if (!object || !object.data?.maxCapacity) {
-            return false;
+        if (!object || getDroneCapacity(object) <= 0) {
+            return 0;
         }
-        
-        return object.data.collectionSpeed;
+
+        return object.data.collectionSpeed || 0;
     }
 
     canExecute(): boolean {
@@ -20,7 +26,7 @@ export class CollectResourceExecutor extends CommandExecutor {
         }
 
         const object = this.context.scene.getObjectById(this.context.objectId);
-        if (!object || !object.data?.maxCapacity) {
+        if (!object || getDroneCapacity(object) <= 0) {
             return false;
         }
 
@@ -62,22 +68,19 @@ export class CollectResourceExecutor extends CommandExecutor {
             return { success: false, message: 'Resource depleted' };
         }
 
-        if (this.isGlobalStorageFull(1.e-8)) {
+        if (this.resourceType && isGlobalStorageFull(this.context, this.resourceType, 1e-8)) {
             return { success: false, message: 'Storage is full' };
         }
 
-        // Ініціалізуємо storage якщо не існує
-        if (!object.data.storage) {
-            object.data.storage = {};
-        }
+        const storage = ensureDroneStorage(object);
 
         // Поточна кількість ресурсу в баку
         if (!this.resourceType) {
             return { success: false, message: 'Resource type not determined' };
         }
         
-        const currentAmount = object.data.storage[this.resourceType] || 0;
-        const maxCapacity = object.data.maxCapacity || 5;
+        const currentAmount = storage[this.resourceType] || 0;
+        const maxCapacity = getDroneCapacity(object) || 5;
         const baseCollectionSpeed = object.data.collectionSpeed || 0.5;
         
         // Застосовуємо множник складності добування з БД ресурсів
@@ -91,13 +94,18 @@ export class CollectResourceExecutor extends CommandExecutor {
         }
 
         // Перевіряємо чи є місце у глобальному складі
-        if (this.isGlobalStorageFull(currentAmount)) {
+        const globalFreeSpace = getGlobalFreeCapacity(this.context, this.resourceType);
+        if (globalFreeSpace <= currentAmount) {
             return { success: true, message: 'Global storage is full, need to unload first' };
         }
 
         // Додаємо ресурс з урахуванням складності
-        const amountToAdd = Math.min(effectiveCollectionSpeed * this.context.deltaTime, maxCapacity - currentAmount);
-        object.data.storage[this.resourceType] = currentAmount + amountToAdd;
+        const amountToAdd = Math.min(
+            effectiveCollectionSpeed * this.context.deltaTime,
+            maxCapacity - currentAmount,
+            Math.max(0, globalFreeSpace)
+        );
+        storage[this.resourceType] = currentAmount + amountToAdd;
 
         // Зменшуємо кількість ресурсу в цілі
         targetResource.data.resourceAmount = Math.max(0, targetResource.data.resourceAmount - amountToAdd);
@@ -143,15 +151,16 @@ export class CollectResourceExecutor extends CommandExecutor {
             return true; // Немає типу ресурсу - завершуємо
         }
 
-        const currentAmount = object.data.storage?.[this.resourceType] || 0;
-        const maxCapacity = object.data.maxCapacity || 5;
+        const storage = ensureDroneStorage(object);
+        const currentAmount = storage?.[this.resourceType] || 0;
+        const maxCapacity = getDroneCapacity(object) || 5;
 
         if (currentAmount >= maxCapacity) {
             return true; // Бак повний
         }
 
         // Перевіряємо чи є місце у глобальному складі
-        if (this.isGlobalStorageFull(currentAmount)) {
+        if (getGlobalFreeCapacity(this.context, this.resourceType) <= currentAmount) {
             return true; // Глобальний склад повний, треба розвантажити
         }
 
@@ -165,27 +174,4 @@ export class CollectResourceExecutor extends CommandExecutor {
         return false;
     }
 
-    /**
-     * Перевіряє чи глобальний склад повний для даного типу ресурсу
-     * Враховує що дрон уже має ресурси і їх треба буде розвантажити
-     */
-    private isGlobalStorageFull(currentAmount: number): boolean {
-        if (!this.resourceType || currentAmount <= 0) {
-            return false;
-        }
-
-        const resourceManager = this.context.mapLogic?.resources;
-        if (!resourceManager) {
-            return false;
-        }
-
-        const currentGlobalAmount = resourceManager.getResourceAmount(this.resourceType as any);
-        const maxGlobalCapacity = resourceManager.getResourceCapacity(this.resourceType as any);
-        
-        // Перевіряємо чи після розвантаження дрона склад не переповниться
-        const afterUnload = currentGlobalAmount + currentAmount;
-
-        
-        return afterUnload >= maxGlobalCapacity;
-    }
 }
