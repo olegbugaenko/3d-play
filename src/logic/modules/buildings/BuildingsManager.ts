@@ -727,6 +727,36 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
           }));
         }
 
+        // МІГРАЦІЯ: якщо це незбудована/запланована дорога та відсутні сегменти — відновлюємо сегменти як planned
+        if (!road.built && (!road.segments || road.segments.length === 0) && Array.isArray(road.path) && road.path.length >= 2) {
+          const roadType = this.roadsDB.get(road.typeId);
+          const perMeter = roadType?.cost ? roadType.cost(1) : {};
+          const segs: any[] = [];
+          for (let i = 1; i < road.path.length; i++) {
+            const start = road.path[i - 1] as any;
+            const end = road.path[i] as any;
+            const length = Math.hypot((end.x ?? 0) - (start.x ?? 0), (end.z ?? 0) - (start.z ?? 0));
+            const required: Record<string, number> = {};
+            Object.entries(perMeter || {}).forEach(([res, perM]) => {
+              if (typeof perM === 'number' && perM > 0) required[res] = Math.ceil(perM * length);
+            });
+            segs.push({
+              id: `${road.id}_segment_${i}`,
+              startPoint: start,
+              endPoint: end,
+              buildingState: 'planned',
+              constructionProgress: 0.0,
+              requiredResources: required,
+              deliveredResources: {},
+              length
+            });
+          }
+          (road as any).segments = segs;
+          (road as any).plannedOnly = true;
+          (road as any).resourcesDelivered = (road as any).resourcesDelivered || {};
+          console.log(`[BuildingsManager] Migrated planned road ${road.id}: generated ${segs.length} segments`);
+        }
+
         this.roadInstances.set(road.id, { ...road });
         if (road.built) {
           this.addRoadToPathfinding(road);
@@ -935,10 +965,38 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       path: path.map(p => ({ x: p.x, y: p.y, z: p.z })),
       built: false,
       totalLength: this.calculatePathLength(path),
-      segments: [], // Поки що пусто - будемо заповнювати при будівництві
+      segments: [],
       plannedOnly: true,
       snapData // Додаємо snap дані
     };
+
+    // Ініціалізуємо сегменти як planned, щоб вони зберігалися/відновлювалися при сейві
+    try {
+      const roadType = this.roadsDB.get(roadTypeId);
+      const perMeter = roadType?.cost ? roadType.cost(1) : {};
+      const segs: any[] = [];
+      for (let i = 1; i < path.length; i++) {
+        const start = path[i - 1];
+        const end = path[i];
+        const length = Math.hypot(end.x - start.x, end.z - start.z);
+        const required: Record<string, number> = {};
+        Object.entries(perMeter || {}).forEach(([res, perM]) => {
+          if (typeof perM === 'number' && perM > 0) required[res] = Math.ceil(perM * length);
+        });
+        segs.push({
+          id: `${roadId}_segment_${i}`,
+          startPoint: start,
+          endPoint: end,
+          buildingState: 'planned',
+          constructionProgress: 0.0,
+          requiredResources: required,
+          deliveredResources: {},
+          length
+        });
+      }
+      (roadInstance as any).segments = segs;
+      (roadInstance as any).resourcesDelivered = {};
+    } catch {}
 
     // Додаємо в Map
     this.roadInstances.set(roadId, roadInstance);
@@ -1461,29 +1519,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Створюємо унікальний ID для дороги
     const roadId = `road_${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Створюємо інстанс дороги
-    const roadInstance: RoadInstance = {
-      id: roadId,
-      typeId: type,
-      path: path3D,
-      built: false,
-      totalLength,
-      constructionProgress: 0,
-      segments: [] // поки що порожній масив сегментів
-    };
-
-    this.roadInstances.set(roadId, roadInstance);
-
-    // Додаємо сегменти дороги в PathfindingSystem + у сцену (і у Spatial Grid)
-    this.addRoadToPathfinding(roadInstance);
-
-    // Маркуємо внутрішні ребра як зайняті
-    this.markInternalRoadEdgesAsBusy(roadId);
-
-    // Позначаємо як побудовану (згенеровані дороги стартової мапи)
-    roadInstance.built = true;
-    roadInstance.constructionProgress = 1.0;
-
     // Догенеруємо сегментні стани та delivered = required (використовуємо вже отриманий roadType вище)
     const perMeter = roadType.cost(1);
     const segs: RoadSegmentInstance[] = [] as any;
@@ -1509,11 +1544,29 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
         length
       } as any);
     }
-    roadInstance.segments = segs;
+
+    // Створюємо інстанс дороги одразу як побудований
+    const roadInstance: RoadInstance = {
+      id: roadId,
+      typeId: type,
+      path: path3D,
+      built: true,
+      totalLength,
+      constructionProgress: 1.0,
+      segments: segs
+    };
     (roadInstance as any).resourcesDelivered = Object.entries(perMeter).reduce((acc, [res, perM]) => {
       acc[res] = Math.round(perM * totalLength);
       return acc;
     }, {} as Record<string, number>);
+
+    this.roadInstances.set(roadId, roadInstance);
+
+    // Додаємо сегменти дороги в PathfindingSystem + у сцену (і у Spatial Grid)
+    this.addRoadToPathfinding(roadInstance);
+
+    // Маркуємо внутрішні ребра як зайняті
+    this.markInternalRoadEdgesAsBusy(roadId);
 
     console.log(`[BuildingsManager] Created road ${roadId} with length ${totalLength.toFixed(2)}m`);
     return roadId;
@@ -1717,6 +1770,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       targetType: (!road.built && (((road as any).plannedOnly === true) || (road.segments || []).some((s: any) => s.buildingState !== 'completed'))) ? ['build'] : []
     };
 
+    console.log('roadObject', roadObject);
     // Додаємо в сцену
     const success = this.sceneLogic.pushObjectWithTerrainConstraint(roadObject);
     if (!success) {

@@ -9,6 +9,14 @@ export class InteractionManager {
 
   constructor() {
     this.setupEventListeners();
+    // Автоматична реакція на запити зміни режиму від хендлерів
+    this.on('modeChange', (data: any) => {
+      const next: InteractionMode | undefined = data?.to;
+      if (!next) return;
+      // Уникаємо зациклення: якщо вже в цьому режимі — нічого не робимо
+      if (next === this.currentMode) return;
+      this.setMode(next);
+    });
   }
 
   private setupEventListeners(): void {
