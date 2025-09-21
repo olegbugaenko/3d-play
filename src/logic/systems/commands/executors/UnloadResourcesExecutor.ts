@@ -16,6 +16,8 @@ import {
 
 type PlannedUnload = { resourceId: string; amount: number };
 
+const EPSILON = 1e-8;
+
 export class UnloadResourcesExecutor extends CommandExecutor {
     private unloadProgress: number = 0;
     private lastUnloadTime: number = 0;
@@ -74,7 +76,7 @@ export class UnloadResourcesExecutor extends CommandExecutor {
         const resourcesToUnload = this.command.parameters?.resourcesToUnload as Record<string, number> | undefined;
 
         const { plan, totalRequested } = this.buildUnloadPlan(storage, resourcesToUnload, unloadBudget);
-        if (totalRequested <= 0) {
+        if (totalRequested <= EPSILON) {
             this.lastUnloadTime = currentTime;
             this.unloadProgress = calculateUnloadProgress(storage, getDroneCapacity(object));
             return {
@@ -116,8 +118,9 @@ export class UnloadResourcesExecutor extends CommandExecutor {
 
         const storage = ensureDroneStorage(object);
         const resourcesToUnload = this.command.parameters?.resourcesToUnload as Record<string, number> | undefined;
+        const remainingPlan = this.buildUnloadPlan(storage, resourcesToUnload, Number.POSITIVE_INFINITY);
 
-        if (!this.hasResourcesToUnload(object)) {
+        if (remainingPlan.totalRequested <= EPSILON) {
             return true;
         }
 
@@ -132,9 +135,8 @@ export class UnloadResourcesExecutor extends CommandExecutor {
         }
 
         if (target.tags?.includes('storage') && target.data?.isBuilt) {
-            const plan = this.buildUnloadPlan(storage, resourcesToUnload, Number.POSITIVE_INFINITY);
-            const canFit = plan.plan.some(item => getGlobalFreeCapacity(this.context, item.resourceId) > 0);
-            if (!canFit && plan.plan.length > 0) {
+            const canFit = remainingPlan.plan.some(item => getGlobalFreeCapacity(this.context, item.resourceId) > EPSILON);
+            if (!canFit && remainingPlan.plan.length > 0) {
                 return true;
             }
         } else if (target.tags?.includes('road')) {
@@ -159,7 +161,7 @@ export class UnloadResourcesExecutor extends CommandExecutor {
         const storage = ensureDroneStorage(object);
         const resourcesToUnload = this.command.parameters?.resourcesToUnload as Record<string, number> | undefined;
         const { totalRequested } = this.buildUnloadPlan(storage, resourcesToUnload, Number.POSITIVE_INFINITY);
-        return totalRequested > 0;
+        return totalRequested > EPSILON;
     }
 
     /**
@@ -212,20 +214,20 @@ export class UnloadResourcesExecutor extends CommandExecutor {
         let remaining = maxAmount;
 
         for (const [resourceId, amount] of Object.entries(storage)) {
-            if (remaining <= 0) break;
-            if (amount <= 0) continue;
+            if (remaining <= EPSILON) break;
+            if (amount <= EPSILON) continue;
 
             let allowed = amount;
             if (filter) {
                 const desired = Number(filter[resourceId]) || 0;
-                if (desired <= 0) {
+                if (desired <= EPSILON) {
                     continue;
                 }
                 allowed = Math.min(allowed, desired);
             }
 
             const toUnload = Math.min(allowed, remaining);
-            if (toUnload <= 0) continue;
+            if (toUnload <= EPSILON) continue;
 
             plan.push({ resourceId, amount: toUnload });
             remaining -= toUnload;
@@ -255,7 +257,7 @@ export class UnloadResourcesExecutor extends CommandExecutor {
     }
 
     private depositPlannedResource(object: any, target: any, resourceId: string, amount: number): number {
-        if (amount <= 0) {
+        if (amount <= EPSILON) {
             return 0;
         }
 
