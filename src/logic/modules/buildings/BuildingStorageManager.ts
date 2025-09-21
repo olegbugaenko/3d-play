@@ -1,6 +1,7 @@
 import { IBonusSystem } from '../../interfaces/IBonusSystem';
 import { ISceneLogic } from '../../interfaces/ISceneLogic';
 import { BuildingsManager } from './BuildingsManager';
+import { BuildingTypeId } from './buildings.types';
 
 /**
  * Manages internal storage for buildings with dynamic capacity and production rates
@@ -237,7 +238,7 @@ export class BuildingStorageManager {
   }
 
   // ===== Planner helpers for interaction/commands =====
-  public getIOFlags(buildingTypeId: string): Record<string, { acceptsInput?: boolean; providesOutput?: boolean }> {
+  public getIOFlags(buildingTypeId: BuildingTypeId): Record<string, { acceptsInput?: boolean; providesOutput?: boolean }> {
     const t = this.buildingsManager.getBuildingsDB().get(buildingTypeId);
     const cfg = (t?.data?.internalStorageConfig || {}) as Record<string, any>;
     const out: Record<string, { acceptsInput?: boolean; providesOutput?: boolean }> = {};

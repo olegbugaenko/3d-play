@@ -1,17 +1,23 @@
 import { SaveLoadManager } from '@save-load/save-load.types';
 import {
+  BUILDING_TYPE_IDS,
   BuildingTypeData,
   BuildingInstance,
+  BuildingTypeId,
   BuildingsManagerSaveData,
+  ROAD_TYPE_IDS,
+  RoadSegmentInstance,
   RoadTypeData,
   RoadInstance,
   RoadSnapData,
+  RoadTypeId,
 } from './buildings.types';
 import { BUILDINGS_DB, ROADS_DB } from './buildings-db';
 import { IBuildingsManager, IBonusSystem, ISceneLogic, IRequirementsSystem, IResourceManager } from '@interfaces/index';
 import { ResourceRequest } from '@resources/resource-types';
 import { BuildingStorageManager } from './BuildingStorageManager';
 import { TSceneObject } from '@scene/scene.types';
+import { BuildingSceneBinding, createBuildingSceneBinding } from './building-scene-binding';
 
 /* ──────────────────────────────────────────────────────────────────────────────
    Spatial Grid Index for Road Edges (inline in this file per your request)
@@ -150,11 +156,12 @@ class RoadEdgeIndex {
 /* ────────────────────────────────────────────────────────────────────────────── */
 
 export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
-  private buildingsDB: Map<string, BuildingTypeData> = new Map();
+  private buildingsDB: Map<BuildingTypeId, BuildingTypeData> = new Map();
   private buildingInstances: Map<string, BuildingInstance> = new Map();
-  
+  private buildingBindings: Map<string, BuildingSceneBinding> = new Map();
+
   // Підтримка доріг
-  private roadsDB: Map<string, RoadTypeData> = new Map();
+  private roadsDB: Map<RoadTypeId, RoadTypeData> = new Map();
   private roadInstances: Map<string, RoadInstance> = new Map();
 
   // NEW: spatial grid for fast nearest-edge queries
@@ -286,16 +293,79 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     });
   }
 
-  public registerBuildingType(id: string, data: BuildingTypeData): void {
+  public registerBuildingType(id: BuildingTypeId, data: BuildingTypeData): void {
     this.buildingsDB.set(id, data);
   }
 
   // ---------- Query helpers ----------
 
-  private ensureType(typeId: string): BuildingTypeData {
+  private ensureType(typeId: BuildingTypeId): BuildingTypeData {
     const t = this.buildingsDB.get(typeId);
     if (!t) throw new Error(`Building type ${typeId} not registered`);
     return t;
+  }
+
+  private ensureBuildingBinding(instance: BuildingInstance, type: BuildingTypeData): BuildingSceneBinding {
+    const existing = this.buildingBindings.get(instance.id);
+    if (existing) return existing;
+
+    const binding = createBuildingSceneBinding(instance, type);
+    this.buildingBindings.set(instance.id, binding);
+    return binding;
+  }
+
+  private markBuildingDirty(instanceId: string): void {
+    const obj = this.sceneLogic.getObjectById(instanceId);
+    if (!obj) {
+      return;
+    }
+
+    if (!obj._dirtyFlags) {
+      obj._dirtyFlags = {
+        position: false,
+        rotation: false,
+        scale: false,
+        data: true,
+        tags: false,
+        visibility: false,
+      };
+    } else {
+      obj._dirtyFlags.data = true;
+    }
+
+    obj._lastUpdate = Date.now();
+    this.sceneLogic.markObjectDirty(instanceId);
+  }
+
+  private ensureInternalStorage(instance: BuildingInstance, buildingType: BuildingTypeData): void {
+    const config = buildingType.data?.internalStorageConfig as
+      | Record<string, { capacity: number; defaultCurrent?: number; acceptsInput?: boolean; providesOutput?: boolean }>
+      | undefined;
+
+    if (!config) {
+      return;
+    }
+
+    if (!instance.internalStorage) {
+      instance.internalStorage = {};
+    }
+
+    for (const [resourceId, storageConfig] of Object.entries(config)) {
+      const prev = instance.internalStorage[resourceId];
+      const capacity = storageConfig.capacity;
+      const current = prev?.current ?? storageConfig.defaultCurrent ?? 0;
+
+      instance.internalStorage[resourceId] = {
+        capacity,
+        current,
+        acceptsInput: storageConfig.acceptsInput,
+        providesOutput: storageConfig.providesOutput,
+      };
+    }
+
+    if (instance.isFunctional === undefined) {
+      instance.isFunctional = true;
+    }
   }
 
   public getInstance(instanceId: string): BuildingInstance | undefined {
@@ -306,51 +376,37 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     return inst.built !== false && inst.level > 0;
   }
 
-  private getBonusSourceId(typeId: string): string {
+  private getBonusSourceId(typeId: BuildingTypeId): string {
     return `building_source_${typeId}`;
   }
 
-  private setBonusLevel(typeId: string, level: number): void {
+  private setBonusLevel(typeId: BuildingTypeId, level: number): void {
     this.bonusSystem.updateBonusSourceLevel(this.getBonusSourceId(typeId), level);
   }
 
   /**
    * Перераховує та оновлює рівень бонусу для типу будівлі на основі сумарного рівня всіх побудованих інстансів
    */
-  public updateBonusLevelForBuildingType(buildingTypeId: string): void {
+  public updateBonusLevelForBuildingType(buildingTypeId: BuildingTypeId): void {
     const totalLevel = this.getTotalLevelForBuildingType(buildingTypeId);
     this.setBonusLevel(buildingTypeId, totalLevel);
     console.log(`[BuildingsManager] Updated bonus level for ${buildingTypeId}: ${totalLevel}`);
   }
 
   private syncSceneFromInstance(instance: BuildingInstance): void {
-    const obj = this.sceneLogic.getObjectById(instance.id);
-    if (!obj) {
-      console.warn(`[BuildingsManager] Scene object ${instance.id} not found for sync`);
+    const type = this.buildingsDB.get(instance.typeId);
+    if (!type) {
+      console.warn(`[BuildingsManager] Scene sync skipped: unknown type ${instance.typeId}`);
       return;
     }
-    // Single projection point -> scene/UI always mirrors the instance
-    const computedBuilt = this.isBuiltComputed(instance);
-    obj.data.isBuilt = computedBuilt;
-    obj.data.built = computedBuilt; // Додаємо також built для сумісності з BuildingRenderer
-    obj.data.level = instance.level;
-    obj.data.constructionProgress = instance.constructionProgress ?? 0;
-    obj.data.resourcesCollected = instance.resourcesCollected ?? {};
-    
-    console.log(`[BuildingsManager] Synced ${instance.id}: obj.data.built=${obj.data.built}, obj.data.isBuilt=${obj.data.isBuilt}, obj.data.level=${obj.data.level}`);
-    
-    // Встановлюємо dirty flag для оновлення рендерера
-    if (obj._dirtyFlags) {
-      obj._dirtyFlags.data = true;
-      obj._lastUpdate = Date.now();
-    }
-    this.sceneLogic.markObjectDirty(obj.id);
-    console.log('Invalidating');
+
+    this.ensureBuildingBinding(instance, type);
+    this.markBuildingDirty(instance.id);
   }
 
   private upsertNewInstance(
     instanceId: string,
-    typeId: string,
+    typeId: BuildingTypeId,
     level: number,
     built: boolean,
     position?: { x: number; y: number; z: number }
@@ -372,20 +428,24 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
   public setInitialState(
     instanceId: string,
-    typeId: string,
+    typeId: BuildingTypeId,
     level: number = 0,
     built: boolean = false,
     position?: { x: number; y: number; z: number }
   ): void {
-    this.ensureType(typeId);
+    const buildingType = this.ensureType(typeId);
     const inst = this.upsertNewInstance(instanceId, typeId, level, built, position);
+    this.ensureInternalStorage(inst, buildingType);
 
-    if (built) this.updateBonusLevelForBuildingType(typeId);
+    if (built) {
+      this.updateBonusLevelForBuildingType(typeId);
+      this.syncSceneFromInstance(inst);
+    }
   }
 
   public planBuilding(
     instanceId: string,
-    typeId: string,
+    typeId: BuildingTypeId,
     position: { x: number; y: number; z: number }
   ): boolean {
     const buildingType = this.buildingsDB.get(typeId);
@@ -414,7 +474,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
   public buildOrUpgrade(
     instanceId: string,
-    typeId: string,
+    typeId: BuildingTypeId,
     position?: { x: number; y: number; z: number }
   ): boolean {
     const buildingType = this.buildingsDB.get(typeId);
@@ -428,6 +488,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Create new instance built at level 1
     if (!existing) {
       const inst = this.upsertNewInstance(instanceId, typeId, 1, true, position);
+      this.ensureInternalStorage(inst, buildingType);
       this.updateBonusLevelForBuildingType(typeId);
       this.syncSceneFromInstance(inst);
       return true;
@@ -438,6 +499,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       existing.built = true;
       existing.level = 1;
       if (position) existing.position = position;
+      this.ensureInternalStorage(existing, buildingType);
       this.updateBonusLevelForBuildingType(typeId);
       this.syncSceneFromInstance(existing);
       return true;
@@ -483,7 +545,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     return true;
   }
 
-  public getBuildingCost(typeId: string, level: number): ResourceRequest | undefined {
+  public getBuildingCost(typeId: BuildingTypeId, level: number): ResourceRequest | undefined {
     const buildingType = this.buildingsDB.get(typeId);
     return buildingType?.cost(level);
   }
@@ -492,26 +554,26 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     return this.getInstance(instanceId);
   }
 
-  public getBuildingType(typeId: string): BuildingTypeData | undefined {
+  public getBuildingType(typeId: BuildingTypeId): BuildingTypeData | undefined {
     return this.buildingsDB.get(typeId);
   }
 
   /**
    * Універсальний метод для отримання типу будь-якої конструкції (будівлі або дороги)
    */
-  public getConstructionType(typeId: string): BuildingTypeData | RoadTypeData | undefined {
+  public getConstructionType(typeId: BuildingTypeId | RoadTypeId): BuildingTypeData | RoadTypeData | undefined {
     // Спочатку шукаємо в звичайних будівлях
-    const buildingType = this.buildingsDB.get(typeId);
+    const buildingType = this.buildingsDB.get(typeId as BuildingTypeId);
     if (buildingType) return buildingType;
-    
+
     // Якщо не знайшли, шукаємо в дорогах
-    const roadType = this.roadsDB.get(typeId);
+    const roadType = this.roadsDB.get(typeId as RoadTypeId);
     if (roadType) return roadType;
-    
+
     return undefined;
   }
 
-  public getAllBuildingTypes(): Map<string, BuildingTypeData> {
+  public getAllBuildingTypes(): Map<BuildingTypeId, BuildingTypeData> {
     return new Map(this.buildingsDB);
   }
 
@@ -519,7 +581,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     return new Map(this.buildingInstances);
   }
 
-  public isBuildingTypeRegistered(typeId: string): boolean {
+  public isBuildingTypeRegistered(typeId: BuildingTypeId): boolean {
     return this.buildingsDB.has(typeId);
   }
 
@@ -534,7 +596,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   }
 
   public generateBuilding(
-    typeId: string,
+    typeId: BuildingTypeId,
     position: { x: number; y: number; z: number },
     level: number = 1,
     instanceId?: string
@@ -545,83 +607,61 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       return;
     }
 
-    // Create instance if absent (keeps prior logic)
-    if (!instanceId) {
-      instanceId = `${typeId}_${Date.now()}_${Math.random().toString(36)}`;
-      const inst = this.upsertNewInstance(instanceId, typeId, level, true, position);
-      this.updateBonusLevelForBuildingType(typeId);
+    let instance = instanceId ? this.buildingInstances.get(instanceId) : undefined;
+    let created = false;
+
+    if (!instance) {
+      const generatedId = instanceId ?? `${typeId}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      instance = this.upsertNewInstance(generatedId, typeId, level, true, position);
+      created = true;
     }
 
-    const inst = this.getInstance(instanceId);
+    if (!instance) {
+      console.warn(`[BuildingsManager] Failed to resolve building instance for ${typeId}`);
+      return;
+    }
+
+    instance.level = level;
+    instance.position = position;
+    this.ensureInternalStorage(instance, buildingData);
+
+    const binding = this.ensureBuildingBinding(instance, buildingData);
     const rotationOffset = buildingData.ui?.rotationOffset || { x: 0, y: 0, z: 0 };
-    const buildingObject = {
-      id: instanceId,
+
+    const buildingObject: TSceneObject<BuildingSceneBinding> = {
+      id: instance.id,
       type: 'building',
       coordinates: position,
       scale: buildingData.ui?.defaultScale || { x: 1, y: 1, z: 1 },
       rotation: rotationOffset,
       rotation2D: rotationOffset.y,
       obstacleSize: buildingData.data?.obstacleSize || 1,
-      data: {
-        buildingType: typeId,
-        level: inst?.level ?? level,
-        typeId,
-        built: inst?.built ?? true,
-        constructionProgress: inst?.constructionProgress || 0,
-        resourcesCollected: inst?.resourcesCollected || {},
-        ...(buildingData.data || {}),
-      },
+      data: binding,
       tags: ['on-ground', 'static', 'building', ...(buildingData.tags || [])],
       bottomAnchor: buildingData.ui?.bottomAnchor || 0,
       terrainAlign: true,
       targetType: ['unload-resource', 'repair', 'upgrade', 'build'],
     };
 
-    // НОВЕ: Ініціалізуємо внутрішні склади якщо вони є
-    if (buildingData.data?.internalStorageConfig) {
-      let internalStorage: Record<string, {capacity: number; current: number}> = {};
-      
-      // Якщо інстанс вже існує і має внутрішній склад – зберігаємо його значення
-      if (inst?.internalStorage) {
-        internalStorage = { ...inst.internalStorage };
-        // Оновлюємо capacity з конфігу, current залишаємо як є
-        Object.entries(buildingData.data.internalStorageConfig).forEach(([resourceId, config]: [string, any]) => {
-          const prev = internalStorage[resourceId] || { capacity: (config as any).capacity, current: (config as any).defaultCurrent || 0 };
-          internalStorage[resourceId] = { capacity: (config as any).capacity, current: prev.current };
-        });
-      } else {
-        Object.entries(buildingData.data.internalStorageConfig).forEach(([resourceId, config]: [string, any]) => {
-          internalStorage[resourceId] = {
-            capacity: (config as any).capacity,
-            current: (config as any).defaultCurrent || 0
-          };
-        });
-      }
-      
-      (buildingObject.data as any).internalStorage = internalStorage;
-      (buildingObject.data as any).isFunctional = inst?.isFunctional ?? true;
-      
-      if (inst) {
-        inst.internalStorage = internalStorage;
-        if (inst.isFunctional === undefined) inst.isFunctional = true;
-      }
-    }
-
     const success = this.sceneLogic.pushObjectWithTerrainConstraint(buildingObject);
     if (!success) {
       console.warn(`[BuildingsManager] Failed to add building ${typeId} to scene`);
-    } else if (inst) {
-      // After it's on scene, project the canonical instance values
-      this.syncSceneFromInstance(inst);
+      return;
     }
+
+    if (created) {
+      this.updateBonusLevelForBuildingType(typeId);
+    }
+
+    this.syncSceneFromInstance(instance);
   }
 
-  public startConstruction(typeId: string, position: { x: number; y: number; z: number }): void {
+  public startConstruction(typeId: BuildingTypeId, position: { x: number; y: number; z: number }): void {
     console.log(`Start construct: ${typeId}`, position);
   }
 
   public newGameBuildings(): void {
-    this.generateBuilding('spaceship', { x: 2, y: 30, z: 2 }, 1);
+    this.generateBuilding(BUILDING_TYPE_IDS.SPACESHIP, { x: 2, y: 30, z: 2 }, 1);
     for(let i = 0; i < 2; i++) {
       const smoke = {
       id: `smoke_source_start_${i}`,
@@ -652,29 +692,29 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Додаємо джерело диму
     this.sceneLogic.pushObjectWithTerrainConstraint(smoke);
     }
-    this.generateBuilding('charging_station_small', { x: -2, y: 30, z: -2 }, 1);
-    this.generateBuilding('minimal_storage', { x: -2, y: 30, z: 2 }, 1);
+    this.generateBuilding(BUILDING_TYPE_IDS.CHARGING_STATION_SMALL, { x: -2, y: 30, z: -2 }, 1);
+    this.generateBuilding(BUILDING_TYPE_IDS.MINIMAL_STORAGE, { x: -2, y: 30, z: 2 }, 1);
     
     // 🚀 TEST: Додаємо тестові біо-будівлі для швидкого тесту storage індикації
     console.log('[TEST] Adding test bio buildings for storage testing...');
     
     // Біо-інкубатор (виробляє біомасу у внутрішній склад)
     const bioIncubatorPos = { x: 3 + Math.random() * 4, y: 30, z: -1 + Math.random() * 2 }; // x: 3-7, z: -1 to 1
-    this.generateBuilding('bioIncubator', bioIncubatorPos, 1);
+    this.generateBuilding(BUILDING_TYPE_IDS.BIO_INCUBATOR, bioIncubatorPos, 1);
     console.log(`[TEST] Generated bioIncubator at (${bioIncubatorPos.x.toFixed(1)}, ${bioIncubatorPos.z.toFixed(1)})`);
     
     // Біо-генератор (споживає біомасу з внутрішнього складу)
     const bioGeneratorPos = { x: -5 + Math.random() * 4, y: 30, z: -1 + Math.random() * 2 }; // x: -5 to -1, z: -1 to 1
-    this.generateBuilding('bioGenerator', bioGeneratorPos, 1);
+    this.generateBuilding(BUILDING_TYPE_IDS.BIO_GENERATOR, bioGeneratorPos, 1);
     console.log(`[TEST] Generated bioGenerator at (${bioGeneratorPos.x.toFixed(1)}, ${bioGeneratorPos.z.toFixed(1)})`);
     
-    const roadId = this.generateRoads('basic_road', [
+    this.generateRoads(ROAD_TYPE_IDS.BASIC, [
       {x: -5, z: 5},
       {x: -5, z: -5}, 
       {x: 5, z: -5}
     ]);
 
-    const roadId2 = this.generateRoads('basic_road', [
+    this.generateRoads(ROAD_TYPE_IDS.BASIC, [
       {x: -5, z: -5},
       {x: -10, z: -10}
     ]);
@@ -705,6 +745,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   public load(data: BuildingsManagerSaveData): void {
     this.buildingInstances.clear();
     this.roadInstances.clear();
+    this.buildingBindings.clear();
 
     // Rehydrate instances and their scene projections
     data.buildingInstances.forEach(inst => {
@@ -770,7 +811,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     }
 
     // Після завантаження всіх будівель - перераховуємо бонуси для кожного типу
-    const buildingTypes = new Set(this.buildingInstances.values()).forEach(inst => inst.typeId);
     for (const typeId of new Set([...this.buildingInstances.values()].map(inst => inst.typeId))) {
       this.updateBonusLevelForBuildingType(typeId);
     }
@@ -782,8 +822,8 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   }
 
   public reset(): void {
-    const typesToUpdate = new Set<string>();
-    
+    const typesToUpdate = new Set<BuildingTypeId>();
+
     this.buildingInstances.forEach(inst => {
       inst.level = 0;
       inst.built = false;
@@ -791,6 +831,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       inst.constructionProgress = 0;
       inst.resourcesCollected = {};
       typesToUpdate.add(inst.typeId);
+      this.syncSceneFromInstance(inst);
     });
 
     // Очищаємо всі дороги
@@ -804,7 +845,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
   // ---------- Stats & availability ----------
 
-  public getBuildingTypeCount(buildingTypeId: string): number {
+  public getBuildingTypeCount(buildingTypeId: BuildingTypeId): number {
     let count = 0;
     for (const inst of this.buildingInstances.values()) {
       if (inst.typeId === buildingTypeId && inst.built) count++;
@@ -812,7 +853,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     return count;
   }
 
-  public canBuild(buildingTypeId: string): boolean {
+  public canBuild(buildingTypeId: BuildingTypeId): boolean {
     const buildingData = this.buildingsDB.get(buildingTypeId);
     if (!buildingData) return false;
 
@@ -829,7 +870,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     return Array.from(this.buildingsDB.values()).filter(b => this.canBuild(b.id));
   }
 
-  public getTotalLevelForBuildingType(buildingTypeId: string): number {
+  public getTotalLevelForBuildingType(buildingTypeId: BuildingTypeId): number {
     let total = 0;
     for (const inst of this.buildingInstances.values()) {
       if (inst.typeId === buildingTypeId && inst.built && inst.isFunctional !== false) {
@@ -843,7 +884,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   //        Методи для доріг
   // ──────────────────────────────
 
-  public getRoadTypeCount(roadTypeId: string): number {
+  public getRoadTypeCount(roadTypeId: RoadTypeId): number {
     let count = 0;
     for (const inst of this.roadInstances.values()) {
       if (inst.typeId === roadTypeId) {
@@ -855,7 +896,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     return count;
   }
 
-  public canBuildRoad(roadTypeId: string): boolean {
+  public canBuildRoad(roadTypeId: RoadTypeId): boolean {
     const roadData = this.roadsDB.get(roadTypeId);
     if (!roadData) return false;
 
@@ -934,7 +975,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
    * Створює заплановану дорогу (з недобудованими сегментами)
    */
   public createPlannedRoad(
-    roadTypeId: string, 
+    roadTypeId: RoadTypeId,
     path: Array<{x: number, y: number, z: number}>,
     snapData?: { startSnap?: RoadSnapData, endSnap?: RoadSnapData }
   ): string | null {
@@ -1055,7 +1096,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   /**
    * Перевіряє чи можна побудувати дорогу по заданому шляху
    */
-  public canBuildRoadAt(path: Array<{x: number, y: number, z: number}>, roadTypeId: string): boolean {
+  public canBuildRoadAt(path: Array<{x: number, y: number, z: number}>, roadTypeId: RoadTypeId): boolean {
     const roadType = this.roadsDB.get(roadTypeId);
     if (!roadType) {
       console.warn(`[BuildingsManager] Road type ${roadTypeId} not found`);
@@ -1095,8 +1136,8 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
    * Перевіряє чи можна розмістити будівлю в заданій позиції
    */
   public canPlaceBuildingAt(
-    position: { x: number; y: number; z: number }, 
-    buildingTypeId: string
+    position: { x: number; y: number; z: number },
+    buildingTypeId: BuildingTypeId
   ): boolean {
     const buildingType = this.buildingsDB.get(buildingTypeId);
     if (!buildingType) {
@@ -1137,7 +1178,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     );
   }
 
-  public getMaxLevelForBuildingType(buildingTypeId: string): number {
+  public getMaxLevelForBuildingType(buildingTypeId: BuildingTypeId): number {
     let max = 0;
     for (const inst of this.buildingInstances.values()) {
       if (inst.typeId === buildingTypeId && inst.built) max = Math.max(max, inst.level);
@@ -1146,7 +1187,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   }
 
   public listBuildingsForUI(): Array<{
-    typeId: string;
+    typeId: BuildingTypeId;
     name: string;
     description: string;
     currentCount: number;
@@ -1477,7 +1518,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   /**
    * Public access to buildings DB for BuildingStorageManager
    */
-  public getBuildingsDB(): Map<string, BuildingTypeData> {
+  public getBuildingsDB(): Map<BuildingTypeId, BuildingTypeData> {
     return this.buildingsDB;
   }
 
@@ -1493,7 +1534,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   // ──────────────────────────────
 
 
-  public generateRoads(type: string, path: Array<{x: number, z: number}>): string | null {
+  public generateRoads(type: RoadTypeId, path: Array<{x: number, z: number}>): string | null {
     const roadType = this.roadsDB.get(type);
     if (!roadType) {
       console.warn(`[BuildingsManager] Road type ${type} not found`);
@@ -1521,7 +1562,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
     // Догенеруємо сегментні стани та delivered = required (використовуємо вже отриманий roadType вище)
     const perMeter = roadType.cost(1);
-    const segs: RoadSegmentInstance[] = [] as any;
+    const segs: RoadSegmentInstance[] = [];
     for (let i = 1; i < path3D.length; i++) {
       const start = path3D[i - 1];
       const end = path3D[i];
@@ -1542,7 +1583,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
         requiredResources: required,
         deliveredResources: delivered,
         length
-      } as any);
+      });
     }
 
     // Створюємо інстанс дороги одразу як побудований

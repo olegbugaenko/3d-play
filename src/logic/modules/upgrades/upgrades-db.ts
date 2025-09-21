@@ -1,11 +1,8 @@
-import { UpgradeTypeData } from './upgrades.types';
+import { UpgradeTypeData, UpgradeTypeId, UPGRADE_TYPE_IDS } from './upgrades.types';
 
-
-// База даних типів апгрейдів
-export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
-  
-  ['miningEfficiency1', {
-    id: 'miningEfficiency1',
+const UPGRADE_ENTRIES: Array<[UpgradeTypeId, UpgradeTypeData]> = [
+  [UPGRADE_TYPE_IDS.MINING_EFFICIENCY, {
+    id: UPGRADE_TYPE_IDS.MINING_EFFICIENCY,
     name: 'Repair Drone Manipulator',
     description: 'Збільшує швидкість збору ресурсів',
     maxLevel: 5,
@@ -35,15 +32,15 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
     })
   }],
 
-  ['batteryCapacity', {
-    id: 'batteryCapacity1',
+  [UPGRADE_TYPE_IDS.BATTERY_CAPACITY, {
+    id: UPGRADE_TYPE_IDS.BATTERY_CAPACITY,
     name: 'Repair Battery',
     description: 'Збільшує ємність батареї дрона',
     maxLevel: 5,
     requirements: [
       {
         scope: 'upgrade',
-        id: 'miningEfficiency1',
+        id: UPGRADE_TYPE_IDS.MINING_EFFICIENCY,
         level: 2,
       }
     ],
@@ -73,16 +70,16 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
     })
   }],
 
-  ['building_constructions', {
-    id: 'building_constructions',
+  [UPGRADE_TYPE_IDS.BUILDING_CONSTRUCTIONS, {
+    id: UPGRADE_TYPE_IDS.BUILDING_CONSTRUCTIONS,
     name: 'Building',
     description: 'Unlocks buildings',
     maxLevel: 1,
-    modifier: {},
+    modifier: {}, // Створення дрона обробляється окремим хендлером
     requirements: [
       {
         scope: 'upgrade',
-        id: 'miningEfficiency1',
+        id: UPGRADE_TYPE_IDS.MINING_EFFICIENCY,
         level: 5,
       }
     ],
@@ -98,15 +95,15 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
     })
   }],
 
-  ['repairGenerator', {
-    id: 'repairGenerator',
+  [UPGRADE_TYPE_IDS.REPAIR_GENERATOR, {
+    id: UPGRADE_TYPE_IDS.REPAIR_GENERATOR,
     name: 'Repair Generator',
     description: 'Збільшує генерацію енергії',
     maxLevel: 5,
     requirements: [
       {
         scope: 'upgrade',
-        id: 'miningEfficiency1',
+        id: UPGRADE_TYPE_IDS.MINING_EFFICIENCY,
         level: 2,
       }
     ],
@@ -136,15 +133,15 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
     })
   }],
 
-  ['repairBattery', {
-    id: 'repairBattery',
+  [UPGRADE_TYPE_IDS.REPAIR_BATTERY, {
+    id: UPGRADE_TYPE_IDS.REPAIR_BATTERY,
     name: 'Repair Battery',
     description: 'Збільшує ємність батареї головної батареї на 10 на рівень',
     maxLevel: 10,
     requirements: [
       {
         scope: 'upgrade',
-        id: 'miningEfficiency1',
+        id: UPGRADE_TYPE_IDS.MINING_EFFICIENCY,
         level: 3,
       }
     ],
@@ -173,21 +170,21 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
       ore: 5 * (1.2 ** (level - 1)),
     })
   }],
-  
-  ['storageCapacity', {
-    id: 'storageCapacity',
+
+  [UPGRADE_TYPE_IDS.STORAGE_CAPACITY, {
+    id: UPGRADE_TYPE_IDS.STORAGE_CAPACITY,
     name: 'Storage Capacity',
     description: 'Збільшує ємність складу ресурсів',
     maxLevel: 8,
     requirements: [
       {
         scope: 'upgrade',
-        id: 'miningEfficiency1',
+        id: UPGRADE_TYPE_IDS.MINING_EFFICIENCY,
         level: 3,
       },
       {
         scope: 'upgrade',
-        id: 'repairBattery',
+        id: UPGRADE_TYPE_IDS.REPAIR_BATTERY,
         level: 1,
       }
     ],
@@ -234,8 +231,8 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
   }],
 
   // НОВІ АПГРЕЙДИ ПІСЛЯ КОНСТРУКШИНУ
-  ['repairKit', {
-    id: 'repairKit',
+  [UPGRADE_TYPE_IDS.REPAIR_KIT, {
+    id: UPGRADE_TYPE_IDS.REPAIR_KIT,
     name: 'Repair Kit',
     description: 'Додає ще один дрон до колонії',
     maxLevel: 1,
@@ -246,35 +243,22 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
         level: 1
       }
     ],
-    modifier: {
-      effect: {
-        addition: {
-          max_drone_count: {
-            formula: (_data: any) => ({
-              type: 'linear',
-              A: 1, // +1 дрон
-              B: 0
-            }),
-            deps: [] as string[]
-          }
-        }
-      }
-    },
+    modifier: {},
     ui: {
       defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
       rotationOffset: { x: 0, y: 0, z: 0 },
       iconName: 'repair-kit.png',
       color: '#FF6B6B' // Червоний для ремонту
     },
-    cost: (level: number) => ({
+    cost: (_level: number) => ({
       stone: 30,
       ore: 20,
       energy: 15
     })
   }],
 
-  ['bioModule', {
-    id: 'bioModule',
+  [UPGRADE_TYPE_IDS.BIO_MODULE, {
+    id: UPGRADE_TYPE_IDS.BIO_MODULE,
     name: 'Bio Module',
     description: 'Розблоковує біо-технології та нові будівлі',
     maxLevel: 1,
@@ -292,26 +276,29 @@ export const UPGRADES_DB: Map<string, UpgradeTypeData> = new Map([
       iconName: 'bio-module.png',
       color: '#4ECDC4' // Тірквойзовий для біо-технологій
     },
-    cost: (level: number) => ({
+    cost: (_level: number) => ({
       stone: 40,
       ore: 25,
       biomass: 20
     })
   }]
-]);
+];
+
+// База даних типів апгрейдів
+export const UPGRADES_DB: Map<UpgradeTypeId, UpgradeTypeData> = new Map(UPGRADE_ENTRIES);
 
 // Метод для отримання типу апгрейду за ID
-export function getUpgradeType(id: string): UpgradeTypeData | undefined {
+export function getUpgradeType(id: UpgradeTypeId): UpgradeTypeData | undefined {
   return UPGRADES_DB.get(id);
 }
 
 // Метод для отримання всіх типів апгрейдів
-export function getAllUpgradeTypes(): Map<string, UpgradeTypeData> {
+export function getAllUpgradeTypes(): Map<UpgradeTypeId, UpgradeTypeData> {
   return new Map(UPGRADES_DB);
 }
 
 // Метод для перевірки чи існує тип апгрейду
-export function isUpgradeTypeExists(id: string): boolean {
+export function isUpgradeTypeExists(id: UpgradeTypeId): boolean {
   return UPGRADES_DB.has(id);
 }
 
