@@ -48,8 +48,19 @@ export class CommandScheduler {
       groupKey: `${objectId}-${group.id}`
     };
 
-    const queue = this.runtimeQueuesByObject.get(objectId) ?? [];
-    queue.push(runtime);
+    let queue = this.runtimeQueuesByObject.get(objectId);
+    if (!queue) {
+      queue = [];
+    }
+
+    const shouldInterrupt = group.autoExecute?.priority === 'interrupt';
+    if (shouldInterrupt && queue.length > 0) {
+      const activeRuntime = queue[0];
+      this.pauseRuntime(activeRuntime);
+      queue.unshift(runtime);
+    } else {
+      queue.push(runtime);
+    }
     this.runtimeQueuesByObject.set(objectId, queue);
 
     this.runtimeByInstanceId.set(instance.id, runtime);
@@ -57,7 +68,7 @@ export class CommandScheduler {
 
     this.contextStore.register(instance.id, instance.getContext(), group.resolveParametersPipeline);
 
-    if (queue.length === 1 && !this.activeCommandByObject.has(objectId)) {
+    if (queue[0] === runtime && !this.activeCommandByObject.has(objectId)) {
       this.dispatchNext(runtime);
     }
   }
@@ -205,5 +216,21 @@ export class CommandScheduler {
       }
       command.parameters[field] = value;
     }
+  }
+
+  private pauseRuntime(runtime: PlanRuntime): void {
+    const activeCommandId = this.activeCommandByObject.get(runtime.objectId);
+    if (!activeCommandId) {
+      return;
+    }
+
+    const pending = this.pendingCommandById.get(activeCommandId);
+    if (pending && pending.runtime === runtime) {
+      this.pendingCommandById.delete(activeCommandId);
+      runtime.instance.markCommandFailed(activeCommandId);
+    }
+
+    this.activeCommandByObject.delete(runtime.objectId);
+    this.commandSystem.clearCommandsByGroup(runtime.objectId, runtime.group.id);
   }
 }
