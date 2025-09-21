@@ -170,7 +170,7 @@ export class BuildingRenderer extends BaseRenderer {
       const baseParentScale = this.getBaseParentScale(container);
       const baseY = HUD_WORLD_Y_OFFSET_FALLBACK + userHudOffset;
       const title = config?.name ? `${config.name}` : (object.id || 'building');
-      this.attachOrUpdateCombinedHUD(container, constructionProgress, resourceInfo, baseY, baseParentScale, { title });
+      this.attachOrUpdateCombinedHUD(object.id, container, constructionProgress, resourceInfo, baseY, baseParentScale, { title });
       (container as any).userData.constructionBarY = HUD_WORLD_Y_OFFSET_FALLBACK;
     } else {
       // Storage HUD via combined HUD without progress bar
@@ -182,7 +182,7 @@ export class BuildingRenderer extends BaseRenderer {
           const baseY = HUD_WORLD_Y_OFFSET_FALLBACK + userHudOffset;
           const resInfo = this.storageToResourceInfo(storageInfo);
           const title = config?.name ? `${config.name}` : (object.id || 'building');
-          this.attachOrUpdateCombinedHUD(container, 0, resInfo, baseY, baseParentScale, { showProgress: false, disableCache: true, title });
+          this.attachOrUpdateCombinedHUD(object.id, container, 0, resInfo, baseY, baseParentScale, { showProgress: false, disableCache: true, title });
         }
       } else {
         this.removeHUD(container);
@@ -242,6 +242,7 @@ export class BuildingRenderer extends BaseRenderer {
         const baseParentScale = this.getBaseParentScale(container);
         const resourceInfo = this.getBuildingResourceInfo(buildingType, data?.resourcesCollected || {});
         this.attachOrUpdateCombinedHUD(
+          object.id,
           container,
           constructionProgress,
           resourceInfo,
@@ -260,7 +261,7 @@ export class BuildingRenderer extends BaseRenderer {
             const baseParentScale = this.getBaseParentScale(container);
             const resInfo = this.storageToResourceInfo(storageInfo);
             const title = config?.name ? `${config.name}` : (object.id || 'building');
-            this.attachOrUpdateCombinedHUD(container, 0, resInfo, baseY + userHudOffset, baseParentScale, { showProgress: false, disableCache: true, title });
+            this.attachOrUpdateCombinedHUD(object.id, container, 0, resInfo, baseY + userHudOffset, baseParentScale, { showProgress: false, disableCache: true, title });
           }
         } else {
           this.removeHUD(container);
@@ -284,6 +285,7 @@ export class BuildingRenderer extends BaseRenderer {
 
   // ---------- Combined HUD ----------
   private attachOrUpdateCombinedHUD(
+    ownerId: string,
     anchor: THREE.Object3D,
     constructionProgress: number,
     resourceInfo: ResourceInfo,
@@ -373,11 +375,10 @@ export class BuildingRenderer extends BaseRenderer {
           final = Math.min(final, pxScale);
         }
         hud!.scale.set(final, final, final);
+        hud!.updateMatrixWorld(true);
       };
 
-      this.scene.add(hud);
-      (anchor as any).userData = (anchor as any).userData || {};
-      (anchor as any).userData.combinedHUD = hud;
+      this.hudRegistry.register(ownerId, anchor, hud);
     } else {
       const bg = hud.getObjectByName('hudPlane') as THREE.Mesh;
       const mat = bg.material as THREE.MeshBasicMaterial;
@@ -403,11 +404,7 @@ export class BuildingRenderer extends BaseRenderer {
   }
 
   private removeHUD(anchor: THREE.Object3D) {
-    const hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
-    if (hud) {
-      this.scene.remove(hud);
-      (anchor as any).userData.combinedHUD = undefined;
-    }
+    this.hudRegistry.detachFromAnchor(anchor);
   }
 
   // ---------- Canvas builder ----------
@@ -800,7 +797,7 @@ export class BuildingRenderer extends BaseRenderer {
         (anchor as any).userData.constructionBarY = storedBaseY;
         (anchor as any).userData.hudYOffset = extraY;
       } else {
-        this.attachOrUpdateCombinedHUD(anchor, p, info, barY, baseParentScale);
+        this.attachOrUpdateCombinedHUD(object.id, anchor, p, info, barY, baseParentScale);
       }
     } else {
       // Built building: render storage HUD if internal storage present
@@ -849,7 +846,7 @@ export class BuildingRenderer extends BaseRenderer {
             (anchor as any).userData.constructionBarY = storedBaseY;
             (anchor as any).userData.hudYOffset = extraY;
           } else {
-            this.attachOrUpdateCombinedHUD(anchor, 0, resInfo, barY, baseParentScale, { showProgress: false, disableCache: true, title });
+            this.attachOrUpdateCombinedHUD(object.id, anchor, 0, resInfo, barY, baseParentScale, { showProgress: false, disableCache: true, title });
           }
         } else {
           this.removeHUD(anchor);
@@ -870,16 +867,9 @@ export class BuildingRenderer extends BaseRenderer {
   public dispose(): void {
     this.geometry.dispose();
     this.material.dispose();
-
-    this.meshes.forEach((mesh) => {
-      const hud = (mesh as any).userData?.combinedHUD as THREE.Group | undefined;
-      if (hud) this.scene.remove(hud);
-    });
-
-    this.meshes.forEach((mesh) => this.scene.remove(mesh));
-    this.meshes.clear();
-
     this.modelCache.clear();
+
+    super.dispose();
   }
 
   // ========== Storage HUD Methods ==========

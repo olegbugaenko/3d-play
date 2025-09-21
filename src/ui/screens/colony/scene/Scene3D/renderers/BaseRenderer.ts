@@ -1,14 +1,17 @@
 import * as THREE from 'three'
 import { TSceneObject } from '@logic/systems/scene/scene.types'
+import { HudRegistry } from './hud/HudRegistry'
 
 export abstract class BaseRenderer {
     protected scene: THREE.Scene;
     protected renderer?: THREE.WebGLRenderer;
     protected meshes: Map<string, THREE.Object3D> = new Map();
+    protected hudRegistry: HudRegistry;
 
     constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
         this.scene = scene;
         this.renderer = renderer;
+        this.hudRegistry = new HudRegistry(scene);
     }
 
     abstract render(object: TSceneObject): THREE.Object3D;
@@ -34,6 +37,7 @@ export abstract class BaseRenderer {
     remove(id: string): void {
         const mesh = this.meshes.get(id);
         if (mesh) {
+            this.hudRegistry.detachFromObjectGraph(mesh);
             this.scene.remove(mesh);
             this.meshes.delete(id);
         }
@@ -55,12 +59,12 @@ export abstract class BaseRenderer {
     // Очищення ресурсів (важливо для HMR!)
     // -------------------------
     public dispose(): void {
-        // Очищаємо всі меші з сцени
         for (const [_id, mesh] of this.meshes) {
+            this.hudRegistry.detachFromObjectGraph(mesh);
             this.scene.remove(mesh);
         }
-        
-        // Очищаємо Map
+
         this.meshes.clear();
+        this.hudRegistry.dispose();
     }
 }
