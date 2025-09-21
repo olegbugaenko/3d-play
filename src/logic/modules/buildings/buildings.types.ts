@@ -3,9 +3,33 @@ import { CostFormula } from '@shared/types/common.types';
 import { BonusSourceModifier } from '@systems/modifiers-system';
 import { Requirement } from '@systems/requirements';
 
+// -----------------------------------------------------------------------------
+//  Building & road identifiers
+// -----------------------------------------------------------------------------
+
+export const BUILDING_TYPE_IDS = {
+  SPACESHIP: 'spaceship',
+  CHARGING_STATION_SMALL: 'charging_station_small',
+  MINIMAL_STORAGE: 'minimal_storage',
+  STORAGE: 'storage',
+  CHARGING_STATION: 'chargingStation',
+  SOLAR_PANEL: 'solarPanel',
+  BIO_GENERATOR: 'bioGenerator',
+  BIO_INCUBATOR: 'bioIncubator',
+} as const;
+
+export type BuildingTypeId = typeof BUILDING_TYPE_IDS[keyof typeof BUILDING_TYPE_IDS];
+
+export const ROAD_TYPE_IDS = {
+  BASIC: 'basic_road',
+  REINFORCED: 'reinforced_road',
+} as const;
+
+export type RoadTypeId = typeof ROAD_TYPE_IDS[keyof typeof ROAD_TYPE_IDS];
+
 // Типи доріг
 export interface RoadTypeData {
-  id: string;
+  id: RoadTypeId;
   name: string;
   description: string;
   width: number;         // ширина дороги в метрах
@@ -50,7 +74,7 @@ export interface RoadSnapData {
 // Інстанс дороги на карті
 export interface RoadInstance {
   id: string;            // унікальний ID дороги
-  typeId: string;        // тип дороги
+  typeId: RoadTypeId;    // тип дороги
   path: Vector3[];       // масив точок шляху (для зворотної сумісності)
   built: boolean;        // чи побудована дорога (true якщо всі сегменти completed)
   totalLength: number;   // загальна довжина в метрах
@@ -74,7 +98,7 @@ export interface BuildingUI {
 
 // Дані типу будівлі з БД
 export interface BuildingTypeData {
-  id: string; // ID типу будівлі (НЕ ідентифікатор об'єкта на карті)
+  id: BuildingTypeId; // ID типу будівлі (НЕ ідентифікатор об'єкта на карті)
   modifier?: BonusSourceModifier; // Наш бонус сорс для будівлі, опціонально
   requirements?: Requirement[]; // Реквайрменти для будівництва
   ui: BuildingUI;
@@ -92,7 +116,7 @@ export interface BuildingTypeData {
 // Стан конкретної будівлі на карті
 export interface BuildingInstance {
   id: string; // Унікальний ідентифікатор об'єкта на карті
-  typeId: string; // Посилання на тип будівлі
+  typeId: BuildingTypeId; // Посилання на тип будівлі
   level: number;
   built: boolean;
   position?: Vector3;

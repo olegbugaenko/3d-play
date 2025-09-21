@@ -3,9 +3,26 @@ import { CostFormula } from '@shared/types/common.types';
 import { BonusSourceModifier } from '@systems/modifiers-system';
 import { Requirement } from '@systems/requirements';
 
+// -----------------------------------------------------------------------------
+//  Upgrade identifiers
+// -----------------------------------------------------------------------------
+
+export const UPGRADE_TYPE_IDS = {
+  MINING_EFFICIENCY: 'miningEfficiency1',
+  BATTERY_CAPACITY: 'batteryCapacity',
+  BUILDING_CONSTRUCTIONS: 'building_constructions',
+  REPAIR_GENERATOR: 'repairGenerator',
+  REPAIR_BATTERY: 'repairBattery',
+  STORAGE_CAPACITY: 'storageCapacity',
+  REPAIR_KIT: 'repairKit',
+  BIO_MODULE: 'bioModule',
+} as const;
+
+export type UpgradeTypeId = typeof UPGRADE_TYPE_IDS[keyof typeof UPGRADE_TYPE_IDS];
+
 // Тип даних для апгрейду
 export interface UpgradeTypeData {
-  id: string;
+  id: UpgradeTypeId;
   name: string;
   description: string;
   maxLevel: number;
@@ -28,7 +45,7 @@ export interface UpgradeState {
 
 // Запит на ресурси для апгрейду
 export interface UpgradeResourceRequest {
-  upgradeId: string;
+  upgradeId: UpgradeTypeId;
   resources: {
     energy?: number;
     stone?: number;
@@ -38,7 +55,7 @@ export interface UpgradeResourceRequest {
 
 // UI дані для відображення апгрейду
 export interface UpgradeDataUI {
-  id: string;
+  id: UpgradeTypeId;
   name: string;
   description: string;
   maxLevel: number;

@@ -1,4 +1,4 @@
-import { BuildingTypeData, RoadTypeData } from './buildings.types';
+import { BuildingTypeData, BuildingTypeId, RoadTypeData, RoadTypeId } from './buildings.types';
 import { CostFormula } from '@shared/types/common.types';
 
 // Формули вартості для різних типів будівель
@@ -27,7 +27,7 @@ const bioIncubatorCostFormula: CostFormula = (level: number) => ({
 });
 
 // База даних типів будівель
-export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
+export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
   ['spaceship', {
     id: 'spaceship',
     name: 'Spaceship',
@@ -384,17 +384,17 @@ export const BUILDINGS_DB: Map<string, BuildingTypeData> = new Map([
 ]);
 
 // Метод для отримання типу будівлі за ID
-export function getBuildingType(id: string): BuildingTypeData | undefined {
+export function getBuildingType(id: BuildingTypeId): BuildingTypeData | undefined {
   return BUILDINGS_DB.get(id);
 }
 
 // Метод для отримання всіх типів будівель
-export function getAllBuildingTypes(): Map<string, BuildingTypeData> {
+export function getAllBuildingTypes(): Map<BuildingTypeId, BuildingTypeData> {
   return new Map(BUILDINGS_DB);
 }
 
 // Метод для перевірки чи існує тип будівлі
-export function isBuildingTypeExists(id: string): boolean {
+export function isBuildingTypeExists(id: BuildingTypeId): boolean {
   return BUILDINGS_DB.has(id);
 }
 
@@ -416,7 +416,7 @@ const reinforcedRoadCostFormula: CostFormula = (_level: number) => ({
 });
 
 // База даних типів доріг
-export const ROADS_DB: Map<string, RoadTypeData> = new Map([
+export const ROADS_DB: Map<RoadTypeId, RoadTypeData> = new Map([
   ['basic_road', {
     id: 'basic_road',
     name: 'Основна дорога',

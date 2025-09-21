@@ -1,108 +1,90 @@
 import { SaveLoadManager, UpgradesManagerSaveData } from '@save-load/save-load.types';
-import { UpgradeTypeData, UpgradeState, UpgradeDataUI } from './upgrades.types';
-import { UPGRADES_DB } from './upgrades-db';
 import { IUpgradesManager, IBonusSystem, IResourceManager, IRequirementsSystem } from '@interfaces/index';
-import { ResourceRequest } from '@resources/resource-types';
+import { ResourceId } from '@resources/resources-db';
+import { ResourceChange, ResourceRequest, ResourceCheckResult } from '@resources/resource-types';
 import { BonusDetail } from '@modifiers/bonus-system.types';
-import { TSceneObject } from '@scene/scene.types';
+
+import { UPGRADES_DB } from './upgrades-db';
+import {
+  UpgradeDataUI,
+  UpgradeState,
+  UpgradeTypeData,
+  UpgradeTypeId,
+} from './upgrades.types';
+import { applyUpgradeEffect, UpgradeEffectContainer } from './upgrade-effects';
+
+interface UpgradeListItem {
+  typeId: UpgradeTypeId;
+  name: string;
+  description: string;
+  currentLevel: number;
+  maxLevel: number;
+  unlocked: boolean;
+  requirementsMet: boolean;
+  canUpgrade: boolean;
+  canAfford: boolean;
+  nextLevelCost?: ResourceRequest;
+  costCheck?: ResourceCheckResult;
+  bonusDetails: BonusDetail[];
+}
+
+const DEFAULT_UPGRADE_STATE: UpgradeState = { level: 0, unlocked: false };
 
 export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
-  private upgradesDB: Map<string, UpgradeTypeData> = new Map();
-  private upgradeStates: Map<string, UpgradeState> = new Map();
-  private bonusSystem: IBonusSystem;
-  private resourceManager: IResourceManager;
-  private requirementsSystem: IRequirementsSystem;
-  private container: any | null = null; // Посилання на GameContainer
+  private readonly bonusSystem: IBonusSystem;
+  private readonly resourceManager: IResourceManager;
+  private readonly requirementsSystem: IRequirementsSystem;
 
-  constructor(bonusSystem: IBonusSystem, resourceManager: IResourceManager, requirementsSystem: IRequirementsSystem) {
+  private readonly upgradeTypes = new Map<UpgradeTypeId, UpgradeTypeData>();
+  private readonly upgradeStates = new Map<UpgradeTypeId, UpgradeState>();
+
+  private container: UpgradeEffectContainer | null = null;
+
+  constructor(
+    bonusSystem: IBonusSystem,
+    resourceManager: IResourceManager,
+    requirementsSystem: IRequirementsSystem,
+  ) {
     this.bonusSystem = bonusSystem;
     this.resourceManager = resourceManager;
     this.requirementsSystem = requirementsSystem;
-
   }
 
   /**
    * Встановлює посилання на GameContainer для доступу до інших менеджерів
    */
-  public setContainer(container: any): void {
+  public setContainer(container: UpgradeEffectContainer | null): void {
     this.container = container;
   }
 
   /**
-   * Ініціалізація перед початком гри
-   * Читає об'єкти з БД апгрейдів, створює бонус-сорти
+   * Ініціалізація перед початком гри: підтягуємо БД та реєструємо бонуси
    */
   public beforeInit(): void {
-
-    
-    // Копіюємо БД апгрейдів
-    this.upgradesDB = new Map(UPGRADES_DB);
-
-    
-    // Реєструємо кожен апгрейд як бонус-сорт в BonusSystem
-    this.upgradesDB.forEach((upgradeType, typeId) => {
-
-      
-      if (upgradeType.modifier) {
-
-        
-        // Створюємо унікальний ID для бонус-сорта
-        const bonusSourceId = this.getBonusSourceId(typeId);
-        
-        // Реєструємо апгрейд як джерело бонусів з формулами з БД
-        this.bonusSystem.registerSource(bonusSourceId, {
-          name: upgradeType.name,
-          description: upgradeType.description,
-          modifiers: upgradeType.modifier
-        });
-        this.bonusSystem.setSourceState(bonusSourceId, 0, 1.0);
-
-      } else {
-
-      }
-    });
-    
-
+    this.initialiseDatabase(UPGRADES_DB);
+    this.reset();
   }
 
-  /**
-   * Реєструє новий тип апгрейду
-   */
-  public registerUpgradeType(id: string, data: UpgradeTypeData): void {
-    this.upgradesDB.set(id, data);
-
+  public registerUpgradeType(id: UpgradeTypeId, data: UpgradeTypeData): void {
+    this.upgradeTypes.set(id, data);
+    this.ensureStateEntry(id);
+    this.registerBonusSource(data);
+    this.refreshUnlockedStates();
   }
 
-  /**
-   * Встановлює початковий стан апгрейду
-   */
-  public setInitialState(typeId: string, level: number = 0, unlocked: boolean = false): void {
-    if (!this.upgradesDB.has(typeId)) {
-      throw new Error(`Upgrade type ${typeId} not registered`);
-    }
-
-    const upgradeState: UpgradeState = {
-      level,
-      unlocked
-    };
-
-    this.upgradeStates.set(typeId, upgradeState);
-    
-    // Синхронізуємо з BonusSystem
-    if (unlocked) {
-      const bonusSourceId = this.getBonusSourceId(typeId);
-      this.bonusSystem.updateBonusSourceLevel(bonusSourceId, level);
-    }
-    
-
+  public setInitialState(typeId: UpgradeTypeId, level = 0, unlocked = false): void {
+    const type = this.getTypeOrThrow(typeId);
+    const clampedLevel = Math.min(level, type.maxLevel);
+    this.upgradeStates.set(typeId, { level: clampedLevel, unlocked });
+    this.updateBonusSourceLevel(typeId, unlocked ? clampedLevel : 0);
+    this.refreshUnlockedStates();
   }
 
-  /**
-   * Підвищує рівень апгрейду
-   */
-  public upgradeLevel(typeId: string): boolean {
+  public upgradeLevel(typeId: UpgradeTypeId): boolean {
+    const type = this.upgradeTypes.get(typeId);
     const state = this.upgradeStates.get(typeId);
-    if (!state) {
+
+    if (!type || !state) {
       console.error(`[UpgradesManager] Upgrade ${typeId} not found`);
       return false;
     }
@@ -112,416 +94,307 @@ export class UpgradesManager implements SaveLoadManager, IUpgradesManager {
       return false;
     }
 
-    const upgradeType = this.upgradesDB.get(typeId);
-    if (!upgradeType) {
-      console.error(`[UpgradesManager] Upgrade type ${typeId} not found in DB`);
+    if (state.level >= type.maxLevel) {
+      console.error(
+        `[UpgradesManager] Upgrade ${typeId} already at max level ${type.maxLevel}`,
+      );
       return false;
     }
 
-    if (state.level >= upgradeType.maxLevel) {
-      console.error(`[UpgradesManager] Upgrade ${typeId} already at max level ${upgradeType.maxLevel}`);
+    const nextLevel = state.level + 1;
+    const cost = type.cost(nextLevel);
+    const costCheck = this.resourceManager.checkResources(cost);
+
+    if (!costCheck.isAffordable) {
       return false;
     }
 
-    // Підвищуємо рівень
-    state.level++;
-    
-    // Синхронізуємо з BonusSystem
-    const bonusSourceId = this.getBonusSourceId(typeId);
-    this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
-    
+    const resourceChanges = this.createResourceChanges(cost, typeId, nextLevel);
+    const resourcesSpent = this.resourceManager.spendResources(resourceChanges);
+
+    if (!resourcesSpent) {
+      console.error(
+        `[UpgradesManager] Failed to spend resources for upgrade ${typeId} level ${nextLevel}`,
+      );
+      return false;
+    }
+
+    state.level = nextLevel;
+    this.updateBonusSourceLevel(typeId, state.level);
+    this.applySpecialEffects(typeId, state.level);
+    this.refreshUnlockedStates();
 
     return true;
   }
 
-  /**
-   * Розблоковує апгрейд
-   */
-  public unlockUpgrade(typeId: string): boolean {
+  public unlockUpgrade(typeId: UpgradeTypeId): boolean {
     const state = this.upgradeStates.get(typeId);
-    if (!state) {
+    const type = this.upgradeTypes.get(typeId);
+
+    if (!type || !state) {
       console.error(`[UpgradesManager] Upgrade ${typeId} not found`);
       return false;
     }
 
     if (state.unlocked) {
-      console.error(`[UpgradesManager] Upgrade ${typeId} is already unlocked`);
+      return true;
+    }
+
+    if (!this.isUnlocked(typeId)) {
       return false;
     }
 
     state.unlocked = true;
-    
-    // Синхронізуємо з BonusSystem
-    const bonusSourceId = this.getBonusSourceId(typeId);
-    this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
-    
-
+    this.updateBonusSourceLevel(typeId, state.level);
     return true;
   }
 
-  /**
-   * Купує апгрейд (розблоковує або підвищує рівень)
-   */
-  public purchaseUpgrade(typeId: string): boolean {
+  public purchaseUpgrade(typeId: UpgradeTypeId): boolean {
     const state = this.upgradeStates.get(typeId);
     if (!state) {
       console.error(`[UpgradesManager] Upgrade ${typeId} not found`);
       return false;
     }
 
-    const upgradeType = this.upgradesDB.get(typeId);
-    if (!upgradeType) {
-      console.error(`[UpgradesManager] Upgrade type ${typeId} not found in DB`);
-      return false;
-    }
-
     if (!state.unlocked) {
-      // Спочатку розблоковуємо
       return this.unlockUpgrade(typeId);
-    } else {
-      // Перевіряємо чи можна підвищити рівень
-      if (state.level >= upgradeType.maxLevel) {
-        console.error(`[UpgradesManager] Upgrade ${typeId} already at max level ${upgradeType.maxLevel}`);
-        return false;
-      }
-
-      // Розраховуємо вартість наступного рівня
-      const nextLevel = state.level + 1;
-      const cost = upgradeType.cost(nextLevel);
-
-      // Перевіряємо чи достатньо ресурсів
-      const checkResult = this.resourceManager.checkResources(cost);
-      if (!checkResult.isAffordable) {
-    
-        return false;
-      }
-
-      // Списуємо ресурси
-      const changes = Object.entries(cost).map(([resourceId, amount]) => ({
-        resourceId: resourceId as any,
-        amount: -(amount as number), // від'ємне значення = списування
-        reason: `Upgrade ${typeId} to level ${nextLevel}`
-      }));
-
-      const resourcesSpent = this.resourceManager.spendResources(changes);
-      if (!resourcesSpent) {
-        console.error(`[UpgradesManager] Failed to spend resources for upgrade ${typeId}`);
-        return false;
-      }
-
-      // Підвищуємо рівень
-      state.level = nextLevel;
-      
-      // Синхронізуємо з BonusSystem
-      const bonusSourceId = this.getBonusSourceId(typeId);
-      this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
-      
-      // НОВЕ: Обробляємо спеціальні ефекти апгрейдів
-      this.handleSpecialUpgradeEffects(typeId);
-  
-      return true;
     }
+
+    return this.upgradeLevel(typeId);
   }
 
-  /**
-   * Отримує поточний стан апгрейду
-   */
-  public getUpgradeState(typeId: string): UpgradeState | undefined {
-    return this.upgradeStates.get(typeId);
+  public getUpgradeState(typeId: UpgradeTypeId): UpgradeState | undefined {
+    const state = this.upgradeStates.get(typeId);
+    return state ? { ...state } : undefined;
   }
 
-  /**
-   * Отримує апгрейд (реалізація інтерфейсу)
-   */
-  public getUpgrade(typeId: string): UpgradeDataUI | null {
-    const state = this.getUpgradeState(typeId);
-    if (!state) {
+  public getUpgrade(typeId: UpgradeTypeId): UpgradeDataUI | null {
+    const type = this.upgradeTypes.get(typeId);
+    const state = this.upgradeStates.get(typeId) ?? DEFAULT_UPGRADE_STATE;
+
+    if (!type) {
       return null;
     }
 
-    const upgradeType = this.upgradesDB.get(typeId);
-    if (!upgradeType) {
-      return null;
-    }
+    const canProgress = state.level < type.maxLevel;
+    const nextLevel = canProgress ? state.level + 1 : state.level;
+    const nextLevelCost = canProgress ? type.cost(nextLevel) : {};
 
     return {
       id: typeId,
-      name: upgradeType.name,
-      description: upgradeType.description,
-      maxLevel: upgradeType.maxLevel,
+      name: type.name,
+      description: type.description,
+      maxLevel: type.maxLevel,
       currentLevel: state.level,
-      cost: upgradeType.cost(state.level + 1),
-      effects: []
+      cost: nextLevelCost,
+      effects: [],
     };
   }
 
-  /**
-   * Отримує всі апгрейди (реалізація інтерфейсу)
-   */
-  public getAllUpgrades(): Map<string, any> {
-    return this.upgradeStates;
+  public getAllUpgrades(): Map<UpgradeTypeId, UpgradeState> {
+    const clonedEntries: Array<[UpgradeTypeId, UpgradeState]> = [];
+    for (const [typeId, state] of this.upgradeStates) {
+      clonedEntries.push([typeId, { ...state }]);
+    }
+    return new Map(clonedEntries);
   }
 
-  /**
-   * Отримує вартість апгрейду (реалізація інтерфейсу)
-   */
-  public getUpgradeCost(typeId: string, level: number): ResourceRequest | undefined {
-    const upgradeType = this.upgradesDB.get(typeId);
-    if (!upgradeType) return undefined;
-    
-    return upgradeType.cost(level);
+  public getUpgradeCost(typeId: UpgradeTypeId, level: number): ResourceRequest | undefined {
+    const type = this.upgradeTypes.get(typeId);
+    if (!type) {
+      return undefined;
+    }
+
+    if (level < 1 || level > type.maxLevel) {
+      return undefined;
+    }
+
+    return type.cost(level);
   }
 
-  /**
-   * Отримує всі доступні апгрейди для UI
-   */
-  public listUpgradesForUI(): Array<{
-    typeId: string;
-    name: string;
-    description: string;
-    currentLevel: number;
-    maxLevel: number;
-    unlocked: boolean;
-    canUpgrade: boolean;
-    nextLevelCost: ResourceRequest;
-    canAfford: boolean;
-    costCheck: any; // TODO: Replace with proper type
-    bonusDetails: BonusDetail[];
-  }> {
-    const result = [];
-    
-    for (const [typeId, upgradeType] of this.upgradesDB) {
-      // Перевіряємо чи апгрейд розблокований
-      if (!this.isUnlocked(typeId)) {
-        continue; // Пропускаємо заблоковані апгрейди
-      }
-      
-      const state = this.upgradeStates.get(typeId) || { level: 0, unlocked: false };
-      
-      if (!state.unlocked) {
-        // Спочатку розблоковуємо
-        this.unlockUpgrade(typeId);
+  public listUpgradesForUI(): UpgradeListItem[] {
+    const result: UpgradeListItem[] = [];
+
+    for (const [typeId, type] of this.upgradeTypes) {
+      const state = this.ensureStateEntry(typeId);
+      const requirementsMet = this.isUnlocked(typeId);
+
+      if (!requirementsMet) {
+        continue;
       }
 
-      // Розраховуємо вартість наступного рівня
-      const nextLevel = state.level + 1;
-      const nextLevelCost = upgradeType.cost(nextLevel);
-      const costCheck = this.resourceManager.checkResources(nextLevelCost);
-      
-      // Отримуємо деталі бонусів для цього апгрейду
-      const bonusDetails = this.bonusSystem.getBonusDetails(this.getBonusSourceId(typeId));
-      
+      const canUpgrade = state.unlocked && state.level < type.maxLevel;
+
+      let nextLevelCost: ResourceRequest | undefined;
+      let costCheck: ResourceCheckResult | undefined;
+      let canAfford = false;
+
+      if (canUpgrade) {
+        const nextLevel = state.level + 1;
+        nextLevelCost = type.cost(nextLevel);
+        costCheck = this.resourceManager.checkResources(nextLevelCost);
+        canAfford = costCheck.isAffordable;
+      }
+
+      const bonusDetails = this.bonusSystem.getBonusDetails(
+        this.getBonusSourceId(typeId),
+        state.level,
+      );
+
       result.push({
         typeId,
-        name: upgradeType.name,
-        description: upgradeType.description,
+        name: type.name,
+        description: type.description,
         currentLevel: state.level,
-        maxLevel: upgradeType.maxLevel,
+        maxLevel: type.maxLevel,
         unlocked: state.unlocked,
-        canUpgrade: state.unlocked && state.level < upgradeType.maxLevel,
+        requirementsMet,
+        canUpgrade,
+        canAfford,
         nextLevelCost,
-        canAfford: costCheck.isAffordable,
         costCheck,
-        bonusDetails
+        bonusDetails,
       });
     }
 
-
-    
     return result;
   }
 
-  /**
-   * Отримує кількість апгрейдів
-   */
   public getUpgradesCount(): number {
     return this.upgradeStates.size;
   }
 
-  /**
-   * Отримує кількість розблокованих апгрейдів
-   */
   public getUnlockedUpgradesCount(): number {
     let count = 0;
     for (const state of this.upgradeStates.values()) {
-      if (state.unlocked) count++;
+      if (state.unlocked) {
+        count += 1;
+      }
     }
     return count;
   }
 
-  /**
-   * Скидає всі апгрейди до початкового стану
-   */
   public reset(): void {
     this.upgradeStates.clear();
-    
-    // Створюємо початкові апгрейди для всіх типів з БД
-    for (const [typeId] of this.upgradesDB) {
-      console.log(`Set initial for ${typeId}`);
-      this.setInitialState(typeId, 0, true);
-    }
-    
-    // 🚀 TEST: Додаємо тестові апгрейди для швидкого тесту storage індикації
-    console.log('[TEST] Adding test upgrades for storage testing...');
-    this.forceUnlockUpgrade('building_constructions');
-    this.forceUnlockUpgrade('bioModule');
-    this.forceUnlockUpgrade('repairKit');
-    // TEMP: set miningEfficiency1 to level 5 for testing
-    this.forceSetUpgradeLevel('miningEfficiency1', 5);
 
+    for (const typeId of this.upgradeTypes.keys()) {
+      this.upgradeStates.set(typeId, { ...DEFAULT_UPGRADE_STATE });
+      this.updateBonusSourceLevel(typeId, 0);
+    }
+
+    this.refreshUnlockedStates();
   }
 
-  /**
-   * Force unlock upgrade for testing (bypasses requirements and costs)
-   */
-  private forceUnlockUpgrade(upgradeId: string): void {
-    const state = this.upgradeStates.get(upgradeId);
-    if (state) {
-      state.level = 1;
-      state.unlocked = true;
-      
-      // Update bonus system
-      const bonusSourceId = this.getBonusSourceId(upgradeId);
-      this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
-      
-      // Handle special effects (like repairKit creating drone)
-      this.handleSpecialUpgradeEffects(upgradeId);
-      
-      console.log(`[TEST] Force unlocked upgrade: ${upgradeId}`);
-    } else {
-      console.warn(`[TEST] Upgrade ${upgradeId} not found in states`);
-    }
-  }
-
-  private forceSetUpgradeLevel(upgradeId: string, level: number): void {
-    const state = this.upgradeStates.get(upgradeId);
-    if (state) {
-      state.unlocked = true;
-      state.level = level;
-      const bonusSourceId = this.getBonusSourceId(upgradeId);
-      this.bonusSystem.updateBonusSourceLevel(bonusSourceId, state.level);
-      console.log(`[TEST] Force set upgrade ${upgradeId} to level ${level}`);
-    }
-  }
-
-  /**
-   * Зберігає стан апгрейдів
-   */
   public save(): UpgradesManagerSaveData {
-    const upgradeStates: Record<string, { level: number; unlocked: boolean }> = {};
-    
+    const upgradeStates: Record<string, UpgradeState> = {};
+
     for (const [typeId, state] of this.upgradeStates) {
-      upgradeStates[typeId] = {
-        level: state.level,
-        unlocked: state.unlocked
-      };
+      upgradeStates[typeId] = { ...state };
     }
-    
-    return {
-      upgradeStates
-    };
+
+    return { upgradeStates };
   }
 
-  /**
-   * Завантажує стан апгрейдів
-   */
   public load(data: UpgradesManagerSaveData): void {
     this.reset();
-    
-    for (const [typeId, stateData] of Object.entries(data.upgradeStates)) {
-      this.upgradeStates.set(typeId, {
-        level: stateData.level,
-        unlocked: stateData.unlocked
-      });
-      
-      // Синхронізуємо з BonusSystem
-      if (stateData.unlocked) {
-        const bonusSourceId = this.getBonusSourceId(typeId);
-        this.bonusSystem.updateBonusSourceLevel(bonusSourceId, stateData.level);
+
+    for (const [rawTypeId, stateData] of Object.entries(data.upgradeStates)) {
+      const typeId = rawTypeId as UpgradeTypeId;
+      const type = this.upgradeTypes.get(typeId);
+      if (!type) {
+        continue;
       }
+
+      const clampedLevel = Math.min(stateData.level, type.maxLevel);
+      const unlocked = stateData.unlocked;
+      this.upgradeStates.set(typeId, { level: clampedLevel, unlocked });
+      this.updateBonusSourceLevel(typeId, unlocked ? clampedLevel : 0);
     }
-    
 
+    this.refreshUnlockedStates();
   }
 
-  /**
-   * Генерує унікальний ID для бонус-сорта
-   */
-  private getBonusSourceId(typeId: string): string {
-    return `upgrade_${typeId}`;
-  }
-
-  /**
-   * Перевіряє чи розблокований апгрейд
-   */
-  public isUnlocked(upgradeId: string): boolean {
-    const upgradeData = this.upgradesDB.get(upgradeId);
-    if (!upgradeData) return false;
-    
-    // Якщо нема реквайрментів - апгрейд автоматично доступний
-    if (!upgradeData.requirements || upgradeData.requirements.length === 0) {
+  public isUnlocked(upgradeId: UpgradeTypeId): boolean {
+    const upgradeData = this.upgradeTypes.get(upgradeId);
+    if (!upgradeData || !upgradeData.requirements || upgradeData.requirements.length === 0) {
       return true;
     }
 
-    // Перевіряємо реквайрменти через RequirementsSystem
     const result = this.requirementsSystem.checkRequirements(upgradeData.requirements);
     return result.satisfied;
   }
 
-  /**
-   * Отримує список доступних апгрейдів для UI
-   */
   public getAvailableUpgrades(): UpgradeTypeData[] {
-    return Array.from(this.upgradesDB.values()).filter(upgrade => 
-      this.isUnlocked(upgrade.id)
+    return Array.from(this.upgradeTypes.values()).filter(upgrade =>
+      this.isUnlocked(upgrade.id),
     );
   }
 
-  /**
-   * Обробляє спеціальні ефекти апгрейдів
-   */
-  private handleSpecialUpgradeEffects(upgradeId: string): void {
-    switch (upgradeId) {
-      case 'repairKit':
-        this.handleRepairKitUpgrade();
-        break;
-      
-      // Можна додати інші спеціальні апгрейди в майбутньому
-      default:
-        // Нічого спеціального не робимо для звичайних апгрейдів
-        break;
+  private initialiseDatabase(source: Map<UpgradeTypeId, UpgradeTypeData>): void {
+    this.upgradeTypes.clear();
+    for (const [typeId, data] of source) {
+      this.registerUpgradeType(typeId, data);
     }
   }
 
-  /**
-   * Обробляє ефект апгрейду "Ремонтний комплект" - створює новий дрон
-   */
-  private handleRepairKitUpgrade(): void {
-    if (!this.container) {
-      console.warn('[UpgradesManager] Container not set, cannot create drone');
-      return;
+  private ensureStateEntry(typeId: UpgradeTypeId): UpgradeState {
+    let state = this.upgradeStates.get(typeId);
+    if (!state) {
+      state = { ...DEFAULT_UPGRADE_STATE };
+      this.upgradeStates.set(typeId, state);
     }
-    
-    console.log('[UpgradesManager] Handling Repair Kit upgrade - creating new drone');
-    
-    // Оновлюємо максимальну кількість дронів через DroneManager
-    const droneManager = this.container.droneManager;
-    if (!droneManager) {
-      console.warn('[UpgradesManager] DroneManager not found in container');
-      return;
-    }
-    
-    droneManager.updateMaxDroneCount();
-    
-    // СТВОРЮЄМО РЕАЛЬНОГО НОВОГО ДРОНА
-    const success = droneManager.createAdditionalDrone();
-    
-    if (success) {
-      console.log('[UpgradesManager] Successfully created additional drone from Repair Kit');
-    } else {
-      console.warn('[UpgradesManager] Failed to create additional drone from Repair Kit');
+    return state;
+  }
+
+  private refreshUnlockedStates(): void {
+    for (const typeId of this.upgradeTypes.keys()) {
+      const state = this.ensureStateEntry(typeId);
+      if (!state.unlocked && this.isUnlocked(typeId)) {
+        state.unlocked = true;
+        this.updateBonusSourceLevel(typeId, state.level);
+      }
     }
   }
 
+  private registerBonusSource(type: UpgradeTypeData): void {
+    const bonusSourceId = this.getBonusSourceId(type.id);
+    this.bonusSystem.registerSource(bonusSourceId, {
+      name: type.name,
+      description: type.description,
+      modifiers: type.modifier,
+    });
+    this.bonusSystem.setSourceState(bonusSourceId, 0, 1.0);
+  }
 
+  private updateBonusSourceLevel(typeId: UpgradeTypeId, level: number): void {
+    this.bonusSystem.updateBonusSourceLevel(this.getBonusSourceId(typeId), level);
+  }
+
+  private getBonusSourceId(typeId: UpgradeTypeId): string {
+    return `upgrade_${typeId}`;
+  }
+
+  private getTypeOrThrow(typeId: UpgradeTypeId): UpgradeTypeData {
+    const type = this.upgradeTypes.get(typeId);
+    if (!type) {
+      throw new Error(`Upgrade type ${typeId} not registered`);
+    }
+    return type;
+  }
+
+  private createResourceChanges(cost: ResourceRequest, typeId: UpgradeTypeId, level: number): ResourceChange[] {
+    return Object.entries(cost).map(([resourceId, amount]) => ({
+      resourceId: resourceId as ResourceId,
+      amount: -(amount as number),
+      reason: `Upgrade ${typeId} to level ${level}`,
+    }));
+  }
+
+  private applySpecialEffects(typeId: UpgradeTypeId, level: number): void {
+    applyUpgradeEffect(typeId, {
+      typeId,
+      level,
+      container: this.container,
+    });
+  }
 }
