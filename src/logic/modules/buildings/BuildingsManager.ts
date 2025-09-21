@@ -1986,8 +1986,8 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
               break;
             case 'start':
             default:
-              sL = edgePoints.startLeft;
-              sR = edgePoints.startRight;
+              sL = edgePoints.startRight;
+              sR = edgePoints.startLeft;
               break;
           }
           out[0].startLeft = sL;

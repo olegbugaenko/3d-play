@@ -162,6 +162,8 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
                 continue;
             }
 
+            // console.log('RUN CMD: ', executor.getCommand().type, result, executor.completeCheck());
+
             if (executor.completeCheck()) {
                 const completedCommand = executor.getCommand();
                 executor.updateCommandStatus('completed');

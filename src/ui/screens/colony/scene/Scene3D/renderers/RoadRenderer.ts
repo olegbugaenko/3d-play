@@ -246,12 +246,18 @@ export class RoadRenderer extends BaseRenderer {
         if (!this.segmentsEqual(currentSegments, newSegments) || this.segmentStatesChanged(object.id, segmentStates)) {
           this.remove(object.id);
           this.render(object);
-          console.log('Re-render: ', object);
+          console.log('Re-render: ', object, !!this.uiLogicBridge);
         }
 
       // Оновлюємо HUD
       if (this.uiLogicBridge) {
         const info = this.getRoadResourceInfo(object.id);
+        console.log(`[RoadRenderer.update] Road ${object.id} HUD check:`, {
+          hasInfo: !!info,
+          segmentsBuilt: info?.segmentsBuilt,
+          segmentsTotal: info?.segmentsTotal,
+          shouldShowHUD: info && info.segmentsBuilt < info.segmentsTotal
+        });
         if (info && info.segmentsBuilt < info.segmentsTotal) {
           // Anchor до першого сегмента
           const first = (newSegments as RoadSegment[])[0];
@@ -264,7 +270,11 @@ export class RoadRenderer extends BaseRenderer {
           const title = `Segments: ${info.segmentsBuilt}/${info.segmentsTotal}`;
           this.attachOrUpdateCombinedHUD(hudAnchor, info.progress, info, 0.6, 1, { title });
         } else {
-          this.removeHUD(roadGroup);
+          console.log(`[RoadRenderer.update] Removing HUD for road ${object.id} - all segments completed`);
+          const hudAnchor = roadGroup.getObjectByName('hudAnchor') as THREE.Object3D | null;
+          if (hudAnchor) {
+            this.removeHUD(hudAnchor);
+          }
         }
       }
     }
@@ -429,7 +439,35 @@ export class RoadRenderer extends BaseRenderer {
 
   private removeHUD(anchor: THREE.Object3D): void {
     const hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
-    if (hud) { this.scene.remove(hud); (anchor as any).userData.combinedHUD = undefined; }
+    console.log(`[RoadRenderer.removeHUD] Anchor:`, anchor.name, `HUD found:`, !!hud);
+    if (hud) { 
+      // Видаляємо HUD зі сцени
+      this.scene.remove(hud);
+      
+      // Також робимо невидимим на всякий випадок
+      hud.visible = false;
+      
+      // Очищаємо всі дочірні об'єкти HUD
+      hud.clear();
+      
+      // Видаляємо матеріали та геометрії
+      hud.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(mat => mat.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
+      
+      // Очищаємо посилання
+      (anchor as any).userData.combinedHUD = undefined;
+      console.log(`[RoadRenderer.removeHUD] HUD removed from scene and disposed`);
+    }
   }
 
   
@@ -641,6 +679,14 @@ export class RoadRenderer extends BaseRenderer {
     if (!this.uiLogicBridge) return null;
     const aggr = this.uiLogicBridge.getRoadAggregates(roadId);
     if (!aggr) return null;
+    
+    // DEBUG: Логуємо що повертає getRoadAggregates
+    console.log(`[RoadRenderer.getRoadResourceInfo] Road ${roadId}:`, {
+      builtSegments: aggr.builtSegments,
+      totalSegments: aggr.totalSegments,
+      totalRequired: aggr.totalRequired,
+      totalDelivered: aggr.totalDelivered
+    });
     const required = { ...aggr.totalRequired };
     const collected = { ...aggr.totalDelivered };
     const missing: Record<string, number> = {};
