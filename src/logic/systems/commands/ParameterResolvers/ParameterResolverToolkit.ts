@@ -2,6 +2,8 @@ import { Vector3 } from 'three';
 import { CommandGroupContext } from '../command-group.types';
 import { TSceneObject } from '@scene/scene.types';
 
+const AMOUNT_TOLERANCE = 1e-6;
+
 export class ParameterResolverToolkit {
   constructor(private readonly mapLogic: any) {}
 
@@ -325,7 +327,9 @@ export class ParameterResolverToolkit {
       if (!Number.isFinite(numeric)) {
         return 0;
       }
-      return Math.max(0, numeric);
+
+      const nonNegative = Math.max(0, numeric);
+      return nonNegative <= AMOUNT_TOLERANCE ? 0 : nonNegative;
     };
 
     const normalizeResourceMap = (input: Record<string, number>): Record<string, number> => {
@@ -346,7 +350,7 @@ export class ParameterResolverToolkit {
     const droneStorageValues = Object.values(droneStorageRecord);
     const droneLoad = droneStorageValues.reduce((sum, val) => sum + toPositiveNumber(val), 0);
     const droneMaxCapacity = drone?.data?.maxCapacity || 5;
-    const droneFree = Math.max(0, droneMaxCapacity - droneLoad);
+    const droneFree = toPositiveNumber(droneMaxCapacity - droneLoad);
 
     let amount = 0;
     if (plan.direction === 'from-building') {
@@ -367,19 +371,27 @@ export class ParameterResolverToolkit {
       }
     }
 
-    const positiveAmount = Math.max(0, amount);
+
+    const positiveAmount = toPositiveNumber(amount);
     const loadResourcesRaw: Record<string, number> = {};
     if (positiveAmount > 0) {
       loadResourcesRaw[plan.resourceId] = positiveAmount;
     }
+
+    const loadTotal = Object.values(loadResourcesRaw).reduce((sum, value) => sum + value, 0);
+    if (plan.direction === 'from-building' && loadTotal <= AMOUNT_TOLERANCE) {
+      return null;
+    }
+
 
     const droneResourceAmount = toPositiveNumber(droneStorageRecord[plan.resourceId]);
     const unloadResourcesRaw: Record<string, number> = {};
 
     if (plan.direction === 'from-building') {
       const expectedAfterLoad = Math.min(droneMaxCapacity, droneResourceAmount + positiveAmount);
-      if (expectedAfterLoad > 0) {
-        unloadResourcesRaw[plan.resourceId] = expectedAfterLoad;
+      const sanitizedExpected = toPositiveNumber(expectedAfterLoad);
+      if (sanitizedExpected > 0) {
+        unloadResourcesRaw[plan.resourceId] = sanitizedExpected;
       }
 
       for (const [resourceId, storedAmount] of Object.entries(droneStorageRecord)) {
@@ -409,7 +421,8 @@ export class ParameterResolverToolkit {
           return true;
         }
         const currentValue = toFiniteNumber(resourceManager?.getResourceAmount?.(resourceId as any)) ?? 0;
-        return capacityValue - Math.max(0, currentValue) > 0;
+        const available = capacityValue - Math.max(0, currentValue);
+        return available > AMOUNT_TOLERANCE;
       });
     }
 
