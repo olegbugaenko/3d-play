@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { InteractionManager } from '../interaction/InteractionManager';
 import { SelectionHandler } from '../interaction/handlers/SelectionHandler';
@@ -20,30 +20,41 @@ export function useInteractionManager(
   areaSelectionRenderer: AreaSelectionRenderer | null,
   buildingPreview: BuildingPreview | null
 ) {
-  const interactionManagerRef = useRef<InteractionManager | null>(null);
+  const [manager, setManager] = useState<InteractionManager | null>(null);
 
   useEffect(() => {
-    // Створюємо InteractionManager один раз
-    interactionManagerRef.current = new InteractionManager();
-    
-    // Реєструємо хендлери тільки якщо всі залежності готові
-    if (selectionRenderer && rendererManager && areaSelectionRenderer && buildingPreview) {
-        const selectionHandler = new SelectionHandler(scene, camera, mapLogic, selectionRenderer, rendererManager, interactionManagerRef.current?.emit.bind(interactionManagerRef.current));
-        const commandHandler = new CommandHandler(scene, camera, mapLogic, rendererManager);
-        const gatherHandler = new GatherHandler(scene, camera, mapLogic, areaSelectionRenderer, interactionManagerRef.current?.emit.bind(interactionManagerRef.current));
-        const buildingHandler = new BuildingHandler(scene, camera, mapLogic, buildingPreview, interactionManagerRef.current?.emit.bind(interactionManagerRef.current));
-      
-      interactionManagerRef.current.registerHandler('selection', selectionHandler);
-      interactionManagerRef.current.registerHandler('command', commandHandler);
-      interactionManagerRef.current.registerHandler('gather', gatherHandler);
-      interactionManagerRef.current.registerHandler('building', buildingHandler);
+    if (!selectionRenderer || !rendererManager || !areaSelectionRenderer || !buildingPreview) {
+      return undefined;
     }
 
-    return () => {
-      // Cleanup при розмонтуванні
-      interactionManagerRef.current?.dispose();
-    };
-  }, [scene, camera, mapLogic, selectionRenderer, rendererManager, areaSelectionRenderer, buildingPreview]);
+    const interactionManager = new InteractionManager();
 
-  return interactionManagerRef.current;
+    const emit = interactionManager.emit.bind(interactionManager);
+    const selectionHandler = new SelectionHandler(scene, camera, mapLogic, selectionRenderer, rendererManager, emit);
+    const commandHandler = new CommandHandler(scene, camera, mapLogic, rendererManager);
+    const gatherHandler = new GatherHandler(scene, camera, mapLogic, areaSelectionRenderer, emit);
+    const buildingHandler = new BuildingHandler(scene, camera, mapLogic, buildingPreview, emit);
+
+    interactionManager.registerHandler('selection', selectionHandler);
+    interactionManager.registerHandler('command', commandHandler);
+    interactionManager.registerHandler('gather', gatherHandler);
+    interactionManager.registerHandler('building', buildingHandler);
+
+    setManager(interactionManager);
+
+    return () => {
+      interactionManager.dispose();
+      setManager(null);
+    };
+  }, [
+    areaSelectionRenderer,
+    buildingPreview,
+    camera,
+    mapLogic,
+    rendererManager,
+    scene,
+    selectionRenderer,
+  ]);
+
+  return manager;
 }
