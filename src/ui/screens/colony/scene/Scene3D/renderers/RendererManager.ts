@@ -36,6 +36,11 @@ export class RendererManager {
         if (buildingRenderer && buildingRenderer.setUiLogicBridge) {
             buildingRenderer.setUiLogicBridge(bridge);
         }
+
+        const roadRenderer = this.renderers.get('road') as any;
+        if (roadRenderer && roadRenderer.setUiLogicBridge) {
+            roadRenderer.setUiLogicBridge(bridge as any);
+        }
     }
 
     private initializeRenderers(): void {
@@ -48,7 +53,7 @@ export class RendererManager {
         })); // Каменюки типу rock з звичайним рендерингом
         this.registerRenderer('biomass', new BiomassRenderer(this.scene)); // Біомаса
         this.registerRenderer('rover', new RoverRenderer(this.scene)); // Rover об'єкти
-        const buildingRenderer = new BuildingRenderer(this.scene);
+        const buildingRenderer = new BuildingRenderer(this.scene, this.renderer);
         if (this.bridge && (buildingRenderer as any).setUiLogicBridge) {
             (buildingRenderer as any).setUiLogicBridge(this.bridge);
         }
@@ -56,7 +61,7 @@ export class RendererManager {
         this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Хмари
         this.registerRenderer('smoke', new SmokeRenderer(this.scene, this.renderer)); // Дим (GPU)
         this.registerRenderer('fire', new FireRenderer(this.scene, this.renderer)); // Вогонь (GPU)
-        const roadRenderer = new RoadRenderer(this.scene);
+        const roadRenderer = new RoadRenderer(this.scene, this.renderer);
         if (this.bridge && (roadRenderer as any).setUiLogicBridge) {
             (roadRenderer as any).setUiLogicBridge(this.bridge as any);
         }

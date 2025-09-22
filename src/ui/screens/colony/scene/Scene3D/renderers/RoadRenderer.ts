@@ -11,6 +11,15 @@ interface RoadSegment {
   width: number;
 }
 
+interface RoadHudInfo {
+  required: Record<string, number>;
+  collected: Record<string, number>;
+  missing: Record<string, number>;
+  progress: number;
+  segmentsBuilt: number;
+  segmentsTotal: number;
+}
+
 export class RoadRenderer extends BaseRenderer {
   private roadMaterial: THREE.Material;
   private plannedRoadMaterial: THREE.Material;
@@ -21,29 +30,32 @@ export class RoadRenderer extends BaseRenderer {
   private cachedCanvasTexture: THREE.CanvasTexture | null = null;
   private lastAspect = 1;
   private lastContentHeightWorld = 1;
+  private readonly CANVAS_UPDATE_THROTTLE_MS = 200;
+  private lastCanvasUpdate = 0;
+  private hudSignatures: Map<string, string> = new Map();
 
   // For roads use full canvas width to avoid left cropping
   private readonly HUD_SAFE_FRACTION = 1.0;
   private readonly HUD_CROP_X = 1.0;
   private readonly HUD_WORLD_Z_OFFSET = 0.035;
 
-  private readonly PROGRESS_HEIGHT_PX = 5;
-  private readonly ROW_HEIGHT_PX = 28;
-  private readonly ICON_SIZE_PX = 24;
-  private readonly BAR_MIN_W_PX = 50;
-  private readonly BAR_HEIGHT_PX = 4;
-  private readonly SIDE_PAD_PX = 16;
-  private readonly GAP_SMALL_PX = 8;
-  private readonly GAP_MEDIUM_PX = 12;
+  private readonly PROGRESS_HEIGHT_PX = 7.5;
+  private readonly ROW_HEIGHT_PX = 42;
+  private readonly ICON_SIZE_PX = 36;
+  private readonly BAR_MIN_W_PX = 75;
+  private readonly BAR_HEIGHT_PX = 6;
+  private readonly SIDE_PAD_PX = 24;
+  private readonly GAP_SMALL_PX = 12;
+  private readonly GAP_MEDIUM_PX = 18;
 
-  private readonly HUD_TARGET_PX = { resourceHeight: 84, minScale: 0.1, maxScale: 100.0, maxWidth: 280 } as const;
-    private readonly NAME_MIN_W_PX = 110;
-    private readonly BAR_MAX_W_PX = 120;
-    private readonly REQ_COL_W_PX = 42;
-    private readonly INTERNAL_SCALE = 2;
+  private readonly HUD_TARGET_PX = { resourceHeight: 126, minScale: 0.1, maxScale: 100.0, maxWidth: 420 } as const;
+  private readonly NAME_MIN_W_PX = 165;
+  private readonly BAR_MAX_W_PX = 180;
+  private readonly REQ_COL_W_PX = 63;
+  private readonly INTERNAL_SCALE = 2;
 
-  constructor(scene: THREE.Scene) {
-    super(scene);
+  constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
+    super(scene, renderer);
     this.roadMaterial = this.createRoadMaterial();
     this.plannedRoadMaterial = this.createPlannedRoadMaterial();
   }
@@ -109,7 +121,6 @@ export class RoadRenderer extends BaseRenderer {
       const parentState = segmentStates[parentIdx];
       // Якщо вся дорога збудована (object.data.built) - всі сегменти вважаються збудованими
       const isSegmentPlanned = (isPlanned || !object.data?.built) && parentState?.buildingState !== 'completed';
-      console.log(`Road: ${object.id}`, isPlanned, object.data?.built, parentState, isSegmentPlanned);
       const segmentMesh = this.createSegmentMesh(segment, `${object.id}_segment_${index}`, isSegmentPlanned);
       roadGroup.add(segmentMesh);
     });
@@ -119,27 +130,39 @@ export class RoadRenderer extends BaseRenderer {
 
     this.addMesh(object.id, roadGroup);
 
-    // HUD над центром ПЕРШОГО сегмента
-    if (this.uiLogicBridge) {
-      const info = this.getRoadResourceInfo(object.id);
-      if (info && info.segmentsBuilt < info.segmentsTotal) {
-        // Обчислюємо anchor з першого сегмента
-        const first = segments[0];
-        const c0 = new THREE.Vector3().addVectors(first.startLeft, first.startRight).multiplyScalar(0.5);
-        const c1 = new THREE.Vector3().addVectors(first.endLeft, first.endRight).multiplyScalar(0.5);
-        const head = new THREE.Vector3().addVectors(c0, c1).multiplyScalar(0.5);
-        let hudAnchor = roadGroup.getObjectByName('hudAnchor') as THREE.Object3D | null;
-        if (!hudAnchor) {
-          hudAnchor = new THREE.Object3D();
-          hudAnchor.name = 'hudAnchor';
-          roadGroup.add(hudAnchor);
-        }
-        hudAnchor.position.copy(head);
-        const title = `Segments: ${info.segmentsBuilt}/${info.segmentsTotal}`;
-        this.attachOrUpdateCombinedHUD(hudAnchor, info.progress, info, 0.6, 1, { title });
-      } else {
-        console.log(`[RoadRenderer.render] Not showing HUD for road ${object.id} - all segments completed`);
+    const info = this.buildRoadResourceInfo(object, segments.length);
+    const isFullyBuilt = !!object.data?.built;
+
+    if (!info) {
+      this.hudRegistry.detachAll(object.id);
+      this.hudSignatures.delete(object.id);
+      return roadGroup;
+    }
+
+    const shouldShowHud =
+      !isFullyBuilt &&
+      info.segmentsTotal > 0 &&
+      (info.progress < 1 || info.segmentsBuilt < info.segmentsTotal);
+
+    if (shouldShowHud) {
+      const first = segments[0];
+      const c0 = new THREE.Vector3().addVectors(first.startLeft, first.startRight).multiplyScalar(0.5);
+      const c1 = new THREE.Vector3().addVectors(first.endLeft, first.endRight).multiplyScalar(0.5);
+      const head = new THREE.Vector3().addVectors(c0, c1).multiplyScalar(0.5);
+      let hudAnchor = roadGroup.getObjectByName('hudAnchor') as THREE.Object3D | null;
+      if (!hudAnchor) {
+        hudAnchor = new THREE.Object3D();
+        hudAnchor.name = 'hudAnchor';
+        roadGroup.add(hudAnchor);
       }
+      hudAnchor.position.copy(head);
+      const title = `Segments: ${info.segmentsBuilt}/${info.segmentsTotal}`;
+      const signature = this.createHudSignature(info);
+      this.hudSignatures.set(object.id, signature);
+      this.attachOrUpdateCombinedHUD(object.id, hudAnchor, info.progress, info, 0.6, 1, { title });
+    } else {
+      this.hudRegistry.detachAll(object.id);
+      this.hudSignatures.delete(object.id);
     }
     return roadGroup;
   }
@@ -200,8 +223,6 @@ export class RoadRenderer extends BaseRenderer {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = name;
 
-    console.log('createSegmentMesh called: ', isPlanned);
-    
     return mesh;
   }
 
@@ -233,51 +254,78 @@ export class RoadRenderer extends BaseRenderer {
 
 
   update(object: TSceneObject): void {
-    // Базове оновлення позиції від BaseRenderer
     super.update(object);
-    
-    // Додаткова логіка оновлення дороги якщо потрібно
-    const roadGroup = this.meshes.get(object.id);
-    if (roadGroup && object.data?.roadSegments) {
-      // Якщо сегменти змінилися - перебудовуємо дорогу
-      const currentSegments = this.roadSegments.get(object.id);
-      const newSegments = object.data.roadSegments;
-      const segmentStates = object.data?.segmentStates || [];
-        if (!this.segmentsEqual(currentSegments, newSegments) || this.segmentStatesChanged(object.id, segmentStates)) {
-          this.remove(object.id);
-          this.render(object);
-          console.log('Re-render: ', object, !!this.uiLogicBridge);
-        }
 
-      // Оновлюємо HUD
-      if (this.uiLogicBridge) {
-        const info = this.getRoadResourceInfo(object.id);
-        console.log(`[RoadRenderer.update] Road ${object.id} HUD check:`, {
-          hasInfo: !!info,
-          segmentsBuilt: info?.segmentsBuilt,
-          segmentsTotal: info?.segmentsTotal,
-          shouldShowHUD: info && info.segmentsBuilt < info.segmentsTotal
-        });
-        if (info && info.segmentsBuilt < info.segmentsTotal) {
-          // Anchor до першого сегмента
-          const first = (newSegments as RoadSegment[])[0];
-          const c0 = new THREE.Vector3().addVectors(first.startLeft, first.startRight).multiplyScalar(0.5);
-          const c1 = new THREE.Vector3().addVectors(first.endLeft, first.endRight).multiplyScalar(0.5);
-          const head = new THREE.Vector3().addVectors(c0, c1).multiplyScalar(0.5);
-          let hudAnchor = roadGroup.getObjectByName('hudAnchor') as THREE.Object3D | null;
-          if (!hudAnchor) { hudAnchor = new THREE.Object3D(); hudAnchor.name = 'hudAnchor'; roadGroup.add(hudAnchor); }
-          hudAnchor.position.copy(head);
-          const title = `Segments: ${info.segmentsBuilt}/${info.segmentsTotal}`;
-          this.attachOrUpdateCombinedHUD(hudAnchor, info.progress, info, 0.6, 1, { title });
-        } else {
-          console.log(`[RoadRenderer.update] Removing HUD for road ${object.id} - all segments completed`);
-          const hudAnchor = roadGroup.getObjectByName('hudAnchor') as THREE.Object3D | null;
-          if (hudAnchor) {
-            this.removeHUD(hudAnchor);
-          }
-        }
-      }
+    const roadGroup = this.meshes.get(object.id) as THREE.Group | undefined;
+    if (!roadGroup || !object.data?.roadSegments) {
+      return;
     }
+
+    const currentSegments = this.roadSegments.get(object.id);
+    const newSegments = object.data.roadSegments;
+    const segmentStates = object.data?.segmentStates || [];
+
+    if (!this.segmentsEqual(currentSegments, newSegments) || this.segmentStatesChanged(object.id, segmentStates)) {
+      this.remove(object.id);
+      this.render(object);
+      return;
+    }
+
+    const fallbackTotal = Array.isArray(newSegments) ? newSegments.length : 0;
+    const info = this.buildRoadResourceInfo(object, fallbackTotal);
+    const isFullyBuilt = !!object.data?.built;
+
+    if (!info) {
+      this.removeRoadHUD(roadGroup, object.id);
+      return;
+    }
+
+    const shouldShowHud =
+      info.segmentsTotal > 0 &&
+      !isFullyBuilt &&
+      (info.progress < 1 || info.segmentsBuilt < info.segmentsTotal);
+
+    if (!shouldShowHud) {
+      this.removeRoadHUD(roadGroup, object.id);
+      return;
+    }
+
+    const first = (newSegments as RoadSegment[])[0];
+    if (!first) {
+      this.removeRoadHUD(roadGroup, object.id);
+      return;
+    }
+
+    const c0 = new THREE.Vector3().addVectors(first.startLeft, first.startRight).multiplyScalar(0.5);
+    const c1 = new THREE.Vector3().addVectors(first.endLeft, first.endRight).multiplyScalar(0.5);
+    const head = new THREE.Vector3().addVectors(c0, c1).multiplyScalar(0.5);
+
+    let hudAnchor = roadGroup.getObjectByName('hudAnchor') as THREE.Object3D | null;
+    if (!hudAnchor) {
+      hudAnchor = new THREE.Object3D();
+      hudAnchor.name = 'hudAnchor';
+      roadGroup.add(hudAnchor);
+    }
+    hudAnchor.position.copy(head);
+
+    const signature = this.createHudSignature(info);
+    const prevSignature = this.hudSignatures.get(object.id);
+    const hasHud = Boolean((hudAnchor as any).userData?.combinedHUD);
+
+    if (hasHud && prevSignature === signature) {
+      return;
+    }
+
+    this.hudSignatures.set(object.id, signature);
+    const title = `Segments: ${info.segmentsBuilt}/${info.segmentsTotal}`;
+    this.attachOrUpdateCombinedHUD(object.id, hudAnchor, info.progress, info, 0.6, 1, { title });
+  }
+
+  public override remove(id: string): void {
+    super.remove(id);
+    this.roadSegments.delete(id);
+    this.lastSegmentStates.delete(id);
+    this.hudSignatures.delete(id);
   }
 
   private segmentsEqual(segments1?: RoadSegment[], segments2?: RoadSegment[]): boolean {
@@ -316,8 +364,6 @@ export class RoadRenderer extends BaseRenderer {
              lastState?.constructionProgress !== newState?.constructionProgress;
     });
 
-    console.log('hasChanged: ', hasChanged, newStates.map((s,i) => `${i}:${s.id}:${s.buildingState}`).toString(), lastStates.map((s,i) => `${i}:${s.id}:${s.buildingState}`).toString());
-    
     // ВАЖЛИВО: оновлюємо кеш ТІЛЬКИ якщо є зміни
     if (hasChanged) {
       this.lastSegmentStates.set(roadId, newStates.map(s => ({ ...s })));
@@ -331,24 +377,29 @@ export class RoadRenderer extends BaseRenderer {
    */
   public removeRoad(roadId: string): void {
     this.remove(roadId);
-    this.roadSegments.delete(roadId);
-    this.lastSegmentStates.delete(roadId);
   }
 
   /**
    * Очищає всі дороги
    */
   public clearAllRoads(): void {
-    for (const roadId of this.roadSegments.keys()) {
+    for (const roadId of Array.from(this.roadSegments.keys())) {
       this.remove(roadId);
     }
     this.roadSegments.clear();
+    this.lastSegmentStates.clear();
+    this.hudSignatures.clear();
   }
 
   public dispose(): void {
     super.dispose();
     this.roadSegments.clear();
-    
+    this.lastSegmentStates.clear();
+    this.hudSignatures.clear();
+    this.cachedCanvasTexture?.dispose?.();
+    this.cachedCanvasTexture = null;
+    this.lastCanvasUpdate = 0;
+
     // Очищаємо матеріали
     if (this.roadMaterial) {
       this.roadMaterial.dispose();
@@ -360,6 +411,7 @@ export class RoadRenderer extends BaseRenderer {
 
   // ---------- Combined HUD (mirrors BuildingRenderer) ----------
   private attachOrUpdateCombinedHUD(
+    ownerId: string,
     anchor: THREE.Object3D,
     constructionProgress: number,
     resourceInfo: { required: Record<string, number>; collected: Record<string, number>; missing: Record<string, number>; progress: number; segmentsBuilt: number; segmentsTotal: number; },
@@ -419,11 +471,10 @@ export class RoadRenderer extends BaseRenderer {
           final = Math.min(final, pxScale);
         }
         hud!.scale.set(final, final, final);
+        hud!.updateMatrixWorld(true);
       };
 
-      this.scene.add(hud);
-      (anchor as any).userData = (anchor as any).userData || {};
-      (anchor as any).userData.combinedHUD = hud;
+      this.hudRegistry.register(ownerId, anchor, hud);
     } else {
       const bg = hud.getObjectByName('hudPlane') as THREE.Mesh;
       const mat = bg.material as THREE.MeshBasicMaterial;
@@ -437,37 +488,12 @@ export class RoadRenderer extends BaseRenderer {
     }
   }
 
-  private removeHUD(anchor: THREE.Object3D): void {
-    const hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
-    console.log(`[RoadRenderer.removeHUD] Anchor:`, anchor.name, `HUD found:`, !!hud);
-    if (hud) { 
-      // Видаляємо HUD зі сцени
-      this.scene.remove(hud);
-      
-      // Також робимо невидимим на всякий випадок
-      hud.visible = false;
-      
-      // Очищаємо всі дочірні об'єкти HUD
-      hud.clear();
-      
-      // Видаляємо матеріали та геометрії
-      hud.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          if (child.geometry) child.geometry.dispose();
-          if (child.material) {
-            if (Array.isArray(child.material)) {
-              child.material.forEach(mat => mat.dispose());
-            } else {
-              child.material.dispose();
-            }
-          }
-        }
-      });
-      
-      // Очищаємо посилання
-      (anchor as any).userData.combinedHUD = undefined;
-      console.log(`[RoadRenderer.removeHUD] HUD removed from scene and disposed`);
+  private removeRoadHUD(group: THREE.Object3D, roadId: string): void {
+    const hudAnchor = group.getObjectByName('hudAnchor') as THREE.Object3D | null;
+    if (hudAnchor) {
+      this.hudRegistry.detachFromAnchor(hudAnchor);
     }
+    this.hudSignatures.delete(roadId);
   }
 
   
@@ -479,36 +505,36 @@ export class RoadRenderer extends BaseRenderer {
     const showProgress = options?.showProgress !== false;
   
     const now = Date.now();
-    if (!options?.disableCache && now - (this as any).lastCanvasUpdate < 200) {
+    if (!options?.disableCache && now - this.lastCanvasUpdate < this.CANVAS_UPDATE_THROTTLE_MS) {
       const { texture } = this.getCachedCanvasTexture();
       return { texture, aspect: this.lastAspect, contentHeightWorld: this.lastContentHeightWorld };
     }
-    (this as any).lastCanvasUpdate = now;
+    this.lastCanvasUpdate = now;
   
     // БІЛЬШИЙ ТАРГЕТНИЙ РОЗМІР + без *1.5 (який зменшував ефективний розмір після clamp)
     const rendererDpr = (this as any).renderer?.getPixelRatio?.() ?? (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1;
     const dpr = rendererDpr * this.INTERNAL_SCALE;
   
     // UI розміри в CSS-пікселях (до множення на dpr)
-    const TITLE_PX = 18;
-    const NAME_PX  = 20;
-    const QTY_PX   = 18;
-    const ROW_H    = this.ROW_HEIGHT_PX;      // 28
-    const PROG_H   = this.PROGRESS_HEIGHT_PX; // 5
-  
+    const TITLE_PX = 27;
+    const NAME_PX  = 30;
+    const QTY_PX   = 27;
+    const ROW_H    = this.ROW_HEIGHT_PX;      // 42
+    const PROG_H   = this.PROGRESS_HEIGHT_PX; // 7.5
+
     // Функція "px → dev px"
     const px = (v: number) => Math.round(v * dpr);
-  
+
     const rows = Math.max(1, Object.keys(resourceInfo.required).length);
-    const pad = px(12);
-    const vGap = px(10);
-    const sidePad = px(this.SIDE_PAD_PX);   // 16
-    const gapS = px(this.GAP_SMALL_PX);     // 8
-    const gapM = px(this.GAP_MEDIUM_PX);    // 12
-    const iconSize = px(this.ICON_SIZE_PX); // 24
-    const reqColW = px(this.REQ_COL_W_PX);  // 42
-    const barH = px(this.BAR_HEIGHT_PX + 2);
-    const titleH = options?.title ? px(TITLE_PX + 2) : 0;
+    const pad = px(18);
+    const vGap = px(15);
+    const sidePad = px(this.SIDE_PAD_PX);   // 24
+    const gapS = px(this.GAP_SMALL_PX);     // 12
+    const gapM = px(this.GAP_MEDIUM_PX);    // 18
+    const iconSize = px(this.ICON_SIZE_PX); // 36
+    const reqColW = px(this.REQ_COL_W_PX);  // 63
+    const barH = px(this.BAR_HEIGHT_PX + 3);
+    const titleH = options?.title ? px(TITLE_PX + 3) : 0;
     const progressH = showProgress ? px(PROG_H) : 0;
   
     // ---------- PASS 1: вимірюємо текст, рахуємо мінімально потрібну ширину ----------
@@ -522,13 +548,13 @@ export class RoadRenderer extends BaseRenderer {
       longestNamePx = Math.max(longestNamePx, Math.ceil(sctx.measureText(name).width));
     }
   
-    const NAME_MIN_W = px(this.NAME_MIN_W_PX);      // 110*dpr
-    const NAME_MAX_W = px(220);                     // жорстка “стеля”, щоб не роздувати HUD
+    const NAME_MIN_W = px(this.NAME_MIN_W_PX);      // 165*dpr
+    const NAME_MAX_W = px(330);                     // жорстка “стеля”, щоб не роздувати HUD
     let nameColW = Math.max(NAME_MIN_W, Math.min(longestNamePx, NAME_MAX_W));
-  
-    const BAR_MIN_W = px(this.BAR_MIN_W_PX);        // 50*dpr
-    const BAR_MAX_W = px(this.BAR_MAX_W_PX);        // 120*dpr
-    const barW = Math.max(BAR_MIN_W, Math.min(BAR_MAX_W, px(120)));
+
+    const BAR_MIN_W = px(this.BAR_MIN_W_PX);        // 75*dpr
+    const BAR_MAX_W = px(this.BAR_MAX_W_PX);        // 180*dpr
+    const barW = Math.max(BAR_MIN_W, Math.min(BAR_MAX_W, px(180)));
   
     // Загальна ширина контенту без урахування safe-fraction/crop
     const contentW =
@@ -540,7 +566,7 @@ export class RoadRenderer extends BaseRenderer {
     const heightRaw = pad + titleBlock + progressBlock + rows * px(ROW_H) + pad;
   
     // Робимо невеличкий буфер по ширині, але без гігантського 1224
-    const widthRaw = Math.max(px(420), contentW);
+    const widthRaw = Math.max(px(630), contentW);
   
     // Підженемо під power-of-two (з теґом кріспності)
     const toPOT = (v: number) => THREE.MathUtils.ceilPowerOfTwo(Math.max(2, v));
@@ -573,7 +599,7 @@ export class RoadRenderer extends BaseRenderer {
       ctx.font = `${px(TITLE_PX)}px Inter, Arial, sans-serif`;
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'left';
-      ctx.fillText(options.title, contentLeft, cursorTop + px(2));
+      ctx.fillText(options.title, contentLeft, cursorTop + px(3));
       cursorTop += titleH + vGap;
     }
   
@@ -583,14 +609,14 @@ export class RoadRenderer extends BaseRenderer {
       const progressW = Math.max(1, contentRight - contentLeft);
       const progressY = cursorTop;
       ctx.fillStyle = 'rgba(255,255,255,0.18)';
-      ctx.fillRect(progressX - px(2), progressY - px(2), progressW + px(4), progressH + px(4));
+      ctx.fillRect(progressX - px(3), progressY - px(3), progressW + px(6), progressH + px(6));
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
       ctx.fillRect(progressX, progressY, progressW, progressH);
       ctx.fillStyle = '#12d06b';
       ctx.fillRect(
         progressX,
         progressY,
-        Math.max(px(6), Math.round(progressW * THREE.MathUtils.clamp(resourceInfo.progress, 0, 1))),
+        Math.max(px(9), Math.round(progressW * THREE.MathUtils.clamp(resourceInfo.progress, 0, 1))),
         progressH
       );
       cursorTop += progressH + vGap;
@@ -611,7 +637,7 @@ export class RoadRenderer extends BaseRenderer {
       ctx.font = nameFont;
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'left';
-      ctx.fillText(resourceId, nameX, rowCenterY + px(1));
+      ctx.fillText(resourceId, nameX, rowCenterY + px(1.5));
   
       // Бар
       const got = resourceInfo.collected[resourceId] || 0;
@@ -619,11 +645,11 @@ export class RoadRenderer extends BaseRenderer {
       const p = reqAmt > 0 ? Math.max(0, Math.min(1, got / reqAmt)) : 1;
       const bY = rowCenterY - Math.round(barH / 2);
       ctx.fillStyle = 'rgba(255,255,255,0.20)';
-      ctx.fillRect(barX - px(2), bY - px(2), barW + px(4), barH + px(4));
+      ctx.fillRect(barX - px(3), bY - px(3), barW + px(6), barH + px(6));
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
       ctx.fillRect(barX, bY, barW, barH);
       ctx.fillStyle = done ? '#12d06b' : '#ff4444';
-      ctx.fillRect(barX, bY, Math.max(px(6), Math.round(barW * p)), barH);
+      ctx.fillRect(barX, bY, Math.max(px(9), Math.round(barW * p)), barH);
   
       // Кількість
       ctx.font = qtyFont;
@@ -674,25 +700,117 @@ export class RoadRenderer extends BaseRenderer {
     const predictedWidthPx = targetHeightPx * aspect; if (predictedWidthPx <= 0) return baseScale; const widthClamp = Math.max(1e-6, maxWidthPx / predictedWidthPx); return Math.min(baseScale, widthClamp * baseScale);
   }
 
-  // Convert road aggregates to ResourceInfo-like shape
-  private getRoadResourceInfo(roadId: string): { required: Record<string, number>; collected: Record<string, number>; missing: Record<string, number>; progress: number; segmentsBuilt: number; segmentsTotal: number; } | null {
-    if (!this.uiLogicBridge) return null;
-    const aggr = this.uiLogicBridge.getRoadAggregates(roadId);
-    if (!aggr) return null;
-    
-    // DEBUG: Логуємо що повертає getRoadAggregates
-    console.log(`[RoadRenderer.getRoadResourceInfo] Road ${roadId}:`, {
-      builtSegments: aggr.builtSegments,
-      totalSegments: aggr.totalSegments,
-      totalRequired: aggr.totalRequired,
-      totalDelivered: aggr.totalDelivered
-    });
-    const required = { ...aggr.totalRequired };
-    const collected = { ...aggr.totalDelivered };
+  // Build HUD resource info by combining segment states with optional manager aggregates
+  private buildRoadResourceInfo(object: TSceneObject, fallbackSegmentsTotal = 0): RoadHudInfo | null {
+    const segmentStates = (object.data?.segmentStates as any[]) ?? [];
+    const aggregates = this.uiLogicBridge?.getRoadAggregates(object.id) ?? null;
+
+    if (!segmentStates.length && !aggregates) {
+      return null;
+    }
+
+    const requiredTotals: Record<string, number> = {};
+    const deliveredTotals: Record<string, number> = {};
+    let segmentsBuiltFromStates = 0;
+    let segmentsTotal = segmentStates.length;
+
+    for (const state of segmentStates) {
+      if (!state) continue;
+
+      const builtFlag = state.buildingState === 'completed' || state.built === true;
+      const progressFlag = typeof state.constructionProgress === 'number' && state.constructionProgress >= 1;
+      if (builtFlag || progressFlag) {
+        segmentsBuiltFromStates += 1;
+      }
+
+      const required = state.requiredResources ?? {};
+      for (const [resource, amount] of Object.entries(required)) {
+        const reqVal = Math.max(0, Number(amount) || 0);
+        requiredTotals[resource] = (requiredTotals[resource] ?? 0) + reqVal;
+      }
+
+      const delivered = state.deliveredResources ?? {};
+      for (const [resource, amount] of Object.entries(delivered)) {
+        const deliveredVal = Math.max(0, Number(amount) || 0);
+        deliveredTotals[resource] = (deliveredTotals[resource] ?? 0) + deliveredVal;
+      }
+    }
+
+    if (aggregates) {
+      segmentsTotal = Math.max(segmentsTotal, aggregates.totalSegments ?? 0);
+      segmentsBuiltFromStates = Math.max(segmentsBuiltFromStates, aggregates.builtSegments ?? 0);
+
+      for (const [resource, amount] of Object.entries(aggregates.totalRequired ?? {})) {
+        const reqVal = Math.max(0, Number(amount) || 0);
+        requiredTotals[resource] = Math.max(requiredTotals[resource] ?? 0, reqVal);
+      }
+
+      for (const [resource, amount] of Object.entries(aggregates.totalDelivered ?? {})) {
+        const deliveredVal = Math.max(0, Number(amount) || 0);
+        deliveredTotals[resource] = Math.max(deliveredTotals[resource] ?? 0, deliveredVal);
+      }
+    }
+
+    segmentsTotal = Math.max(segmentsTotal, fallbackSegmentsTotal);
+
+    if (segmentsTotal === 0) {
+      return null;
+    }
+
+    const required: Record<string, number> = {};
+    const collected: Record<string, number> = {};
     const missing: Record<string, number> = {};
-    let sumReq = 0, sumGot = 0;
-    for (const [k, v] of Object.entries(required)) { const got = collected[k] || 0; sumReq += v; sumGot += Math.min(v, got); if (got < v) missing[k] = v - got; }
-    const progress = sumReq > 0 ? sumGot / sumReq : 0;
-    return { required, collected, missing, progress, segmentsBuilt: aggr.builtSegments, segmentsTotal: aggr.totalSegments };
+    let totalRequired = 0;
+    let totalCollected = 0;
+
+    const resourceKeys = new Set<string>([
+      ...Object.keys(requiredTotals),
+      ...Object.keys(deliveredTotals)
+    ]);
+
+    for (const resource of resourceKeys) {
+      const requiredRaw = requiredTotals[resource] ?? 0;
+      const deliveredRaw = deliveredTotals[resource] ?? 0;
+      const reqVal = Math.max(0, Math.round(requiredRaw));
+      const deliveredVal = Math.max(0, Math.round(deliveredRaw));
+
+      if (reqVal === 0 && deliveredVal === 0) {
+        continue;
+      }
+
+      required[resource] = reqVal;
+      const clamped = Math.min(reqVal, deliveredVal);
+      collected[resource] = clamped;
+      totalRequired += reqVal;
+      totalCollected += clamped;
+
+      if (clamped < reqVal) {
+        missing[resource] = reqVal - clamped;
+      }
+    }
+
+    const progress = totalRequired > 0 ? Math.min(1, totalCollected / totalRequired) : 0;
+
+    return {
+      required,
+      collected,
+      missing,
+      progress,
+      segmentsBuilt: Math.min(segmentsBuiltFromStates, segmentsTotal),
+      segmentsTotal
+    };
+  }
+
+  private createHudSignature(info: RoadHudInfo): string {
+    const resources = Object.keys(info.required).sort();
+    const resourcePart = resources
+      .map((resource) => `${resource}:${info.required[resource]}:${info.collected[resource] ?? 0}`)
+      .join(',');
+
+    return [
+      `p:${info.progress.toFixed(4)}`,
+      `seg:${info.segmentsBuilt}/${info.segmentsTotal}`,
+      `res:${resourcePart}`
+    ].join('|');
   }
 }

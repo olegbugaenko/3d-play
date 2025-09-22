@@ -18,10 +18,10 @@ const _viewDir = new THREE.Vector3();
 
 // ---------- Screen-space таргети ----------
 const HUD_TARGET_PX = {
-  resourceHeight: 48,
+  resourceHeight: 72,
   minScale: 0.1,
   maxScale: 100.0,
-  maxWidth: 320,
+  maxWidth: 480,
 };
 
 const HUD_SAFE_FRACTION = 0.25;
@@ -32,19 +32,19 @@ const HUD_WORLD_Y_OFFSET_FALLBACK = 0.6;
 const HUD_WORLD_Z_OFFSET = 0.035;
 
 // Висоти/ширини елементів у логічних px
-const PROGRESS_HEIGHT_PX = 5;
-const ROW_HEIGHT_PX      = 28;
-const ICON_SIZE_PX       = 24;
+const PROGRESS_HEIGHT_PX = 7.5;
+const ROW_HEIGHT_PX      = 42;
+const ICON_SIZE_PX       = 36;
 
-const NAME_MIN_W_PX      = 120;
-const BAR_MIN_W_PX       = 50;
-const BAR_MAX_W_PX       = 160;
-const BAR_HEIGHT_PX      = 4;
+const NAME_MIN_W_PX      = 180;
+const BAR_MIN_W_PX       = 75;
+const BAR_MAX_W_PX       = 240;
+const BAR_HEIGHT_PX      = 6;
 
-const SIDE_PAD_PX        = 16;
-const GAP_SMALL_PX       = 8;
-const GAP_MEDIUM_PX      = 12;
-const REQ_COL_W_PX       = 48;
+const SIDE_PAD_PX        = 24;
+const GAP_SMALL_PX       = 12;
+const GAP_MEDIUM_PX      = 18;
+const REQ_COL_W_PX       = 72;
 
 const INTERNAL_SCALE = 2;
 
@@ -170,7 +170,7 @@ export class BuildingRenderer extends BaseRenderer {
       const baseParentScale = this.getBaseParentScale(container);
       const baseY = HUD_WORLD_Y_OFFSET_FALLBACK + userHudOffset;
       const title = config?.name ? `${config.name}` : (object.id || 'building');
-      this.attachOrUpdateCombinedHUD(container, constructionProgress, resourceInfo, baseY, baseParentScale, { title });
+      this.attachOrUpdateCombinedHUD(object.id, container, constructionProgress, resourceInfo, baseY, baseParentScale, { title });
       (container as any).userData.constructionBarY = HUD_WORLD_Y_OFFSET_FALLBACK;
     } else {
       // Storage HUD via combined HUD without progress bar
@@ -182,7 +182,7 @@ export class BuildingRenderer extends BaseRenderer {
           const baseY = HUD_WORLD_Y_OFFSET_FALLBACK + userHudOffset;
           const resInfo = this.storageToResourceInfo(storageInfo);
           const title = config?.name ? `${config.name}` : (object.id || 'building');
-          this.attachOrUpdateCombinedHUD(container, 0, resInfo, baseY, baseParentScale, { showProgress: false, disableCache: true, title });
+          this.attachOrUpdateCombinedHUD(object.id, container, 0, resInfo, baseY, baseParentScale, { showProgress: false, disableCache: true, title });
         }
       } else {
         this.removeHUD(container);
@@ -242,6 +242,7 @@ export class BuildingRenderer extends BaseRenderer {
         const baseParentScale = this.getBaseParentScale(container);
         const resourceInfo = this.getBuildingResourceInfo(buildingType, data?.resourcesCollected || {});
         this.attachOrUpdateCombinedHUD(
+          object.id,
           container,
           constructionProgress,
           resourceInfo,
@@ -260,7 +261,7 @@ export class BuildingRenderer extends BaseRenderer {
             const baseParentScale = this.getBaseParentScale(container);
             const resInfo = this.storageToResourceInfo(storageInfo);
             const title = config?.name ? `${config.name}` : (object.id || 'building');
-            this.attachOrUpdateCombinedHUD(container, 0, resInfo, baseY + userHudOffset, baseParentScale, { showProgress: false, disableCache: true, title });
+            this.attachOrUpdateCombinedHUD(object.id, container, 0, resInfo, baseY + userHudOffset, baseParentScale, { showProgress: false, disableCache: true, title });
           }
         } else {
           this.removeHUD(container);
@@ -284,6 +285,7 @@ export class BuildingRenderer extends BaseRenderer {
 
   // ---------- Combined HUD ----------
   private attachOrUpdateCombinedHUD(
+    ownerId: string,
     anchor: THREE.Object3D,
     constructionProgress: number,
     resourceInfo: ResourceInfo,
@@ -373,11 +375,10 @@ export class BuildingRenderer extends BaseRenderer {
           final = Math.min(final, pxScale);
         }
         hud!.scale.set(final, final, final);
+        hud!.updateMatrixWorld(true);
       };
 
-      this.scene.add(hud);
-      (anchor as any).userData = (anchor as any).userData || {};
-      (anchor as any).userData.combinedHUD = hud;
+      this.hudRegistry.register(ownerId, anchor, hud);
     } else {
       const bg = hud.getObjectByName('hudPlane') as THREE.Mesh;
       const mat = bg.material as THREE.MeshBasicMaterial;
@@ -403,11 +404,7 @@ export class BuildingRenderer extends BaseRenderer {
   }
 
   private removeHUD(anchor: THREE.Object3D) {
-    const hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
-    if (hud) {
-      this.scene.remove(hud);
-      (anchor as any).userData.combinedHUD = undefined;
-    }
+    this.hudRegistry.detachFromAnchor(anchor);
   }
 
   // ---------- Canvas builder ----------
@@ -433,13 +430,13 @@ export class BuildingRenderer extends BaseRenderer {
     const widthRaw = Math.round(baseWidth * dpr);
 
     const rows = Math.max(1, Object.keys(resourceInfo.required).length);
-    const pad  = Math.round(12 * dpr);
+    const pad  = Math.round(18 * dpr);
 
     const progressH = showProgress ? Math.round(PROGRESS_HEIGHT_PX * dpr) : 0;
     const rowH      = Math.round(ROW_HEIGHT_PX * dpr);
-    const vGap      = Math.round(10 * dpr);
+    const vGap      = Math.round(15 * dpr);
 
-    const titleH = options?.title ? Math.round(20 * dpr) : 0;
+    const titleH = options?.title ? Math.round(30 * dpr) : 0;
     const heightRaw = pad + titleH + (titleH ? vGap : 0) + progressH + (showProgress ? vGap : 0) + rows * rowH + pad;
 
     const toPOT = (v: number) => THREE.MathUtils.ceilPowerOfTwo(Math.max(2, v));
@@ -470,7 +467,7 @@ export class BuildingRenderer extends BaseRenderer {
     let cursorTop = pad;
 
     if (options?.title) {
-      ctx.font = `${px(16)}px Inter, Arial, sans-serif`;
+      ctx.font = `${px(24)}px Inter, Arial, sans-serif`;
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
@@ -485,14 +482,14 @@ export class BuildingRenderer extends BaseRenderer {
       const progressY = cursorTop;
 
       ctx.fillStyle = 'rgba(255,255,255,0.18)';
-      ctx.fillRect(progressX - px(2), progressY - px(2), progressW + px(4), progressH + px(4));
+      ctx.fillRect(progressX - px(3), progressY - px(3), progressW + px(6), progressH + px(6));
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
       ctx.fillRect(progressX, progressY, progressW, progressH);
       ctx.fillStyle = '#12d06b';
       ctx.fillRect(
         progressX,
         progressY,
-        Math.max(px(6), Math.round(progressW * THREE.MathUtils.clamp(constructionProgress, 0, 1))),
+        Math.max(px(9), Math.round(progressW * THREE.MathUtils.clamp(constructionProgress, 0, 1))),
         progressH
       );
     }
@@ -525,8 +522,8 @@ export class BuildingRenderer extends BaseRenderer {
       return text.slice(0, Math.max(0, lo - 1)) + ellipsis;
     };
 
-    const nameFont = `${px(18)}px Inter, Arial, sans-serif`;
-    const qtyFont  = `${px(16)}px Inter, Arial, sans-serif`;
+    const nameFont = `${px(27)}px Inter, Arial, sans-serif`;
+    const qtyFont  = `${px(24)}px Inter, Arial, sans-serif`;
 
     let i = 0;
     const startY = cursorTop + progressH + (showProgress ? vGap : 0);
@@ -543,7 +540,7 @@ export class BuildingRenderer extends BaseRenderer {
 
       if (nameMaxW < NAME_MIN_W) { const d = NAME_MIN_W - nameMaxW; nameMaxW += d; barW -= d; }
       if (barW < BAR_MIN_W)       { const d = BAR_MIN_W - barW;     barW += d;     nameMaxW -= d; }
-      nameMaxW = Math.max(px(80), nameMaxW);
+      nameMaxW = Math.max(px(120), nameMaxW);
       barW     = Math.min(BAR_MAX_W, Math.max(BAR_MIN_W, barW));
 
       const barX = nameX + nameMaxW + gapM;
@@ -554,7 +551,7 @@ export class BuildingRenderer extends BaseRenderer {
       this.drawResourceIcon(ctx, resourceId, iconX, iconY, iconSize, hex, done);
 
       const name = res?.name ?? resourceId;
-      const nameY = rowCenterY + px(1);
+      const nameY = rowCenterY + px(1.5);
       ctx.fillStyle = done ? '#12d06b' : '#ffffff';
       const clippedName = truncateText(name, nameMaxW, nameFont);
       ctx.font = nameFont;
@@ -565,11 +562,11 @@ export class BuildingRenderer extends BaseRenderer {
       const p = reqAmt > 0 ? Math.max(0, Math.min(1, got / reqAmt)) : 1;
       const bY = rowCenterY - Math.round(barH / 2);
       ctx.fillStyle = 'rgba(255,255,255,0.20)';
-      ctx.fillRect(barX - px(2), bY - px(2), barW + px(4), barH + px(4));
+      ctx.fillRect(barX - px(3), bY - px(3), barW + px(6), barH + px(6));
       ctx.fillStyle = 'rgba(255,255,255,0.12)';
       ctx.fillRect(barX, bY, barW, barH);
       ctx.fillStyle = done ? '#12d06b' : '#ff4444';
-      ctx.fillRect(barX, bY, Math.max(px(6), Math.round(barW * p)), barH);
+      ctx.fillRect(barX, bY, Math.max(px(9), Math.round(barW * p)), barH);
 
       ctx.font = qtyFont;
       ctx.fillStyle = '#e6e6e6';
@@ -800,7 +797,7 @@ export class BuildingRenderer extends BaseRenderer {
         (anchor as any).userData.constructionBarY = storedBaseY;
         (anchor as any).userData.hudYOffset = extraY;
       } else {
-        this.attachOrUpdateCombinedHUD(anchor, p, info, barY, baseParentScale);
+        this.attachOrUpdateCombinedHUD(object.id, anchor, p, info, barY, baseParentScale);
       }
     } else {
       // Built building: render storage HUD if internal storage present
@@ -849,7 +846,7 @@ export class BuildingRenderer extends BaseRenderer {
             (anchor as any).userData.constructionBarY = storedBaseY;
             (anchor as any).userData.hudYOffset = extraY;
           } else {
-            this.attachOrUpdateCombinedHUD(anchor, 0, resInfo, barY, baseParentScale, { showProgress: false, disableCache: true, title });
+            this.attachOrUpdateCombinedHUD(object.id, anchor, 0, resInfo, barY, baseParentScale, { showProgress: false, disableCache: true, title });
           }
         } else {
           this.removeHUD(anchor);
@@ -870,16 +867,9 @@ export class BuildingRenderer extends BaseRenderer {
   public dispose(): void {
     this.geometry.dispose();
     this.material.dispose();
-
-    this.meshes.forEach((mesh) => {
-      const hud = (mesh as any).userData?.combinedHUD as THREE.Group | undefined;
-      if (hud) this.scene.remove(hud);
-    });
-
-    this.meshes.forEach((mesh) => this.scene.remove(mesh));
-    this.meshes.clear();
-
     this.modelCache.clear();
+
+    super.dispose();
   }
 
   // ========== Storage HUD Methods ==========
