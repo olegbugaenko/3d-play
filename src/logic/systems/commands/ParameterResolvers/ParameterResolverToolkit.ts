@@ -327,14 +327,35 @@ export class ParameterResolverToolkit {
       amount = Math.min(missing, droneFree || 5);
     }
 
+    if (plan.direction === 'from-building') {
+      const toFiniteNumber = (value: any): number | null => {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          return value;
+        }
+
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
+
+      const resourceManager: any = this.mapLogic?.resources;
+      const capacityValue = toFiniteNumber(resourceManager?.getResourceCapacity?.(plan.resourceId as any));
+      const currentValue = toFiniteNumber(resourceManager?.getResourceAmount?.(plan.resourceId as any)) ?? 0;
+
+      if (capacityValue !== null) {
+        const freeCapacity = Math.max(0, capacityValue - Math.max(0, currentValue));
+        amount = Math.min(amount, freeCapacity);
+      }
+    }
+
     const loadResourcesMap: Record<string, number> = {};
     loadResourcesMap[plan.resourceId] = Math.max(0, amount);
 
-    const droneStorage = drone?.data?.storage?.[plan.resourceId] || 0;
+    const droneStorage = Number(drone?.data?.storage?.[plan.resourceId]) || 0;
     const unloadResourcesMap: Record<string, number> = {};
 
     if (plan.direction === 'from-building') {
-      unloadResourcesMap[plan.resourceId] = Math.max(0, amount);
+      const expectedAfterLoad = Math.max(0, Math.min(droneMaxCapacity, droneStorage + Math.max(0, amount)));
+      unloadResourcesMap[plan.resourceId] = expectedAfterLoad;
     } else {
       unloadResourcesMap[plan.resourceId] = Math.max(0, droneStorage);
     }
