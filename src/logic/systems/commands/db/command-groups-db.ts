@@ -1,6 +1,6 @@
 import { CommandGroup } from '../command-group.types';
 import { CommandFailureCode } from '../command.types';
-import { sequence, loop, action } from '../plans/PlanBuilder';
+import { sequence, loop, action, condition } from '../plans/PlanBuilder';
 import { buildCommand } from '../plans/PlanCommandFactory';
 
 // База даних груп команд
@@ -362,25 +362,43 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       { id: 'validatePositions1', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.storagePosition' } ], resolveWhen: 'before-command' },
       { id: 'validatePositions2', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.buildingPosition' } ], resolveWhen: 'before-command' },
       { id: 'planResourcesToUnload', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.resourcesToUnload' } ], resolveWhen: 'before-command' },
+      { id: 'planHasStorageCapacity', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.hasStorageCapacity' } ], resolveWhen: 'before-command' },
     ],
     plan: loop('building-collect-plan', ctx => {
       const validation = ctx.getResolvedValue<{ success: boolean }>('validateAmount');
+      const resourcesToUnload = ctx.getResolvedValue<Record<string, number> | undefined>('planResourcesToUnload') || {};
+      const hasResourcesToUnload = Object.values(resourcesToUnload).some(value => Number(value) > 1.e-10);
+      const hasStorageCapacity = ctx.getResolvedValue<boolean>('planHasStorageCapacity');
+      const plan = ctx.getResolvedValue('plan');
+
+      console.log('hasRsToUnload: ', hasResourcesToUnload, hasStorageCapacity, validation, plan, resourcesToUnload);
+      if (hasResourcesToUnload) {
+        if (hasStorageCapacity === false) {
+          return false;
+        }
+        return true;
+      }
       return !validation || validation.success;
     }, [
-      action('move-to-building', ctx =>
-        buildCommand(ctx, 'move-to', {
-          priority: 1,
-          parameters: { priority: 'high' },
-          resolvedParamsMapping: { position: 'buildingPosition' }
-        })
-      ),
-      action('load-from-building', ctx =>
-        buildCommand(ctx, 'load-resources', {
-          priority: 2,
-          parameters: { resources: ctx.context.resolved?.plan?.resources || {} },
-          resolvedParamsMapping: { targetId: 'buildingId' }
-        })
-      ),
+      condition('building-collect-should-load', ctx => {
+        const amount = ctx.getResolvedValue<number>('planAmount');
+        return typeof amount === 'number' && amount > 0;
+      }, [
+        action('move-to-building', ctx =>
+          buildCommand(ctx, 'move-to', {
+            priority: 1,
+            parameters: { priority: 'high' },
+            resolvedParamsMapping: { position: 'buildingPosition' }
+          })
+        ),
+        action('load-from-building', ctx =>
+          buildCommand(ctx, 'load-resources', {
+            priority: 2,
+            parameters: { resources: ctx.context.resolved?.plan?.resources || {} },
+            resolvedParamsMapping: { targetId: 'buildingId' }
+          })
+        )
+      ]),
       action('move-to-storage', ctx =>
         buildCommand(ctx, 'move-to', {
           priority: 3,

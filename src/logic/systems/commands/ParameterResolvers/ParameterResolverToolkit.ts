@@ -371,6 +371,7 @@ export class ParameterResolverToolkit {
       }
     }
 
+
     const positiveAmount = toPositiveNumber(amount);
     const loadResourcesRaw: Record<string, number> = {};
     if (positiveAmount > 0) {
@@ -381,6 +382,7 @@ export class ParameterResolverToolkit {
     if (plan.direction === 'from-building' && loadTotal <= AMOUNT_TOLERANCE) {
       return null;
     }
+
 
     const droneResourceAmount = toPositiveNumber(droneStorageRecord[plan.resourceId]);
     const unloadResourcesRaw: Record<string, number> = {};
