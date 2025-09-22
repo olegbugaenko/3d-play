@@ -21,7 +21,6 @@ export class BuildingPreview {
   public show(position: { x: number; y: number; z: number }, buildingData: any): void {
     this.hide(); // Приховуємо попередню будівлю
 
-    console.log('BuildingPreview: Showing building preview with data:', buildingData);
 
     // Перевіряємо чи є модель для цієї будівлі
     if (buildingData.ui?.modelName) {
@@ -63,12 +62,10 @@ export class BuildingPreview {
     this.gltfLoader.load(
       modelPath,
       (gltf) => {
-        console.log('BuildingPreview: Model loaded successfully:', modelPath);
         this.loadedModels.set(modelPath, gltf.scene);
         this.showLoadedModel(position, buildingData, gltf.scene);
       },
       (progress) => {
-        console.log('BuildingPreview: Loading progress:', (progress.loaded / progress.total * 100) + '%');
       },
       (error) => {
         console.error('BuildingPreview: Error loading model:', error);
@@ -336,7 +333,6 @@ export class BuildingPreview {
         this.gltfLoader.load(
           buildingType.ui.modelName,
           (gltf) => {
-            console.log('BuildingPreview: Preloaded model:', buildingType.ui.modelName);
             this.loadedModels.set(buildingType.ui.modelName, gltf.scene);
             this.loadingModels.delete(buildingType.ui.modelName);
           },

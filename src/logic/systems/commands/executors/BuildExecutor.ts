@@ -18,7 +18,6 @@ export class BuildExecutor extends CommandExecutor {
         const object = this.context.scene.getObjectById(this.context.objectId);
         const buildingId = this.command.parameters?.buildingId;
 
-        console.log('[BuildExecutor] canExecute');
         
         if (!object || !buildingId) {
             return false;
@@ -104,7 +103,6 @@ export class BuildExecutor extends CommandExecutor {
 
         this.lastBuildTime = currentTime;
 
-        console.log(`[BuildExecutor] Building progress for ${buildingId}: ${(newProgress * 100).toFixed(1)}%`);
 
         // Якщо будівництво завершено - активуємо будівлю
         if (newProgress >= 1.0) {
@@ -137,7 +135,6 @@ export class BuildExecutor extends CommandExecutor {
         const isCompleted = buildingInstance.constructionProgress >= 1.0;
         
         if (isCompleted) {
-            console.log(`[BuildExecutor] Construction completed for ${buildingId}`);
         }
 
         return isCompleted;

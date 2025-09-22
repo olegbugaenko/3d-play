@@ -279,7 +279,6 @@ export class PathfindingSystem {
 
   findOptimalPath(start: Vector3, end: Vector3, obj: TSceneObject): Vector3[] {
     if (this.DEBUG) {
-      console.log(`🔍 findOptimalPath: (${start.x.toFixed(1)}, ${start.z.toFixed(1)}) → (${end.x.toFixed(1)}, ${end.z.toFixed(1)})`);
     }
 
     const g = this.grid;

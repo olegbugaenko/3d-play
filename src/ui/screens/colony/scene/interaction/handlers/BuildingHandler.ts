@@ -42,7 +42,6 @@ export class BuildingHandler extends InteractionHandler {
   }
 
   onEnter(): void {
-    console.log('Entered building mode');
     this.isInBuildingMode = true;
     // Показуємо превью будівлі в початковій позиції
     if (this.selectedBuildingData) {
@@ -54,7 +53,6 @@ export class BuildingHandler extends InteractionHandler {
   }
 
   onExit(): void {
-    console.log('Exited building mode');
     this.isInBuildingMode = false;
     // Приховуємо превью будівлі
     this.buildingPreview.hide();
@@ -64,7 +62,6 @@ export class BuildingHandler extends InteractionHandler {
 
   onMouseDown(event: MouseEvent): void {
     // В режимі будівництва обробляємо тільки ліву кнопку миші
-    console.log('this.isSegmMode: ', this.isSegmentedMode, this.selectedBuildingData, 'isInBuildingMode:', this.isInBuildingMode);
     if (event.button === 0 && this.selectedBuildingData && this.isInBuildingMode) {
       if (this.isSegmentedMode) {
         this.handleSegmentedClick(event); // ПРОСТІШЕ: один клік = один сегмент
@@ -104,11 +101,7 @@ export class BuildingHandler extends InteractionHandler {
               nearestEdge.edgePoint.y,
               nearestEdge.edgePoint.z
             );
-            console.log(`🧲 SNAP to road edge:`, {
-              roadId: nearestEdge.roadId,
-              edge: nearestEdge.edgeName,
-              distance: nearestEdge.distance.toFixed(2) + 'm'
-            });
+
           } else if (nearestEdge) {
             // При великій кількості логів це гальмує, тому замовчуємо подробиці
           }
@@ -364,7 +357,6 @@ private raycastHeightfield(
     // В режимі будівництва правий клік скасовує режим
     if (!this.isInBuildingMode) return; // якщо не в режимі будівництва - ігноруємо
     
-    console.log('Right click in building mode - canceling building mode');
     
     if (this.isSegmentedMode && this.segmentedPath.length > 0) {
       // ВИПРАВЛЕНО: видаляємо останній сегмент замість завершення
@@ -386,11 +378,9 @@ private raycastHeightfield(
 
   setSelectedBuilding(buildingData: any): void {
     this.selectedBuildingData = buildingData;
-    console.log('BuildingHandler: Selected building data:', buildingData);
     
     // Визначаємо чи це сегментована будівля (дороги, ЛЕПи тощо)
     this.isSegmentedMode = buildingData?.isSegmented === true;
-    console.log('BuildingHandler: Segmented mode:', this.isSegmentedMode);
     
     // Скидаємо стан сегментованого режиму
     this.segmentedPath = [];
@@ -453,7 +443,6 @@ private raycastHeightfield(
       );
       
       if (!canPlace) {
-        console.log('Cannot place building here - position is blocked');
         return; // Не розміщуємо будівлю якщо позиція заблокована
       }
       
@@ -476,7 +465,6 @@ private raycastHeightfield(
     );
 
     if (success) {
-      console.log(`Building planned successfully: ${buildingId}`);
       
       // Генеруємо об'єкт на сцені (недобудований)
       this.mapLogic.buildingsManager.generateBuilding(
@@ -536,7 +524,6 @@ private raycastHeightfield(
         nearestEdge.edgePoint.y,
         nearestEdge.edgePoint.z
       );
-      console.log(`🧲 CLICKED with SNAP to road edge ${nearestEdge.edgeName}`);
     }
     
     // Додаємо snap точку до шляху
@@ -561,8 +548,6 @@ private raycastHeightfield(
       }
     }
     
-    console.log('Added point', this.segmentedPath.length, 'at:', finalPoint);
-    console.log('Path points:', this.segmentedPath.map((p, i) => `${i}: (${p.x.toFixed(1)}, ${p.z.toFixed(1)})`));
     
     // Оновлюємо превью
     this.roadPreview.showPath(this.segmentedPath, this.selectedBuildingData);
@@ -571,7 +556,6 @@ private raycastHeightfield(
   private removeLastSegment(): void {
     if (this.segmentedPath.length > 0) {
       this.segmentedPath.pop();
-      console.log('Removed last point. Path now has', this.segmentedPath.length, 'points');
       
       if (this.segmentedPath.length > 0) {
         this.roadPreview.showPath(this.segmentedPath, this.selectedBuildingData);
@@ -585,24 +569,20 @@ private raycastHeightfield(
 
   public finishSegmentedBuilding(): void {
     if (this.segmentedPath.length < 2) {
-      console.warn('Cannot create segmented building - need at least 2 points');
       this.cancelSegmentedBuilding();
       return;
     }
     
-    console.log('Creating segmented building with path:', this.segmentedPath);
     
     // Перевіряємо чи можна побудувати дорогу
     const buildingsManager = this.mapLogic?.buildingsManager;
     if (!buildingsManager) {
-      console.error('BuildingsManager not found');
       this.cancelSegmentedBuilding();
       return;
     }
 
     const simplePath = this.segmentedPath.map(p => ({ x: p.x, y: p.y, z: p.z }));
     if (!buildingsManager.canBuildRoadAt(simplePath, this.selectedBuildingData?.id || 'basic_road')) {
-      console.warn('Cannot build road - invalid path');
       this.cancelSegmentedBuilding();
       return;
     }
@@ -615,7 +595,6 @@ private raycastHeightfield(
     );
     
     if (roadId) {
-      console.log('Successfully created planned road:', roadId);
     } else {
       console.error('Failed to create planned road');
     }

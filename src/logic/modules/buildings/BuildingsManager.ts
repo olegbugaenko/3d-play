@@ -390,7 +390,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   public updateBonusLevelForBuildingType(buildingTypeId: BuildingTypeId): void {
     const totalLevel = this.getTotalLevelForBuildingType(buildingTypeId);
     this.setBonusLevel(buildingTypeId, totalLevel);
-    console.log(`[BuildingsManager] Updated bonus level for ${buildingTypeId}: ${totalLevel}`);
   }
 
   private syncSceneFromInstance(instance: BuildingInstance): void {
@@ -468,7 +467,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       resourcesCollected: {},
     });
 
-    console.log(`[BuildingsManager] Planned building ${typeId} at (${position.x}, ${position.y}, ${position.z})`);
     return true;
   }
 
@@ -656,8 +654,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     this.syncSceneFromInstance(instance);
   }
 
-  public startConstruction(typeId: BuildingTypeId, position: { x: number; y: number; z: number }): void {
-    console.log(`Start construct: ${typeId}`, position);
+  public startConstruction(_typeId: BuildingTypeId, _position: { x: number; y: number; z: number }): void {
   }
 
   public newGameBuildings(): void {
@@ -696,17 +693,14 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     this.generateBuilding(BUILDING_TYPE_IDS.MINIMAL_STORAGE, { x: -2, y: 30, z: 2 }, 1);
     
     // 🚀 TEST: Додаємо тестові біо-будівлі для швидкого тесту storage індикації
-    console.log('[TEST] Adding test bio buildings for storage testing...');
     
     // Біо-інкубатор (виробляє біомасу у внутрішній склад)
     const bioIncubatorPos = { x: 3 + Math.random() * 4, y: 30, z: -1 + Math.random() * 2 }; // x: 3-7, z: -1 to 1
     this.generateBuilding(BUILDING_TYPE_IDS.BIO_INCUBATOR, bioIncubatorPos, 1);
-    console.log(`[TEST] Generated bioIncubator at (${bioIncubatorPos.x.toFixed(1)}, ${bioIncubatorPos.z.toFixed(1)})`);
     
     // Біо-генератор (споживає біомасу з внутрішнього складу)
     const bioGeneratorPos = { x: -5 + Math.random() * 4, y: 30, z: -1 + Math.random() * 2 }; // x: -5 to -1, z: -1 to 1
     this.generateBuilding(BUILDING_TYPE_IDS.BIO_GENERATOR, bioGeneratorPos, 1);
-    console.log(`[TEST] Generated bioGenerator at (${bioGeneratorPos.x.toFixed(1)}, ${bioGeneratorPos.z.toFixed(1)})`);
     
     this.generateRoads(ROAD_TYPE_IDS.BASIC, [
       {x: -5, z: 5},
@@ -727,7 +721,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
         const generator = generatorInstances[0];
         if (generator.internalStorage && generator.internalStorage['biomass']) {
           generator.internalStorage['biomass'].current = 10; // Додаємо 10 біомаси для початку
-          console.log(`[TEST] Added 10 biomass to generator ${generator.id} for initial testing`);
         }
       }
     }, 1000); // Чекаємо секунду після генерації
@@ -760,7 +753,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       data.roadInstances.forEach(road => {
         // Автоматично маркуємо всі сегменти як збудовані якщо дорога вже збудована (фікс для старих збережень)
         if (road.built && road.segments && road.segments.some((s: any) => s.buildingState !== 'completed')) {
-          console.log(`[BuildingsManager] Auto-fixing segments for built road ${road.id} from save`);
           road.segments = road.segments.map((s: any) => ({
             ...s,
             buildingState: 'completed',
@@ -795,7 +787,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
           (road as any).segments = segs;
           (road as any).plannedOnly = true;
           (road as any).resourcesDelivered = (road as any).resourcesDelivered || {};
-          console.log(`[BuildingsManager] Migrated planned road ${road.id}: generated ${segs.length} segments`);
         }
 
         this.roadInstances.set(road.id, { ...road });
@@ -817,8 +808,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
     this.syncAllBuildingsIsBuiltStatus();
 
-    console.log('this.buildingInstances', this.buildingInstances);
-    console.log('this.roadInstances', this.roadInstances);
   }
 
   public reset(): void {
@@ -1048,9 +1037,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Маркуємо внутрішні ребра як зайняті
     this.markInternalRoadEdgesAsBusy(roadId);
 
-    console.log(`[BuildingsManager] Created planned road ${roadId} with ${path.length} points`);
-    if (snapData?.startSnap) console.log(`  - Start snapped to road ${snapData.startSnap.roadId} edge ${snapData.startSnap.edgeName}`);
-    if (snapData?.endSnap) console.log(`  - End snapped to road ${snapData.endSnap.roadId} edge ${snapData.endSnap.edgeName}`);
 
     return roadId;
   }
@@ -1282,11 +1268,9 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       return;
     }
     this.syncSceneFromInstance(inst);
-    console.log(`[BuildingsManager] Synced isBuilt=${this.isBuiltComputed(inst)} for ${instanceId} (built=${inst.built}, level=${inst.level})`);
   }
 
   public syncAllBuildingsIsBuiltStatus(): void {
-    console.log(`[BuildingsManager] Syncing isBuilt status for ${this.buildingInstances.size} buildings`);
     for (const inst of this.buildingInstances.values()) this.syncSceneFromInstance(inst);
   }
 
@@ -1316,8 +1300,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Синхронізуємо з 3D сценою (це встановить dirty flag)
     this.syncSceneFromInstance(inst);
     
-    console.log(`[BuildingsManager] Building ${instanceId} (${inst.typeId}) construction completed!`);
-    console.log(`[BuildingsManager] Instance state: built=${inst.built}, level=${inst.level}, isBuiltComputed=${this.isBuiltComputed(inst)}`);
   }
 
   public updateBuildingStatus(instanceId: string, built: boolean, level: number): void {
@@ -1333,7 +1315,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     this.updateBonusLevelForBuildingType(inst.typeId);
 
     this.syncSceneFromInstance(inst);
-    console.log(`[BuildingsManager] Updated building ${instanceId}: built=${built}, level=${level}`);
   }
 
   public updateConstructionProgress(
@@ -1354,10 +1335,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       inst.resourcesCollected = resourcesCollected;
     }
 
-    console.log('updateConstructionProgress');
-
     this.syncSceneFromInstance(inst);
-    console.log(`[BuildingsManager] Updated construction progress for ${instanceId}: progress=${progress}`);
   }
 
   // ==================== Game Loop Integration ====================
@@ -1429,7 +1407,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Якщо стан змінився - оновлюємо сцену
     if (prevFunctional !== isFunctional) {
       this.sceneLogic.markObjectDirty(buildingId);
-      console.log(`[BuildingsManager] Building ${buildingId} functional state changed: ${isFunctional}`);
     }
     
     building.lastUpdateTime = Date.now();
@@ -1478,13 +1455,11 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       if (hasAllResources && !building.isFunctional) {
         building.isFunctional = true;
         this.sceneLogic.markObjectDirty(buildingId);
-        console.log(`[BuildingsManager] Building ${buildingId} restored to functional state`);
       }
       
       // Синхронізуємо з сценою
       this.syncSceneFromInstance(building);
       
-      console.log(`[BuildingsManager] Refilled ${canAdd} ${resourceId} to building ${buildingId}`);
       return true;
     }
     
@@ -1609,7 +1584,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Маркуємо внутрішні ребра як зайняті
     this.markInternalRoadEdgesAsBusy(roadId);
 
-    console.log(`[BuildingsManager] Created road ${roadId} with length ${totalLength.toFixed(2)}m`);
     return roadId;
   }
 
@@ -1626,7 +1600,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Видаляємо з нашої мапи
     this.roadInstances.delete(roadId);
 
-    console.log(`[BuildingsManager] Removed road ${roadId}`);
     return true;
   }
 
@@ -1646,7 +1619,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Тут простіше створити новий індекс:
     this.roadEdgeIndex = new RoadEdgeIndex(2.0);
 
-    console.log(`[BuildingsManager] Cleared all roads`);
   }
 
   /**
@@ -1686,11 +1658,9 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
     const segment = road.segments[segmentIndex];
     if (segment.buildingState === 'completed') {
-      console.log(`[BuildingsManager] Segment ${segmentIndex} already completed, skipping`);
       return; // Вже завершено
     }
 
-    console.log(`[BuildingsManager] Finishing segment ${segmentIndex} for road ${roadId}`);
 
     // Позначаємо сегмент як завершений
     segment.buildingState = 'completed';
@@ -1741,7 +1711,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
         roadType.speedBonus
       );
       
-      console.log(`[BuildingsManager] Added segment ${segmentIndex} to pathfinding for road ${road.id}`);
     }
   }
 
@@ -1780,7 +1749,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     // Автоматично маркуємо всі сегменти як збудовані якщо дорога вже збудована
     let segmentStates = road.segments || [];
     if (road.built && segmentStates.some((s: any) => s.buildingState !== 'completed')) {
-      console.log(`[BuildingsManager] Auto-marking all segments as completed for built road ${road.id}`);
       segmentStates = segmentStates.map((s: any) => ({
         ...s,
         buildingState: 'completed',
@@ -1811,13 +1779,11 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       targetType: (!road.built && (((road as any).plannedOnly === true) || (road.segments || []).some((s: any) => s.buildingState !== 'completed'))) ? ['build'] : []
     };
 
-    console.log('roadObject', roadObject);
     // Додаємо в сцену
     const success = this.sceneLogic.pushObjectWithTerrainConstraint(roadObject);
     if (!success) {
       console.warn(`[BuildingsManager] Failed to add road ${road.id} to scene`);
     } else {
-      console.log(`[BuildingsManager] Added road ${road.id} to 3D scene`);
       // NEW: index edges for nearest-edge queries
       this.roadEdgeIndex.indexRoad(road.id, adaptedSegments);
     }
@@ -2001,12 +1967,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
             const newRoadStartKey = `${roadId}|0|0`; // start ребро першого сегменту нової дороги
             this.busyEdges.add(newRoadStartKey);
           }
-          console.log('[BuildingsManager] Snapped start:', {
-            to: `${snapData.startSnap.roadId} ${snapData.startSnap.edgeName}`,
-            left: sL,
-            right: sR,
-            at: snapData.startSnap.edgePoint
-          });
+
         }
       }
       
@@ -2050,17 +2011,11 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
             const newRoadEndKey = `${roadId}|${lastSegmentIndex}|1`; // end ребро останнього сегменту нової дороги
             this.busyEdges.add(newRoadEndKey);
           }
-          console.log('[BuildingsManager] Snapped end:', {
-            to: `${snapData.endSnap.roadId} ${snapData.endSnap.edgeName}`,
-            left: eL,
-            right: eR,
-            at: snapData.endSnap.edgePoint
-          });
+
         }
       }
     }
   
-    console.log('out: ', out, path, snapData);
     return out;
   }
 

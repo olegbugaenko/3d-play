@@ -142,19 +142,16 @@ export class LoadResourcesExecutor extends CommandExecutor {
         if (!object) return true;
 
         if (getDroneFreeCapacity(object) <= 0) {
-            console.log(`[LoadResourcesExecutor] Inventory full for ${object.id}`);
             return true;
         }
 
         if (this.hasAllRequiredResources(object, requiredResources)) {
-            console.log(`[LoadResourcesExecutor] All required resources loaded for ${object.id}`);
             return true;
         }
 
         if (target && this.hasSomethingLoaded(object, requiredResources)) {
             const storage = ensureDroneStorage(object);
             if (!this.targetHasRequiredResources(target, requiredResources, storage)) {
-                console.log(`[LoadResourcesExecutor] No more resources available in target, completing with what was loaded for ${object.id}`);
                 return true;
             }
         }

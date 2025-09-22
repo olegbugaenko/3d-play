@@ -508,7 +508,6 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             // Використовуємо метод черги для вставки команд
             if (typeof queue.insertCommandsBefore === 'function') {
                 queue.insertCommandsBefore(beforeCommandId, commands);
-                console.log(`[CommandSystem] Inserted ${commands.length} commands before ${beforeCommandId} for ${objectId}`);
                 return true;
             } else {
                 console.error(`[CommandSystem] Queue does not support insertCommandsBefore method`);
@@ -534,14 +533,11 @@ export class CommandSystem implements SaveLoadManager, ICommandSystem {
             // Використовуємо метод черги для вставки команд
             if (typeof queue.insertCommandsAfter === 'function') {
                 queue.insertCommandsAfter(afterCommandId, commands);
-                console.log(`[CommandSystem] Inserted ${commands.length} commands after ${afterCommandId} for ${objectId}`);
                 return true;
             } else {
-                console.error(`[CommandSystem] Queue does not support insertCommandsAfter method`);
                 return false;
             }
         } catch (error) {
-            console.error(`[CommandSystem] Error inserting commands:`, error);
             return false;
         }
     }

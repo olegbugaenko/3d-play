@@ -46,7 +46,6 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
   
   const memoizedScopes = useMemo(() => {
     if (selectedUnitsCount === 0) return [];
-    console.log('isBuildingAvailable', isBuildingAvailable);
     const scopes = ['gather'];
     // Додаємо build тільки якщо будівництво доступне
     if (isBuildingAvailable) {

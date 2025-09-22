@@ -369,9 +369,7 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       const resourcesToUnload = ctx.getResolvedValue<Record<string, number> | undefined>('planResourcesToUnload') || {};
       const hasResourcesToUnload = Object.values(resourcesToUnload).some(value => Number(value) > 1.e-10);
       const hasStorageCapacity = ctx.getResolvedValue<boolean>('planHasStorageCapacity');
-      const plan = ctx.getResolvedValue('plan');
-
-      console.log('hasRsToUnload: ', hasResourcesToUnload, hasStorageCapacity, validation, plan, resourcesToUnload);
+      
       if (hasResourcesToUnload) {
         if (hasStorageCapacity === false) {
           return false;
