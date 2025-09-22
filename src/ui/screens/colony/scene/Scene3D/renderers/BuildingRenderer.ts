@@ -4,49 +4,23 @@ import { UiLogicBridge } from '@ui/logic/UiLogicBridge';
 import { BaseRenderer } from './BaseRenderer';
 import { TSceneObject } from '@logic/systems/scene/scene.types';
 import { BUILDINGS_DB } from '@logic/modules/buildings/buildings-db';
+import type { BuildingTypeId } from '@logic/modules/buildings/buildings.types';
 import { ResourceRequest } from '@logic/modules/resources/resource-types';
-import { RESOURCES_DB, ResourceId } from '@logic/modules/resources/resources-db';
-import { ResourceIcons } from './ResourceIcons';
+import { HudCanvasBuilder, BUILDING_HUD_STYLE } from './hud/HudCanvasBuilder';
+import type { HudCanvasRequest, HudResourceEntry } from './hud/HudCanvasBuilder';
+import { clampScaleByWidth, computeScreenSpaceScale } from './hud/hudMath';
 
 // ---------- TMP ----------
 const _qCam = new THREE.Quaternion();
 const _worldScale = new THREE.Vector3();
 const _worldPos = new THREE.Vector3();
 const _localOffset = new THREE.Vector3();
-const _camPos = new THREE.Vector3();
 const _viewDir = new THREE.Vector3();
 
 // ---------- Screen-space таргети ----------
-const HUD_TARGET_PX = {
-  resourceHeight: 72,
-  minScale: 0.1,
-  maxScale: 100.0,
-  maxWidth: 480,
-};
-
-const HUD_SAFE_FRACTION = 0.25;
-const HUD_CROP_X = HUD_SAFE_FRACTION;
-
 // Позиціонування у світі
 const HUD_WORLD_Y_OFFSET_FALLBACK = 0.6;
 const HUD_WORLD_Z_OFFSET = 0.035;
-
-// Висоти/ширини елементів у логічних px
-const PROGRESS_HEIGHT_PX = 7.5;
-const ROW_HEIGHT_PX      = 42;
-const ICON_SIZE_PX       = 36;
-
-const NAME_MIN_W_PX      = 180;
-const BAR_MIN_W_PX       = 75;
-const BAR_MAX_W_PX       = 240;
-const BAR_HEIGHT_PX      = 6;
-
-const SIDE_PAD_PX        = 24;
-const GAP_SMALL_PX       = 12;
-const GAP_MEDIUM_PX      = 18;
-const REQ_COL_W_PX       = 72;
-
-const INTERNAL_SCALE = 2;
 
 // --------- Типи ---------
 type ResourceInfo = {
@@ -61,18 +35,13 @@ export class BuildingRenderer extends BaseRenderer {
   private material: THREE.MeshBasicMaterial;
   private loader: GLTFLoader;
   private modelCache: Map<string, THREE.Group> = new Map();
-  private lastCanvasUpdate: number = 0;
-  private readonly CANVAS_UPDATE_THROTTLE_MS = 200;
-  private cachedCanvasTexture: THREE.CanvasTexture | null = null;
-
-  private lastAspect = 1;
-  private lastContentHeightWorld = 1;
+  private readonly hudStyle = BUILDING_HUD_STYLE;
+  private readonly hudBuilder: HudCanvasBuilder;
   
   private uiLogicBridge: UiLogicBridge | null = null; // Bridge to logic for storage info
 
   constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
     super(scene, renderer);
-    (this as any).renderer = renderer;
 
     this.geometry = new THREE.BoxGeometry(1, 1, 1);
     this.material = new THREE.MeshBasicMaterial({
@@ -86,6 +55,7 @@ export class BuildingRenderer extends BaseRenderer {
     });
 
     this.loader = new GLTFLoader();
+    this.hudBuilder = new HudCanvasBuilder(renderer, this.hudStyle);
   }
 
   /**
@@ -136,7 +106,7 @@ export class BuildingRenderer extends BaseRenderer {
 
   render(object: TSceneObject): THREE.Object3D {
     const data: any = object.data || {};
-    const buildingType = data?.typeId || data?.buildingType || 'storage';
+    const buildingType = (data?.typeId || data?.buildingType || 'storage') as BuildingTypeId;
     const config = BUILDINGS_DB.get(buildingType);
 
     // контейнер-якір
@@ -293,16 +263,19 @@ export class BuildingRenderer extends BaseRenderer {
     baseParentScale: number,
     options?: { showProgress?: boolean; disableCache?: boolean; title?: string }
   ): void {
+    const request = this.createHudRequest(constructionProgress, resourceInfo, {
+      showProgress: options?.showProgress,
+      title: options?.title,
+    });
+
+    const { texture, aspect, contentHeightWorld, cropX } = this.hudBuilder.build(request, {
+      disableCache: options?.disableCache,
+    });
+
+    const planeH = contentHeightWorld;
+    const planeW = contentHeightWorld * aspect * cropX;
+
     let hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
-
-    const { texture, aspect, contentHeightWorld } =
-      this.buildCombinedCanvasTexture(constructionProgress, resourceInfo, options);
-
-    const baseW = contentHeightWorld * aspect;
-    const baseH = contentHeightWorld;
-    const cropX = HUD_CROP_X;
-    const planeW = baseW * cropX;
-    const planeH = baseH;
 
     if (!hud) {
       hud = new THREE.Group();
@@ -310,33 +283,23 @@ export class BuildingRenderer extends BaseRenderer {
       hud.renderOrder = 1100;
       hud.frustumCulled = false;
 
-      const bg = new THREE.Mesh(
-        new THREE.PlaneGeometry(planeW, planeH),
-        new THREE.MeshBasicMaterial({
-          map: texture,
-          transparent: true,
-          opacity: 1.0,
-          side: THREE.DoubleSide,
-          toneMapped: false,
-          fog: false,
-          depthTest: false,
-          depthWrite: false,
-        })
-      );
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 1.0,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+        fog: false,
+        depthTest: false,
+        depthWrite: false,
+      });
+
+      const bg = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), material);
       bg.name = 'hudPlane';
+      bg.frustumCulled = false;
+      this.applyHudTextureCrop(material, cropX);
 
-      if ((bg.material as THREE.MeshBasicMaterial).map) {
-        const map = (bg.material as THREE.MeshBasicMaterial).map!;
-        map.wrapS = THREE.ClampToEdgeWrapping;
-        map.wrapT = THREE.ClampToEdgeWrapping;
-        map.repeat.set(cropX, 1);
-        map.offset.set((1 - cropX) * 0.5, 0);
-        map.needsUpdate = true;
-      }
-
-      hud.add(bg);
-
-      const rendererRef = (this as any).renderer as THREE.WebGLRenderer | undefined;
+      const rendererRef = this.renderer;
       (bg as any).onBeforeRender = (_r: any, _s: any, camera: THREE.Camera) => {
         const extraY = (anchor as any).userData?.hudYOffset ?? 0;
 
@@ -348,36 +311,30 @@ export class BuildingRenderer extends BaseRenderer {
         hud!.quaternion.copy(_qCam);
 
         (camera as any).getWorldDirection?.(_viewDir) ?? _viewDir.set(0, 0, -1).applyQuaternion(_qCam);
-        const pos = _worldPos.clone().addScaledVector(_viewDir, -HUD_WORLD_Z_OFFSET);
-        hud!.position.copy(pos);
+        hud!.position.copy(_worldPos).addScaledVector(_viewDir, -HUD_WORLD_Z_OFFSET);
 
         anchor.getWorldScale(_worldScale);
-        const sx = _worldScale.x || 1, sy = _worldScale.y || 1, sz = _worldScale.z || 1;
         const base = 1 / Math.max(baseParentScale, 1e-6);
-        // const anti = base / Math.max(Math.max(sx, sy), sz); // Коментуємо антискейл
+        const planeAspect = planeW / Math.max(1e-6, planeH);
 
-        const screenS = this.computeScreenSpaceScale(
-          camera, hud!.position, planeH, Math.round(HUD_TARGET_PX.resourceHeight), rendererRef
+        const screenScale = computeScreenSpaceScale(
+          camera,
+          hud!.position,
+          planeH,
+          this.hudStyle.targetHeightPx,
+          rendererRef,
+          this.hudStyle.minScale,
+          this.hudStyle.maxScale
         );
 
-        // Використовуємо тільки screen-space scale без компенсації скейлу моделі
-        let final = base * screenS;
-        if (rendererRef) {
-          const pxScale = this.computeWidthClampScale(
-            camera,
-            hud!.position,
-            planeH,
-            Math.round(HUD_TARGET_PX.resourceHeight),
-            planeW / planeH,
-            HUD_TARGET_PX.maxWidth,
-            rendererRef
-          );
-          final = Math.min(final, pxScale);
-        }
+        let final = base * screenScale;
+        final = clampScaleByWidth(final, planeAspect, this.hudStyle.targetHeightPx, this.hudStyle.maxWidthPx);
+
         hud!.scale.set(final, final, final);
         hud!.updateMatrixWorld(true);
       };
 
+      hud.add(bg);
       this.hudRegistry.register(ownerId, anchor, hud);
     } else {
       const bg = hud.getObjectByName('hudPlane') as THREE.Mesh;
@@ -393,13 +350,7 @@ export class BuildingRenderer extends BaseRenderer {
         bg.geometry = new THREE.PlaneGeometry(planeW, planeH);
       }
 
-      if (mat.map) {
-        mat.map.wrapS = THREE.ClampToEdgeWrapping;
-        mat.map.wrapT = THREE.ClampToEdgeWrapping;
-        mat.map.repeat.set(cropX, 1);
-        mat.map.offset.set((1 - cropX) * 0.5, 0);
-        mat.needsUpdate = true;
-      }
+      this.applyHudTextureCrop(mat, cropX);
     }
   }
 
@@ -407,244 +358,45 @@ export class BuildingRenderer extends BaseRenderer {
     this.hudRegistry.detachFromAnchor(anchor);
   }
 
-  // ---------- Canvas builder ----------
-  private buildCombinedCanvasTexture(
-    constructionProgress: number,
+  private applyHudTextureCrop(material: THREE.MeshBasicMaterial, cropX: number): void {
+    const map = material.map;
+    if (!map) return;
+
+    map.wrapS = THREE.ClampToEdgeWrapping;
+    map.wrapT = THREE.ClampToEdgeWrapping;
+    map.repeat.set(cropX, 1);
+    map.offset.set((1 - cropX) * 0.5, 0);
+    map.needsUpdate = true;
+  }
+
+  private createHudRequest(
+    progress: number,
     resourceInfo: ResourceInfo,
-    options?: { showProgress?: boolean; disableCache?: boolean; title?: string }
-  ): { texture: THREE.CanvasTexture; aspect: number; contentHeightWorld: number } {
+    options?: { showProgress?: boolean; title?: string }
+  ): HudCanvasRequest {
+    const ids = new Set<string>([
+      ...Object.keys(resourceInfo.required || {}),
+      ...Object.keys(resourceInfo.collected || {}),
+    ]);
+
+    const resources: HudResourceEntry[] = Array.from(ids).map((id) => ({
+      id,
+      required: resourceInfo.required[id] ?? 0,
+      collected: resourceInfo.collected[id] ?? 0,
+    }));
+
     const showProgress = options?.showProgress !== false;
-    const now = Date.now();
-    if (!options?.disableCache && now - this.lastCanvasUpdate < this.CANVAS_UPDATE_THROTTLE_MS) {
-      const { texture } = this.getCachedCanvasTexture();
-      return { texture, aspect: this.lastAspect, contentHeightWorld: this.lastContentHeightWorld };
-    }
-    this.lastCanvasUpdate = now;
 
-    const rendererDpr =
-      this.renderer?.getPixelRatio?.() ??
-      (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1;
-    const dpr = rendererDpr * INTERNAL_SCALE;
-
-    const baseWidth = 1024;
-    const widthRaw = Math.round(baseWidth * dpr);
-
-    const rows = Math.max(1, Object.keys(resourceInfo.required).length);
-    const pad  = Math.round(18 * dpr);
-
-    const progressH = showProgress ? Math.round(PROGRESS_HEIGHT_PX * dpr) : 0;
-    const rowH      = Math.round(ROW_HEIGHT_PX * dpr);
-    const vGap      = Math.round(15 * dpr);
-
-    const titleH = options?.title ? Math.round(30 * dpr) : 0;
-    const heightRaw = pad + titleH + (titleH ? vGap : 0) + progressH + (showProgress ? vGap : 0) + rows * rowH + pad;
-
-    const toPOT = (v: number) => THREE.MathUtils.ceilPowerOfTwo(Math.max(2, v));
-    const width  = toPOT(widthRaw);
-    const height = toPOT(heightRaw);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d')!;
-
-    ctx.fillStyle = 'rgba(0,0,0,0.92)';
-    ctx.fillRect(0, 0, width, height);
-
-    const safeW = Math.round(widthRaw * HUD_SAFE_FRACTION);
-    const safeX = Math.round((widthRaw - safeW) * 0.5);
-    const safeRight = safeX + safeW;
-
-    const px = (val: number) => Math.round(val * dpr);
-    const sidePad = px(SIDE_PAD_PX);
-    const gapS = px(GAP_SMALL_PX);
-    const gapM = px(GAP_MEDIUM_PX);
-    const reqColW = px(REQ_COL_W_PX);
-
-    const contentLeft  = safeX + sidePad;
-    const contentRight = safeRight - sidePad;
-
-    let cursorTop = pad;
-
-    if (options?.title) {
-      ctx.font = `${px(24)}px Inter, Arial, sans-serif`;
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      const titleX = contentLeft;
-      ctx.fillText(options.title, titleX, cursorTop);
-      cursorTop += titleH + vGap;
-    }
-
-    if (showProgress) {
-      const progressX = contentLeft;
-      const progressW = Math.max(1, contentRight - contentLeft);
-      const progressY = cursorTop;
-
-      ctx.fillStyle = 'rgba(255,255,255,0.18)';
-      ctx.fillRect(progressX - px(3), progressY - px(3), progressW + px(6), progressH + px(6));
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(progressX, progressY, progressW, progressH);
-      ctx.fillStyle = '#12d06b';
-      ctx.fillRect(
-        progressX,
-        progressY,
-        Math.max(px(9), Math.round(progressW * THREE.MathUtils.clamp(constructionProgress, 0, 1))),
-        progressH
-      );
-    }
-
-    const iconSize = px(ICON_SIZE_PX);
-    const iconX = contentLeft;
-
-    const reqX = contentRight;
-    const rightLimit = reqX - reqColW;
-
-    const nameX = iconX + iconSize + gapS;
-
-    const availableBetween = Math.max(0, rightLimit - nameX - gapM);
-    const NAME_MIN_W = px(NAME_MIN_W_PX);
-    const BAR_MIN_W  = px(BAR_MIN_W_PX);
-    const BAR_MAX_W  = px(BAR_MAX_W_PX);
-    const barH       = px(BAR_HEIGHT_PX);
-
-    const ellipsis = '…';
-    const truncateText = (text: string, maxW: number, font: string) => {
-      ctx.font = font;
-      if (maxW <= 0) return ellipsis;
-      if (ctx.measureText(text).width <= maxW) return text;
-      let lo = 0, hi = text.length;
-      while (lo < hi) {
-        const mid = ((lo + hi) / 2) | 0;
-        const s = text.slice(0, mid) + ellipsis;
-        if (ctx.measureText(s).width <= maxW) lo = mid + 1; else hi = mid;
-      }
-      return text.slice(0, Math.max(0, lo - 1)) + ellipsis;
-    };
-
-    const nameFont = `${px(27)}px Inter, Arial, sans-serif`;
-    const qtyFont  = `${px(24)}px Inter, Arial, sans-serif`;
-
-    let i = 0;
-    const startY = cursorTop + progressH + (showProgress ? vGap : 0);
-
-    for (const [resourceId, reqAmt] of Object.entries(resourceInfo.required)) {
-      const got = resourceInfo.collected[resourceId] || 0;
-      const miss = Math.max(0, reqAmt - got);
-      const done = miss === 0;
-
-      const rowCenterY = startY + i * rowH + Math.round(rowH * 0.5);
-
-      let nameMaxW = Math.round(availableBetween * 0.55);
-      let barW     = availableBetween - nameMaxW;
-
-      if (nameMaxW < NAME_MIN_W) { const d = NAME_MIN_W - nameMaxW; nameMaxW += d; barW -= d; }
-      if (barW < BAR_MIN_W)       { const d = BAR_MIN_W - barW;     barW += d;     nameMaxW -= d; }
-      nameMaxW = Math.max(px(120), nameMaxW);
-      barW     = Math.min(BAR_MAX_W, Math.max(BAR_MIN_W, barW));
-
-      const barX = nameX + nameMaxW + gapM;
-
-      const res = RESOURCES_DB[resourceId as ResourceId];
-      const hex = res?.color ?? '#cccccc';
-      const iconY = rowCenterY - Math.round(iconSize / 2);
-      this.drawResourceIcon(ctx, resourceId, iconX, iconY, iconSize, hex, done);
-
-      const name = res?.name ?? resourceId;
-      const nameY = rowCenterY + px(1.5);
-      ctx.fillStyle = done ? '#12d06b' : '#ffffff';
-      const clippedName = truncateText(name, nameMaxW, nameFont);
-      ctx.font = nameFont;
-      ctx.textBaseline = 'middle';
-      ctx.textAlign = 'left';
-      ctx.fillText(clippedName, nameX, nameY);
-
-      const p = reqAmt > 0 ? Math.max(0, Math.min(1, got / reqAmt)) : 1;
-      const bY = rowCenterY - Math.round(barH / 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.20)';
-      ctx.fillRect(barX - px(3), bY - px(3), barW + px(6), barH + px(6));
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(barX, bY, barW, barH);
-      ctx.fillStyle = done ? '#12d06b' : '#ff4444';
-      ctx.fillRect(barX, bY, Math.max(px(9), Math.round(barW * p)), barH);
-
-      ctx.font = qtyFont;
-      ctx.fillStyle = '#e6e6e6';
-      ctx.textBaseline = 'middle';
-      ctx.textAlign = 'right';
-      ctx.fillText(String(reqAmt), reqX, rowCenterY);
-
-      i++;
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.magFilter = THREE.LinearFilter;
-    texture.anisotropy = this.renderer?.capabilities?.getMaxAnisotropy?.() ?? 8;
-    texture.needsUpdate = true;
-
-    this.cachedCanvasTexture = texture;
-
-    const aspect = widthRaw / heightRaw;
-    const contentHeightWorld = 1.0;
-
-    this.lastAspect = aspect;
-    this.lastContentHeightWorld = contentHeightWorld;
-
-    return { texture, aspect, contentHeightWorld };
-  }
-
-  // ---------- Helpers ----------
-  private getCachedCanvasTexture(): { texture: THREE.CanvasTexture; aspect: number; contentHeightWorld: number } {
-    if (!this.cachedCanvasTexture) {
-      const canvas = document.createElement('canvas');
-      canvas.width = 2;
-      canvas.height = 2;
-      const tex = new THREE.CanvasTexture(canvas);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.generateMipmaps = false;
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      this.cachedCanvasTexture = tex;
-    }
     return {
-      texture: this.cachedCanvasTexture,
-      aspect: this.lastAspect,
-      contentHeightWorld: this.lastContentHeightWorld
+      title: options?.title,
+      progress: showProgress ? THREE.MathUtils.clamp(progress, 0, 1) : 0,
+      showProgress,
+      resources,
     };
-  }
-
-  private drawResourceIcon(
-    ctx: CanvasRenderingContext2D,
-    resourceId: string,
-    x: number,
-    y: number,
-    size: number,
-    color: string,
-    isComplete: boolean = false
-  ): void {
-    const iconColor = isComplete ? '#12d06b' : color;
-    const svgString = ResourceIcons.getIconForResource(resourceId, iconColor);
-
-    const img = new Image();
-    const svgBlob = new Blob([svgString], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(svgBlob);
-
-    img.onload = () => {
-      ctx.drawImage(img, Math.round(x), Math.round(y), Math.round(size), Math.round(size));
-      URL.revokeObjectURL(url);
-      if (this.cachedCanvasTexture) {
-        this.cachedCanvasTexture.needsUpdate = true;
-      }
-    };
-
-    img.src = url;
   }
 
   private getBuildingResourceInfo(
-    buildingType: string,
+    buildingType: BuildingTypeId,
     resourcesCollected: Record<string, number> = {}
   ): ResourceInfo {
     const buildingConfig = BUILDINGS_DB.get(buildingType);
@@ -685,67 +437,6 @@ export class BuildingRenderer extends BaseRenderer {
     return Math.max(1e-6, Math.max(anchor.scale.x, anchor.scale.y, anchor.scale.z));
   }
 
-  private computeScreenSpaceScale(
-    camera: THREE.Camera,
-    worldPos: THREE.Vector3,
-    planeWorldHeight: number,
-    targetPx: number,
-    renderer?: THREE.WebGLRenderer
-  ): number {
-    const size = renderer?.getSize(new THREE.Vector2());
-    const dpr =
-      renderer?.getPixelRatio?.() ??
-      (typeof window !== 'undefined' ? window.devicePixelRatio : 1) ?? 1;
-    const viewportH =
-      (size?.y ?? (typeof window !== 'undefined' ? window.innerHeight : 800)) * dpr;
-
-    if ((camera as any).isOrthographicCamera) {
-      const cam = camera as THREE.OrthographicCamera;
-      const orthoHeight = Math.max(1e-6, cam.top - cam.bottom);
-      const pxPerWorld = viewportH / orthoHeight;
-      const currentPx = planeWorldHeight * pxPerWorld;
-      const s = Math.round(targetPx) / Math.max(1e-6, currentPx);
-      return THREE.MathUtils.clamp(s, HUD_TARGET_PX.minScale, HUD_TARGET_PX.maxScale);
-    }
-
-    if ((camera as any).isPerspectiveCamera) {
-      (camera as THREE.Object3D).getWorldPosition(_camPos);
-      const d = _camPos.distanceTo(worldPos);
-      const cam = camera as THREE.PerspectiveCamera;
-      const tan = Math.tan(THREE.MathUtils.degToRad(cam.fov) * 0.5);
-      const denom = Math.max(1e-6, 2 * d * tan);
-      const heightToPixels = viewportH / denom;
-      const s = Math.round(targetPx) / Math.max(1e-6, planeWorldHeight * heightToPixels);
-      return THREE.MathUtils.clamp(s, HUD_TARGET_PX.minScale, HUD_TARGET_PX.maxScale);
-    }
-
-    return 1;
-  }
-
-  private computeWidthClampScale(
-    camera: THREE.Camera,
-    worldPos: THREE.Vector3,
-    planeWorldHeight: number,
-    targetHeightPx: number,
-    aspect: number,
-    maxWidthPx: number,
-    renderer: THREE.WebGLRenderer
-  ): number {
-    // Compute current pixels per world unit using height, then derive width in px and clamp
-    const baseScale = this.computeScreenSpaceScale(
-      camera,
-      worldPos,
-      planeWorldHeight,
-      targetHeightPx,
-      renderer
-    );
-    // Predicted width in pixels if we used baseScale
-    const predictedWidthPx = targetHeightPx * aspect;
-    if (predictedWidthPx <= 0) return baseScale;
-    const widthClamp = Math.max(1e-6, maxWidthPx / predictedWidthPx);
-    return Math.min(baseScale, widthClamp * baseScale);
-  }
-
   public update(object: TSceneObject): void {
     super.update(object);
     const anchor = this.meshes.get(object.id);
@@ -758,25 +449,25 @@ export class BuildingRenderer extends BaseRenderer {
     const hud = (anchor as any).userData?.combinedHUD as THREE.Group | undefined;
 
     if (isUnderConstruction) {
-      const buildingType = data?.typeId || data?.buildingType || 'storage';
+      const buildingType = (data?.typeId || data?.buildingType || 'storage') as BuildingTypeId;
       const info = this.getBuildingResourceInfo(buildingType, data?.resourcesCollected || {});
       const baseParentScale = this.getBaseParentScale(anchor);
 
       const storedBaseY = (anchor as any).userData?.constructionBarY ?? HUD_WORLD_Y_OFFSET_FALLBACK;
       const extraY = (anchor as any).userData?.hudYOffset ?? 0;
       const barY = storedBaseY + extraY;
-      
+
       if (hud) {
-        const { texture, aspect, contentHeightWorld } = this.buildCombinedCanvasTexture(p, info, { disableCache: true });
+        const request = this.createHudRequest(p, info);
+        const { texture, aspect, contentHeightWorld, cropX } = this.hudBuilder.build(request, { disableCache: true });
         const bg = hud.getObjectByName('hudPlane') as THREE.Mesh;
         const mat = bg.material as THREE.MeshBasicMaterial;
         mat.map?.dispose();
         mat.map = texture;
         mat.needsUpdate = true;
 
-        const baseW = contentHeightWorld * aspect;
-        const planeW = baseW * HUD_CROP_X;
         const planeH = contentHeightWorld;
+        const planeW = contentHeightWorld * aspect * cropX;
 
         const geo = bg.geometry as THREE.PlaneGeometry;
         const params = geo.parameters;
@@ -785,14 +476,7 @@ export class BuildingRenderer extends BaseRenderer {
           bg.geometry = new THREE.PlaneGeometry(planeW, planeH);
         }
 
-        // ВАЖЛИВО: повторно застосовуємо обрізання карти після заміни texture
-        if (mat.map) {
-          mat.map.wrapS = THREE.ClampToEdgeWrapping;
-          mat.map.wrapT = THREE.ClampToEdgeWrapping;
-          mat.map.repeat.set(HUD_CROP_X, 1);
-          mat.map.offset.set((1 - HUD_CROP_X) * 0.5, 0);
-          mat.needsUpdate = true;
-        }
+        this.applyHudTextureCrop(mat, cropX);
 
         (anchor as any).userData.constructionBarY = storedBaseY;
         (anchor as any).userData.hudYOffset = extraY;
@@ -801,7 +485,7 @@ export class BuildingRenderer extends BaseRenderer {
       }
     } else {
       // Built building: render storage HUD if internal storage present
-      const buildingType = data?.typeId || data?.buildingType || 'storage';
+      const buildingType = (data?.typeId || data?.buildingType || 'storage') as BuildingTypeId;
       const config = BUILDINGS_DB.get(buildingType);
       const hasInternal = this.buildingHasInternalStorage(object.id, config);
       if (hasInternal && this.uiLogicBridge) {
@@ -815,17 +499,17 @@ export class BuildingRenderer extends BaseRenderer {
 
           const title = config?.name ? `${config.name}` : (object.id || 'building');
           if (hud) {
-            const { texture, aspect, contentHeightWorld } =
-              this.buildCombinedCanvasTexture(0, resInfo, { showProgress: false, disableCache: true, title });
+            const request = this.createHudRequest(0, resInfo, { showProgress: false, title });
+            const { texture, aspect, contentHeightWorld, cropX } =
+              this.hudBuilder.build(request, { disableCache: true });
             const bg = hud.getObjectByName('hudPlane') as THREE.Mesh;
             const mat = bg.material as THREE.MeshBasicMaterial;
             mat.map?.dispose();
             mat.map = texture;
             mat.needsUpdate = true;
 
-            const baseW = contentHeightWorld * aspect;
-            const planeW = baseW * HUD_CROP_X;
             const planeH = contentHeightWorld;
+            const planeW = contentHeightWorld * aspect * cropX;
 
             const geo = bg.geometry as THREE.PlaneGeometry;
             const params = geo.parameters;
@@ -834,14 +518,7 @@ export class BuildingRenderer extends BaseRenderer {
               bg.geometry = new THREE.PlaneGeometry(planeW, planeH);
             }
 
-            // ВАЖЛИВО: це було відсутнє — саме воно й ламало скейл на частині будівель
-            if (mat.map) {
-              mat.map.wrapS = THREE.ClampToEdgeWrapping;
-              mat.map.wrapT = THREE.ClampToEdgeWrapping;
-              mat.map.repeat.set(HUD_CROP_X, 1);
-              mat.map.offset.set((1 - HUD_CROP_X) * 0.5, 0);
-              mat.needsUpdate = true;
-            }
+            this.applyHudTextureCrop(mat, cropX);
 
             (anchor as any).userData.constructionBarY = storedBaseY;
             (anchor as any).userData.hudYOffset = extraY;
@@ -868,6 +545,7 @@ export class BuildingRenderer extends BaseRenderer {
     this.geometry.dispose();
     this.material.dispose();
     this.modelCache.clear();
+    this.hudBuilder.dispose();
 
     super.dispose();
   }
