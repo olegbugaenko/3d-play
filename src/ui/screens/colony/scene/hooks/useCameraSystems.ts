@@ -21,6 +21,12 @@ export function useCameraController(
   }, [camera, renderer]);
 
   useEffect(() => {
+    return () => {
+      controller.dispose();
+    };
+  }, [controller]);
+
+  useEffect(() => {
     controller.setGetTerrainHeight((x, z) => {
       const tm = mapLogicRef.current?.scene.getTerrainManager();
       return tm ? tm.getHeightAt(x, z) : undefined;
