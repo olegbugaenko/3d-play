@@ -2,6 +2,8 @@ import { Vector3 } from 'three';
 import { CommandGroupContext } from '../command-group.types';
 import { TSceneObject } from '@scene/scene.types';
 
+const AMOUNT_TOLERANCE = 1e-6;
+
 export class ParameterResolverToolkit {
   constructor(private readonly mapLogic: any) {}
 
@@ -311,13 +313,44 @@ export class ParameterResolverToolkit {
     const closestStorageId = this.getClosestStorage(dronePos, 200);
     const storageAccess = closestStorageId ? this.getObjectAccessPoint(closestStorageId, objectId) : null;
 
+    const toFiniteNumber = (value: any): number | null => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+
+    const toPositiveNumber = (value: any): number => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) {
+        return 0;
+      }
+
+      const nonNegative = Math.max(0, numeric);
+      return nonNegative <= AMOUNT_TOLERANCE ? 0 : nonNegative;
+    };
+
+    const normalizeResourceMap = (input: Record<string, number>): Record<string, number> => {
+      const normalized: Record<string, number> = {};
+      for (const [resourceId, rawValue] of Object.entries(input)) {
+        const positive = toPositiveNumber(rawValue);
+        if (positive > 0) {
+          normalized[resourceId] = positive;
+        }
+      }
+      return normalized;
+    };
+
     const inst = bm.getBuildingInstance?.(buildingId);
     const storageInfo = inst?.internalStorage?.[plan.resourceId];
     const drone = this.mapLogic?.scene?.getObjectById(objectId);
-    const droneStorageValues = Object.values(drone?.data?.storage || {}) as number[];
-    const droneLoad = droneStorageValues.reduce((sum, val) => sum + val, 0);
+    const droneStorageRecord = (drone?.data?.storage ?? {}) as Record<string, number>;
+    const droneStorageValues = Object.values(droneStorageRecord);
+    const droneLoad = droneStorageValues.reduce((sum, val) => sum + toPositiveNumber(val), 0);
     const droneMaxCapacity = drone?.data?.maxCapacity || 5;
-    const droneFree = Math.max(0, droneMaxCapacity - droneLoad);
+    const droneFree = toPositiveNumber(droneMaxCapacity - droneLoad);
 
     let amount = 0;
     if (plan.direction === 'from-building') {
@@ -327,17 +360,8 @@ export class ParameterResolverToolkit {
       amount = Math.min(missing, droneFree || 5);
     }
 
+    const resourceManager: any = this.mapLogic?.resources;
     if (plan.direction === 'from-building') {
-      const toFiniteNumber = (value: any): number | null => {
-        if (typeof value === 'number' && Number.isFinite(value)) {
-          return value;
-        }
-
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? numeric : null;
-      };
-
-      const resourceManager: any = this.mapLogic?.resources;
       const capacityValue = toFiniteNumber(resourceManager?.getResourceCapacity?.(plan.resourceId as any));
       const currentValue = toFiniteNumber(resourceManager?.getResourceAmount?.(plan.resourceId as any)) ?? 0;
 
@@ -347,31 +371,68 @@ export class ParameterResolverToolkit {
       }
     }
 
-    const loadResourcesMap: Record<string, number> = {};
-    loadResourcesMap[plan.resourceId] = Math.max(0, amount);
-
-    const droneStorage = Number(drone?.data?.storage?.[plan.resourceId]) || 0;
-    const unloadResourcesMap: Record<string, number> = {};
-
-    if (plan.direction === 'from-building') {
-      const expectedAfterLoad = Math.max(0, Math.min(droneMaxCapacity, droneStorage + Math.max(0, amount)));
-      unloadResourcesMap[plan.resourceId] = expectedAfterLoad;
-    } else {
-      unloadResourcesMap[plan.resourceId] = Math.max(0, droneStorage);
+    const positiveAmount = toPositiveNumber(amount);
+    const loadResourcesRaw: Record<string, number> = {};
+    if (positiveAmount > 0) {
+      loadResourcesRaw[plan.resourceId] = positiveAmount;
     }
 
-    if (loadResourcesMap[plan.resourceId] <= 0 && unloadResourcesMap[plan.resourceId] <= 0) {
+    const loadTotal = Object.values(loadResourcesRaw).reduce((sum, value) => sum + value, 0);
+    if (plan.direction === 'from-building' && loadTotal <= AMOUNT_TOLERANCE) {
       return null;
+    }
+
+    const droneResourceAmount = toPositiveNumber(droneStorageRecord[plan.resourceId]);
+    const unloadResourcesRaw: Record<string, number> = {};
+
+    if (plan.direction === 'from-building') {
+      const expectedAfterLoad = Math.min(droneMaxCapacity, droneResourceAmount + positiveAmount);
+      const sanitizedExpected = toPositiveNumber(expectedAfterLoad);
+      if (sanitizedExpected > 0) {
+        unloadResourcesRaw[plan.resourceId] = sanitizedExpected;
+      }
+
+      for (const [resourceId, storedAmount] of Object.entries(droneStorageRecord)) {
+        const positiveStored = toPositiveNumber(storedAmount);
+        if (positiveStored <= 0) {
+          continue;
+        }
+
+        if (resourceId === plan.resourceId) {
+          unloadResourcesRaw[resourceId] = Math.max(unloadResourcesRaw[resourceId] ?? 0, positiveStored);
+        } else {
+          unloadResourcesRaw[resourceId] = positiveStored;
+        }
+      }
+    } else if (droneResourceAmount > 0) {
+      unloadResourcesRaw[plan.resourceId] = droneResourceAmount;
+    }
+
+    const loadResourcesMap = normalizeResourceMap(loadResourcesRaw);
+    const unloadResourcesMap = normalizeResourceMap(unloadResourcesRaw);
+
+    let hasStorageCapacity = true;
+    if (plan.direction === 'from-building' && Object.keys(unloadResourcesMap).length > 0) {
+      hasStorageCapacity = Object.keys(unloadResourcesMap).some(resourceId => {
+        const capacityValue = toFiniteNumber(resourceManager?.getResourceCapacity?.(resourceId as any));
+        if (capacityValue === null) {
+          return true;
+        }
+        const currentValue = toFiniteNumber(resourceManager?.getResourceAmount?.(resourceId as any)) ?? 0;
+        const available = capacityValue - Math.max(0, currentValue);
+        return available > AMOUNT_TOLERANCE;
+      });
     }
 
     return {
       ...plan,
-      amount: Math.max(0, amount),
+      amount: positiveAmount,
       buildingAccessPoint: buildingAccess,
       closestStorageId,
       storageAccessPoint: storageAccess,
       resources: loadResourcesMap,
-      resourcesToUnload: unloadResourcesMap
+      resourcesToUnload: unloadResourcesMap,
+      hasStorageCapacity
     };
   }
 
