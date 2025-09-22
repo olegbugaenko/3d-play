@@ -367,16 +367,17 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     plan: loop('building-collect-plan', ctx => {
       const validation = ctx.getResolvedValue<{ success: boolean }>('validateAmount');
       const resourcesToUnload = ctx.getResolvedValue<Record<string, number> | undefined>('planResourcesToUnload') || {};
-      const hasResourcesToUnload = Object.values(resourcesToUnload).some(value => Number(value) > 0);
+      const hasResourcesToUnload = Object.values(resourcesToUnload).some(value => Number(value) > 1.e-10);
       const hasStorageCapacity = ctx.getResolvedValue<boolean>('planHasStorageCapacity');
+      const plan = ctx.getResolvedValue('plan');
 
+      console.log('hasRsToUnload: ', hasResourcesToUnload, hasStorageCapacity, validation, plan, resourcesToUnload);
       if (hasResourcesToUnload) {
         if (hasStorageCapacity === false) {
           return false;
         }
         return true;
       }
-
       return !validation || validation.success;
     }, [
       condition('building-collect-should-load', ctx => {
