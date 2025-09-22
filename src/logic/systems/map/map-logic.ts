@@ -77,11 +77,6 @@ export class MapLogic implements SaveLoadManager {
   // NEW: index for non-overlapping cluster placement (rocks/biomass)
   private clusterIndex: SpatialHash2D | null = null;
 
-  // Система автоматичної генерації хмар
-  private cloudGenerationTimer: number = 0;
-  private cloudGenerationInterval: number = 60000; // 60 секунд
-  private activeClouds: Map<string, { createdAt: number; ttl: number }> = new Map();
-
   // Config for minimal edge-to-edge gap between clusters
   private static readonly CLUSTER_MARGIN = 1.0; // meters
 
@@ -93,7 +88,13 @@ export class MapLogic implements SaveLoadManager {
     this.autoGroupMonitor = new AutoGroupMonitor(this);
     this.collectedRocks = new Set();
     this.collectedBiomass = new Set();
-    this.environment = new EnvironmentLogic();
+    this.environment = new EnvironmentLogic(this.scene, {
+      ...(MAP_CONFIG.environment ?? {}),
+      mapSize: {
+        width: MAP_CONFIG.width,
+        depth: MAP_CONFIG.depth
+      }
+    });
   }
 
   setCommandSystems(commandSystem: CommandSystem, commandGroupSystem: CommandGroupSystem) {
@@ -165,7 +166,7 @@ export class MapLogic implements SaveLoadManager {
     // Then biomass clusters that avoid rock circles with a 1 m margin
     this.generateBiomass();
 
-    this.generateClouds();
+    this.environment.initialize();
     this.scene.rebuildObstacles(true);
   }
 
@@ -615,8 +616,7 @@ export class MapLogic implements SaveLoadManager {
     this.commandGroupSystem.update(dT);
     this.autoGroupMonitor.update(dT);
     this.dynamics.moveObjects(dT);
-    this.updateClouds(dT); // Оновлюємо систему хмар
-    this.updateEnvironment(); // Оновлюємо environment ефекти (полярне сяйво)
+    this.environment.update(dT);
     const currentTime = performance.now();
     if (currentTime - this.lastExplosionTime >= this.explosionInterval) {
       this.lastExplosionTime = currentTime;
@@ -694,33 +694,6 @@ export class MapLogic implements SaveLoadManager {
       createdAt: Date.now(),
     };
     this.commandSystem.addCommand(objectId, command);
-  }
-
-  private generateClouds() {
-    const cloudCount = 2;
-    for (let i = 0; i < cloudCount; i++) {
-      const x = (Math.random() - 0.5) * 150;
-      const z = (Math.random() - 0.5) * 150;
-      const cloud: TSceneObject = {
-        id: `dust_cloud_${i}`,
-        type: 'cloud',
-        coordinates: { x, y: 0, z },
-        scale: { x: 1, y: 1, z: 1 },
-        rotation: { x: 0, y: 0, z: 0 },
-        speed: { x: (Math.random() - 0.5) * 1.5, y: 0, z: (Math.random() - 0.5) * 1.5 },
-        data: {
-          size: 21 + Math.random() * 22,
-          color: 0xd2b46c,
-          particleCount: 200,
-          windSpeed: 0.3 + Math.random() * 0.7,
-          height: 4 + Math.random() * 8,
-        },
-        tags: ['on-ground', 'dust', 'dynamic'],
-        bottomAnchor: -1,
-        terrainAlign: false,
-      };
-      this.scene.pushObjectWithTerrainConstraint(cloud);
-    }
   }
 
   /** Mining / Charging **/
@@ -821,105 +794,4 @@ export class MapLogic implements SaveLoadManager {
   /**
    * Генерує нову хмару на карті
    */
-  private generateDynamicCloud(): void {
-    const cloudId = `dynamic_cloud_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const createdAt = Date.now();
-    const ttl = 60000; // 60 секунд TTL
-
-    // Генеруємо випадкові координати в межах карти
-    const mapWidth = MAP_CONFIG.width;
-    const mapDepth = MAP_CONFIG.depth;
-    const x = (Math.random() - 0.5) * mapWidth;
-    const z = (Math.random() - 0.5) * mapDepth;
-
-    // Створюємо об'єкт хмари
-    const cloud: TSceneObject = {
-      id: cloudId,
-      type: 'cloud',
-      coordinates: { x, y: 0, z },
-      scale: { x: 1, y: 1, z: 1 },
-      rotation: { x: 0, y: 0, z: 0 },
-      speed: { 
-        x: (Math.random() - 0.5) * 1.5, 
-        y: 0, 
-        z: (Math.random() - 0.5) * 1.5 
-      },
-      data: {
-        size: 21 + Math.random() * 22,
-        color: 0xd2b46c,
-        particleCount: 200,
-        windSpeed: 0.3 + Math.random() * 0.7,
-        height: 4 + Math.random() * 8,
-        createdAt: createdAt,
-        ttl: ttl,
-        fadeStartTime: 45000 // Початок згасання за 15 секунд до завершення
-      },
-      tags: ['on-ground', 'dust', 'dynamic'],
-      bottomAnchor: -1,
-      terrainAlign: false,
-    };
-
-    // Додаємо хмару до сцени
-    this.scene.pushObjectWithTerrainConstraint(cloud);
-    
-    // Записуємо в активні хмари для відстеження TTL
-    this.activeClouds.set(cloudId, { createdAt, ttl });
-
-    console.log(`Generated dynamic cloud ${cloudId} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
-  }
-
-  /**
-   * Оновлює стан всіх активних хмар (TTL та згасання)
-   */
-  private updateClouds(deltaTime: number): void {
-    const now = Date.now();
-    const cloudsToRemove: string[] = [];
-
-    // Оновлюємо таймер генерації
-    this.cloudGenerationTimer += deltaTime;
-    if (this.cloudGenerationTimer >= this.cloudGenerationInterval) {
-      this.generateDynamicCloud();
-      this.cloudGenerationTimer = 0;
-    }
-
-    // Перевіряємо всі активні хмари
-    for (const [cloudId, cloudData] of this.activeClouds) {
-      const age = now - cloudData.createdAt;
-      
-      // Якщо час життя закінчився - видаляємо хмару
-      if (age >= cloudData.ttl) {
-        this.scene.removeObject(cloudId);
-        cloudsToRemove.push(cloudId);
-        continue;
-      }
-
-      // Якщо почався період згасання - зменшуємо прозорість
-      const fadeStartTime = 45000; // 15 секунд до завершення
-      if (age >= fadeStartTime) {
-        const fadeProgress = (age - fadeStartTime) / (cloudData.ttl - fadeStartTime);
-        const opacity = Math.max(0, 1 - fadeProgress);
-        
-        // Оновлюємо прозорість хмари
-        const cloud = this.scene.getObjectById(cloudId);
-        if (cloud && cloud.data && cloud.data.color) {
-          const alpha = Math.floor(opacity * 255);
-          cloud.data.color = (cloud.data.color & 0xFFFFFF) | (alpha << 24);
-        }
-      }
-    }
-
-    // Видаляємо хмари що закінчили життя
-    for (const cloudId of cloudsToRemove) {
-      this.activeClouds.delete(cloudId);
-    }
-  }
-
-  /**
-   * Оновлює environment ефекти (полярне сяйво, погода тощо)
-   */
-  public updateEnvironment(): void {
-    if (this.environment) {
-      this.environment.update();
-    }
-  }
 }

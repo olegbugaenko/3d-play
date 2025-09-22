@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 // import { Scene3D } from '@ui/screens/colony/scene/Scene3D';
 import { MainMenu, Scene3D } from './ui';
 import { ResourcesBar } from '@ui/screens/colony/ui-controls/ResourcesBar';
+import { GlobalTimeDisplay } from '@ui/screens/colony/ui-controls/GlobalTimeDisplay';
 import { Game } from '@core/game/game';
 import './App.css';
 import type { IMapLogic } from '@interfaces/index';
@@ -48,6 +49,7 @@ function App() {
       ) : (
         <>
           <ResourcesBar resourceManager={game.mapLogic.resources} />
+          <GlobalTimeDisplay environment={game.mapLogic.environment} />
           <Scene3D
             saveManager={game.saveManager}
             onShowMainMenu={handleShowMainMenu}

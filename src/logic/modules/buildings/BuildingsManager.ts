@@ -372,10 +372,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     return this.buildingInstances.get(instanceId);
   }
 
-  private isBuiltComputed(inst: BuildingInstance): boolean {
-    return inst.built !== false && inst.level > 0;
-  }
-
   private getBonusSourceId(typeId: BuildingTypeId): string {
     return `building_source_${typeId}`;
   }

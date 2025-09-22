@@ -83,6 +83,21 @@ export function useRenderLoop(
       tryCall('aurora', 'updateEnvironmentEffects');
     }
 
+    const lights = (scene as THREE.Scene & {
+      __lights__?: { ambient: THREE.AmbientLight; dir: THREE.DirectionalLight };
+    }).__lights__;
+    const environment: any = mapLogicRef.current && (mapLogicRef.current as any).environment;
+    if (lights && environment?.getSunLightState) {
+      const sunState = environment.getSunLightState();
+      lights.dir.intensity = sunState.directionalIntensity;
+      lights.dir.position.set(
+        sunState.direction.x,
+        sunState.direction.y,
+        sunState.direction.z,
+      );
+      lights.ambient.intensity = sunState.ambientIntensity;
+    }
+
     options.syncVisibleObjects();
 
     if (areaSelectionRendererRef.current) {

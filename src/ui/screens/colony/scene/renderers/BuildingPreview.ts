@@ -65,8 +65,7 @@ export class BuildingPreview {
         this.loadedModels.set(modelPath, gltf.scene);
         this.showLoadedModel(position, buildingData, gltf.scene);
       },
-      (progress) => {
-      },
+      undefined,
       (error) => {
         console.error('BuildingPreview: Error loading model:', error);
         // Fallback до простої геометрії
