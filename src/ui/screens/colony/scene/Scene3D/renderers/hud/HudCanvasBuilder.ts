@@ -64,24 +64,24 @@ const BASE_HUD_STYLE: HudStyle = {
   contentWorldHeight: 1,
   internalScale: 2,
   throttleMs: 180,
-  targetHeightPx: 84,
-  maxWidthPx: 420,
+  targetHeightPx: 96,
+  maxWidthPx: 240,
   minScale: 0.1,
   maxScale: 100,
   outerPaddingPx: 18,
-  titleFontPx: 26,
-  titleLineHeightPx: 32,
+  titleFontPx: 48,
+  titleLineHeightPx: 62,
   titleGapPx: 16,
   sectionGapPx: 18,
   progressHeightPx: 10,
   progressOutlinePaddingPx: 3,
   progressMinFillPx: 12,
-  rowHeightPx: 42,
-  iconSizePx: 36,
-  nameFontPx: 26,
+  rowHeightPx: 56,
+  iconSizePx: 46,
+  nameFontPx: 44,
   nameBaselineOffsetPx: 2,
-  qtyFontPx: 24,
-  nameMinWidthPx: 200,
+  qtyFontPx: 44,
+  nameMinWidthPx: 120,
   barMinWidthPx: 96,
   barMaxWidthPx: 260,
   barHeightPx: 8,
@@ -90,23 +90,23 @@ const BASE_HUD_STYLE: HudStyle = {
   sidePaddingPx: 24,
   gapSmallPx: 12,
   gapMediumPx: 18,
-  reqColumnWidthPx: 78,
+  reqColumnWidthPx: 50,
   minRows: 1,
 };
 
 export const BUILDING_HUD_STYLE: HudStyle = {
   ...BASE_HUD_STYLE,
-  titleFontPx: 28,
-  titleLineHeightPx: 34,
+  titleFontPx: 48,
+  titleLineHeightPx: 62,
   targetHeightPx: 84,
-  maxWidthPx: 420,
+  maxWidthPx: 240,
 };
 
 export const ROAD_HUD_STYLE: HudStyle = {
   ...BASE_HUD_STYLE,
-  titleFontPx: 24,
-  titleLineHeightPx: 30,
-  reqColumnWidthPx: 72,
+  titleFontPx: 48,
+  titleLineHeightPx: 62,
+  reqColumnWidthPx: 50,
 };
 
 export class HudCanvasBuilder {
@@ -288,6 +288,7 @@ export class HudCanvasBuilder {
       ctx.fillStyle = complete ? '#12d06b' : '#ffffff';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
+      console.log('NameData: ', nameMaxW, nameMin, nameX, gapMedium, barX, availableBetween);
       ctx.fillText(truncate(displayName, nameMaxW, nameFont), nameX, nameY);
 
       const barY = rowCenterY - Math.round(barHeight / 2);
