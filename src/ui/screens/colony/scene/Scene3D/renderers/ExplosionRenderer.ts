@@ -641,6 +641,14 @@ void main(){
 
   // ==== API ====
   render(object: TSceneObject): THREE.Object3D {
+    if (!this.group.parent) {
+      this.scene.add(this.group);
+    }
+
+    if (this.points.parent !== this.group) {
+      this.group.add(this.points);
+    }
+
     const idx = this.addExplosion(object.coordinates, {
       particleSize:    object.data?.particleSize ?? 26.0,
       particleSizeEnd: object.data?.particleSizeEnd ?? 10.0,
@@ -666,7 +674,7 @@ void main(){
       flashSizePx:     object.data?.flashSizePx,
     });
 
-    this.addMesh(object.id, this.points);
+    this.meshes.set(object.id, this.points);
     (this.points as any).__explosionIndexMap.set(object.id, idx);
     return this.points;
   }
@@ -684,6 +692,112 @@ void main(){
       this.killExplosion(idx);
       map.delete(id);
     }
+
+    this.meshes.delete(id);
+
+    if (this.meshes.size > 0) return;
+
+    map?.clear();
+
+    this.hudRegistry.detachFromObjectGraph(this.points);
+
+    if (this.points.parent === this.group) {
+      this.group.remove(this.points);
+    }
+
+    if (this.points.parent === this.scene) {
+      this.scene.remove(this.points);
+    }
+
+    for (let i = 0; i < this.flashMeshes.length; i += 1) {
+      const mesh = this.flashMeshes[i];
+      if (!mesh) continue;
+
+      this.group.remove(mesh);
+      (mesh.material as THREE.Material).dispose();
+      (mesh.geometry as THREE.BufferGeometry).dispose();
+      this.flashMeshes[i] = null;
+    }
+
+    this.flashMeshes = [];
+
+    if (this.group.parent === this.scene) {
+      this.scene.remove(this.group);
+    }
+  }
+
+  dispose(): void {
+    const map: Map<string, number> | undefined = (this.points as any).__explosionIndexMap;
+    map?.clear();
+
+    this.hudRegistry.detachFromObjectGraph(this.points);
+
+    if (this.points.parent === this.group) {
+      this.group.remove(this.points);
+    }
+
+    if (this.points.parent === this.scene) {
+      this.scene.remove(this.points);
+    }
+
+    if (this.group.parent === this.scene) {
+      this.scene.remove(this.group);
+    }
+
+    (this.material as THREE.ShaderMaterial | undefined)?.dispose();
+    (this.geometry as THREE.BufferGeometry | undefined)?.dispose();
+    this.particleTex.dispose?.();
+
+    for (let i = 0; i < this.flashMeshes.length; i += 1) {
+      const mesh = this.flashMeshes[i];
+      if (!mesh) continue;
+
+      this.group.remove(mesh);
+      (mesh.material as THREE.Material).dispose();
+      (mesh.geometry as THREE.BufferGeometry).dispose();
+      this.flashMeshes[i] = null;
+    }
+
+    this.flashMeshes = [];
+
+    this.flashLifeArr = [];
+    this.flashRadiusArr = [];
+    this.flashAlphaArr = [];
+    this.flashStart = [];
+    this.flashColorArr = [];
+    this.flashSoftnessArr = [];
+    this.flashFadeExpArr = [];
+    this.flashIntensityArr = [];
+
+    this.emitTex1.dispose();
+    this.emitTex2.dispose();
+    this.emitTex3.dispose();
+    this.emitTex4.dispose();
+    this.emitTex5.dispose();
+
+    this.spawnMapTex.dispose();
+    this.aliveTex.dispose();
+
+    this.texPos?.dispose?.();
+    this.texAux?.dispose?.();
+
+    this.gpu?.dispose?.();
+
+    this.emit1Data = new Float32Array(0);
+    this.emit2Data = new Float32Array(0);
+    this.emit3Data = new Float32Array(0);
+    this.emit4Data = new Float32Array(0);
+    this.emit5Data = new Float32Array(0);
+    this.spawnMapData = new Float32Array(0);
+    this.aliveData = new Float32Array(0);
+    this.remainingToSpawn = new Int32Array(0);
+    this.ttlSeconds = [];
+    this.startTime = [];
+    this.explosionActive = [];
+
+    this.meshes.clear();
+
+    super.dispose();
   }
 
   private addExplosion(position: Vec3, opts: ExplosionData = {}): number {

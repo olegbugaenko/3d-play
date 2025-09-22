@@ -154,11 +154,34 @@ export class CloudRenderer extends BaseRenderer {
     if (cloud) {
       this.cloudGroup.remove(cloud);
       if (cloud instanceof THREE.Points) {
+        const index = this.dustParticles.indexOf(cloud);
+        if (index !== -1) {
+          this.dustParticles.splice(index, 1);
+        }
         cloud.geometry.dispose();
         // матеріал — спільний, не диспоузимо!
       }
     }
     super.remove(id);
+  }
+
+  dispose(): void {
+    for (const cloud of this.dustParticles) {
+      this.cloudGroup.remove(cloud);
+      if (cloud instanceof THREE.Points) {
+        cloud.geometry.dispose();
+      }
+    }
+    this.dustParticles.length = 0;
+
+    this.scene.remove(this.cloudGroup);
+
+    if (CloudRenderer.sharedMaterial) {
+      CloudRenderer.sharedMaterial.dispose();
+      CloudRenderer.sharedMaterial = null;
+    }
+
+    super.dispose();
   }
 
   // Викликати раз за кадр

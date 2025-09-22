@@ -78,7 +78,7 @@ export class CameraController {
     this.domElement.addEventListener('mousemove', this.handleMouseMove)
     this.domElement.addEventListener('mouseup', this.handleMouseUp)
     this.domElement.addEventListener('wheel', this.handleWheel)
-    this.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
+    this.domElement.addEventListener('contextmenu', this.handleContextMenu)
   }
 
   // Public methods for setting callbacks
@@ -209,7 +209,7 @@ export class CameraController {
   private handleWheel = (event: WheelEvent) => {
     event.preventDefault()
     const delta = event.deltaY > 0 ? -1 : 1
-    
+
     if (this.isPinned) {
       // При пінінгу - зум навколо закріпленого об'єкта
       this.updatePinnedZoom(delta)
@@ -217,6 +217,10 @@ export class CameraController {
       // Звичайний зум
       this.zoomCamera(delta)
     }
+  }
+
+  private handleContextMenu = (event: MouseEvent) => {
+    event.preventDefault()
   }
 
   // Camera movement methods
@@ -503,5 +507,6 @@ export class CameraController {
     this.domElement.removeEventListener('mousemove', this.handleMouseMove)
     this.domElement.removeEventListener('mouseup', this.handleMouseUp)
     this.domElement.removeEventListener('wheel', this.handleWheel)
+    this.domElement.removeEventListener('contextmenu', this.handleContextMenu)
   }
 }

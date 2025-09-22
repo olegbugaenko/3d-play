@@ -21,13 +21,13 @@ export class InteractionManager {
 
   private setupEventListeners(): void {
     // Один раз на весь додаток - всі обробники подій миші тут
-    document.addEventListener('mousedown', this.handleMouseDown.bind(this));
-    document.addEventListener('mousemove', this.handleMouseMove.bind(this));
-    document.addEventListener('mouseup', this.handleMouseUp.bind(this));
-    document.addEventListener('contextmenu', this.handleContextMenu.bind(this));
+    document.addEventListener('mousedown', this.handleMouseDown);
+    document.addEventListener('mousemove', this.handleMouseMove);
+    document.addEventListener('mouseup', this.handleMouseUp);
+    document.addEventListener('contextmenu', this.handleContextMenu);
   }
 
-  private handleMouseDown(event: MouseEvent): void {
+  private readonly handleMouseDown = (event: MouseEvent): void => {
     // Перевіряємо, чи подія відбувається над UI елементом
     const target = event.target as HTMLElement;
     if (target && (target.closest('.command-panel') || target.closest('.buildings-panel') || target.closest('.ui-panel') || target.closest('button') || target.closest('input'))) {
@@ -36,7 +36,7 @@ export class InteractionManager {
 
     this.isMouseDown = true;
     this.mousePosition = { x: event.clientX, y: event.clientY };
-    
+
     // Делегуємо до активного хендлера
     const activeHandler = this.handlers.get(this.currentMode);
     if (activeHandler) {
@@ -45,9 +45,9 @@ export class InteractionManager {
 
     // Емітимо подію для інших підписників
     this.emit('mousedown', { event, mode: this.currentMode });
-  }
+  };
 
-  private handleMouseMove(event: MouseEvent): void {
+  private readonly handleMouseMove = (event: MouseEvent): void => {
     // Перевіряємо, чи подія відбувається над UI елементом
     const target = event.target as HTMLElement;
     if (target && (target.closest('.command-panel') || target.closest('.buildings-panel') || target.closest('.ui-panel') || target.closest('button') || target.closest('input'))) {
@@ -63,9 +63,9 @@ export class InteractionManager {
 
     // Емітимо подію для інших підписників
     this.emit('mousemove', { event, mode: this.currentMode });
-  }
+  };
 
-  private handleMouseUp(event: MouseEvent): void {
+  private readonly handleMouseUp = (event: MouseEvent): void => {
     // Перевіряємо, чи подія відбувається над UI елементом
     const target = event.target as HTMLElement;
     if (target && (target.closest('.command-panel') || target.closest('.buildings-panel') || target.closest('.ui-panel') || target.closest('button') || target.closest('input'))) {
@@ -73,7 +73,7 @@ export class InteractionManager {
     }
 
     this.isMouseDown = false;
-    
+
     // Делегуємо до активного хендлера
     const activeHandler = this.handlers.get(this.currentMode);
     if (activeHandler) {
@@ -82,20 +82,20 @@ export class InteractionManager {
 
     // Емітимо подію для інших підписників
     this.emit('mouseup', { event, mode: this.currentMode });
-  }
+  };
 
-  private handleContextMenu(event: MouseEvent): void {
+  private readonly handleContextMenu = (event: MouseEvent): void => {
     event.preventDefault();
-    
+
     // Делегуємо до активного хендлера
     const activeHandler = this.handlers.get(this.currentMode);
     if (activeHandler) {
       activeHandler.onContextMenu(event);
     }
-    
+
     // Логіка для правої кнопки миші
     this.emit('contextmenu', { event, mode: this.currentMode });
-  }
+  };
 
   registerHandler(mode: InteractionMode, handler: InteractionHandler): void {
     this.handlers.set(mode, handler);
@@ -210,10 +210,10 @@ export class InteractionManager {
 
   dispose(): void {
     // Видаляємо всі обробники подій
-    document.removeEventListener('mousedown', this.handleMouseDown.bind(this));
-    document.removeEventListener('mousemove', this.handleMouseMove.bind(this));
-    document.removeEventListener('mouseup', this.handleMouseUp.bind(this));
-    document.removeEventListener('contextmenu', this.handleContextMenu.bind(this));
+    document.removeEventListener('mousedown', this.handleMouseDown);
+    document.removeEventListener('mousemove', this.handleMouseMove);
+    document.removeEventListener('mouseup', this.handleMouseUp);
+    document.removeEventListener('contextmenu', this.handleContextMenu);
 
     // Очищаємо хендлери
     this.handlers.forEach(handler => handler.dispose());

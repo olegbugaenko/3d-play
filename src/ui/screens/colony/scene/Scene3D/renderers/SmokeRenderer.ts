@@ -665,6 +665,42 @@ export class SmokeRenderer extends BaseRenderer {
     }
   }
 
+  dispose(): void {
+    const map: Map<string, number> | undefined = (this.points as any)?.__emitterIndexMap;
+    map?.clear();
+
+    this.points?.removeFromParent();
+    this.group.removeFromParent();
+    this.group.clear();
+
+    this.material?.dispose();
+    this.geometry?.dispose();
+
+    this.spawnMapTex.dispose();
+    this.emitPosTex.dispose();
+    this.emitColTex.dispose();
+    this.emitPropTex.dispose();
+    this.emitExtraTex.dispose();
+
+    if (this.gpu) {
+      this.gpu.dispose();
+    }
+
+    this.emitPosData = new Float32Array(0);
+    this.emitColData = new Float32Array(0);
+    this.emitPropData = new Float32Array(0);
+    this.emitExtraData = new Float32Array(0);
+    this.spawnMapData8 = new Uint8Array(0);
+    this.emitAcc = new Float32Array(0);
+
+    this.emitterActive = [];
+    this.touched = [];
+    this.emitterCount = 0;
+    this.spawnHead = 0;
+
+    super.dispose();
+  }
+
   // «ручки»
   setSpeed(speed: number)          { (this.posVar.material.uniforms.uSpeed as any).value = speed; }
   setBasePointSize(px: number)     { (this.material.uniforms.uPointSize    as any).value = px; }

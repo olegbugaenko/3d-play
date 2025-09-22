@@ -155,11 +155,15 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
 
     window.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('resize', onResize);
-    renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+    const preventContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+    renderer.domElement.addEventListener('contextmenu', preventContextMenu);
 
     return () => {
       window.removeEventListener('wheel', onWheel);
       window.removeEventListener('resize', onResize);
+      renderer.domElement.removeEventListener('contextmenu', preventContextMenu);
       if (mountRef.current?.contains(renderer.domElement)) {
         mountRef.current.removeChild(renderer.domElement);
       }

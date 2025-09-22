@@ -436,6 +436,72 @@ export class RockRenderer extends BaseRenderer {
     }
   }
 
+  dispose(): void {
+    const disposedGeometries = new Set<THREE.BufferGeometry>();
+    const disposedMaterials = new Set<THREE.Material>();
+
+    const disposeGeometry = (geometry?: THREE.BufferGeometry | null) => {
+      if (!geometry || disposedGeometries.has(geometry)) return;
+      disposedGeometries.add(geometry);
+      geometry.dispose();
+    };
+
+    for (const [bucketKey, mesh] of this.meshBuckets) {
+      this.hudRegistry.detachFromObjectGraph(mesh);
+      mesh.removeFromParent();
+
+      disposeGeometry(mesh.geometry as THREE.BufferGeometry);
+      this.disposeMaterial(mesh.material, disposedMaterials);
+
+      if (!this.isDefaultBucket(bucketKey)) {
+        this.materialCacheByColor.delete(bucketKey);
+      }
+    }
+
+    this.meshBuckets.clear();
+    this.nextInstanceId.clear();
+    this.freeInstanceIds.clear();
+    this.highestActiveIndex.clear();
+
+    for (const { mesh } of this.pendingFallbacks.values()) {
+      this.hudRegistry.detachFromObjectGraph(mesh);
+      mesh.removeFromParent();
+      disposeGeometry(mesh.geometry as THREE.BufferGeometry);
+      this.disposeMaterial(mesh.material, disposedMaterials);
+    }
+    this.pendingFallbacks.clear();
+
+    this.instances.clear();
+
+    for (const geometry of this.geometryCache.values()) {
+      disposeGeometry(geometry);
+    }
+    this.geometryCache.clear();
+
+    for (const material of this.materialCacheByColor.values()) {
+      this.disposeMaterial(material, disposedMaterials);
+    }
+    this.materialCacheByColor.clear();
+
+    for (const group of this.modelCache.values()) {
+      group.traverse((child) => {
+        const maybeMesh = child as THREE.Mesh;
+        if (!(maybeMesh as any).isMesh) return;
+
+        disposeGeometry(maybeMesh.geometry as THREE.BufferGeometry);
+        this.disposeMaterial(maybeMesh.material as THREE.Material | THREE.Material[], disposedMaterials);
+      });
+      group.clear();
+    }
+    this.modelCache.clear();
+
+    this.modelsReady = false;
+
+    this.meshes.clear();
+
+    super.dispose();
+  }
+
   cleanupInactiveInstances(): void {
     // Проходимо лише по реально вільних слотах (якщо хочеш періодично "обнуляти" матриці)
     this.freeInstanceIds.forEach((ids, bucketKey) => {
@@ -466,5 +532,40 @@ export class RockRenderer extends BaseRenderer {
 
   private hex6(n: number): string {
     return (n >>> 0).toString(16).padStart(6, '0').toUpperCase();
+  }
+
+  private disposeMaterial(
+    material: THREE.Material | THREE.Material[] | undefined,
+    disposed: Set<THREE.Material>,
+  ): void {
+    if (!material) return;
+
+    if (Array.isArray(material)) {
+      material.forEach((mat) => this.disposeMaterial(mat, disposed));
+      return;
+    }
+
+    if (disposed.has(material)) return;
+    disposed.add(material);
+
+    const textureProps = [
+      'map',
+      'lightMap',
+      'aoMap',
+      'emissiveMap',
+      'bumpMap',
+      'normalMap',
+      'displacementMap',
+      'roughnessMap',
+      'metalnessMap',
+      'alphaMap',
+    ] as const;
+
+    for (const key of textureProps) {
+      const tex = (material as any)[key] as THREE.Texture | undefined;
+      tex?.dispose?.();
+    }
+
+    material.dispose();
   }
 }
