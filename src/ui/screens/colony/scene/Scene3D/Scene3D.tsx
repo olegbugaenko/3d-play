@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { ISaveManager, IMapLogic } from '@interfaces/index';
 import { CommandPanel, SegmentedConstructionPanel } from '@ui/screens/colony';
@@ -19,6 +19,8 @@ import { useSelectedUnits, useSelectionHighlights } from '../hooks/useSelectionS
 import { useCommandBridge } from '../hooks/useCommandBridge';
 import { useSceneObjectSync } from '../hooks/useSceneSync';
 import { useRenderLoop } from '../hooks/useRenderLoop';
+import { SceneLoadingManager, useSceneLoadingSnapshot } from './loading/SceneLoadingManager';
+import { SceneLoadingOverlay } from '../components/SceneLoadingOverlay';
 
 interface Scene3DProps {
   saveManager: ISaveManager;
@@ -31,6 +33,19 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
   const mountRef = useRef<HTMLDivElement>(null);
 
   const { scene, camera, renderer } = useSceneCore();
+  const loadingManagerRef = useRef<SceneLoadingManager | null>(null);
+  if (!loadingManagerRef.current) {
+    loadingManagerRef.current = new SceneLoadingManager();
+  }
+  const loadingManager = loadingManagerRef.current;
+  const loadingSnapshot = useSceneLoadingSnapshot(loadingManager);
+  const [isSceneReady, setIsSceneReady] = useState(false);
+  const manualPending = Math.max(0, loadingSnapshot.manualTotal - loadingSnapshot.manualCompleted);
+  const loadingMessage = loadingSnapshot.lastUrl
+    ? `Завантаження: ${loadingSnapshot.lastUrl.split('/').pop()}`
+    : manualPending > 0
+      ? 'Генерація світу...'
+      : undefined;
 
   const {
     rendererManagerRef,
@@ -39,9 +54,13 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
     areaSelectionRendererRef,
     mapLogicRef,
     managersReady,
-  } = useSceneManagers(scene, camera, renderer, appMapLogic);
+  } = useSceneManagers(scene, camera, renderer, appMapLogic, loadingManager);
 
-  const { buildingPreviewRef, isReady: buildingPreviewReady } = useBuildingPreview(scene, appMapLogic);
+  const { buildingPreviewRef, isReady: buildingPreviewReady } = useBuildingPreview(
+    scene,
+    appMapLogic,
+    loadingManager.getLoadingManager(),
+  );
   const controller = useCameraController(camera, renderer, mapLogicRef);
   const debugInfo = useDebugInfo(camera, controller, mapLogicRef, buildingPreviewRef);
 
@@ -93,6 +112,12 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
     areaSelectionRendererRef,
     mapLogicRef,
   );
+
+  useEffect(() => {
+    if (!isSceneReady && managersReady && buildingPreviewReady && loadingManager.isDone()) {
+      setIsSceneReady(true);
+    }
+  }, [isSceneReady, managersReady, buildingPreviewReady, loadingManager, loadingSnapshot]);
 
   useEffect(() => {
     const map = mapLogicRef.current;
@@ -172,6 +197,13 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
 
   return (
     <div ref={mountRef} style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>
+      {!isSceneReady && (
+        <SceneLoadingOverlay
+          progress={loadingManager.getProgress()}
+          message={loadingMessage}
+          errors={loadingSnapshot.errors.length ? loadingSnapshot.errors : undefined}
+        />
+      )}
       {interactionManager && (
         <InteractionProvider value={interactionManager}>
           <VerticalMenuWithContext game={game} onShowMainMenu={onShowMainMenu} />

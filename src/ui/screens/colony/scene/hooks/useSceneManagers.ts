@@ -6,12 +6,14 @@ import { TerrainRenderer } from '@ui/screens/colony/scene/Scene3D/renderers/Terr
 import { AreaSelectionRenderer } from '@ui/screens/colony/scene/AreaSelectionRenderer';
 import { createUiLogicBridge } from '@ui/logic/UiLogicBridge';
 import { IMapLogic } from '@interfaces/index';
+import { SceneLoadingManager } from '../Scene3D/loading/SceneLoadingManager';
 
 export function useSceneManagers(
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
   renderer: THREE.WebGLRenderer,
-  appMapLogic: IMapLogic
+  appMapLogic: IMapLogic,
+  loadingManager?: SceneLoadingManager
 ) {
   const rendererManagerRef = useRef<RendererManager | null>(null);
   const selectionRendererRef = useRef<SelectionRenderer | null>(null);
@@ -22,7 +24,8 @@ export function useSceneManagers(
 
   useEffect(() => {
     const bridge = createUiLogicBridge(appMapLogic);
-    rendererManagerRef.current = new RendererManager(scene, renderer, bridge);
+    const manager = loadingManager?.getLoadingManager();
+    rendererManagerRef.current = new RendererManager(scene, renderer, bridge, manager);
     mapLogicRef.current = appMapLogic;
 
     selectionRendererRef.current = new SelectionRenderer(
@@ -33,14 +36,16 @@ export function useSceneManagers(
 
     const tm = mapLogicRef.current.scene.getTerrainManager();
     if (tm) {
-      terrainRendererRef.current = new TerrainRenderer(scene, tm);
-      terrainRendererRef.current
+      terrainRendererRef.current = new TerrainRenderer(scene, tm, manager);
+      const initialRender = terrainRendererRef.current
         .renderTerrain({
           x: camera.position.x,
           y: camera.position.y,
           z: camera.position.z,
         })
         .catch((e) => console.error('Failed to render initial terrain:', e));
+
+      loadingManager?.trackPromise(initialRender);
     }
 
     setManagersReady(true);
@@ -56,7 +61,7 @@ export function useSceneManagers(
 
       setManagersReady(false);
     };
-  }, [scene, camera, renderer, appMapLogic]);
+  }, [scene, camera, renderer, appMapLogic, loadingManager]);
 
   return {
     rendererManagerRef,

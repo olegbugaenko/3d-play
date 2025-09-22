@@ -4,9 +4,9 @@ import { MAP_CONFIG } from '@systems/map/map-config';
 export class TextureManager {
     private textures: Map<string, THREE.Texture> = new Map();
     private textureLoader: THREE.TextureLoader;
-    
-    constructor() {
-        this.textureLoader = new THREE.TextureLoader();
+
+    constructor(loadingManager?: THREE.LoadingManager) {
+        this.textureLoader = new THREE.TextureLoader(loadingManager);
         this.loadTextures();
     }
     
@@ -95,14 +95,14 @@ export class TextureManager {
     getTexture(textureName: string): THREE.Texture | undefined {
         return this.textures.get(textureName);
     }
-    
+
     /**
      * Отримує всі завантажені текстури
      */
     getAllTextures(): Map<string, THREE.Texture> {
         return this.textures;
     }
-    
+
     /**
      * Перевіряє чи всі текстури завантажені
      */
@@ -116,5 +116,12 @@ export class TextureManager {
         const actualTextureCount = this.textures.size;
         
         return actualTextureCount === expectedTextureCount;
+    }
+
+    dispose(): void {
+        for (const texture of this.textures.values()) {
+            texture.dispose();
+        }
+        this.textures.clear();
     }
 }

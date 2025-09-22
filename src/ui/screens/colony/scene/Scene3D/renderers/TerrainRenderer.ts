@@ -10,7 +10,7 @@ export class TerrainRenderer {
   private textureManager: TextureManager;
 
   private geometry: THREE.PlaneGeometry | null = null;
-  private material: THREE.ShaderMaterial | null = null;
+  private material: THREE.Material | null = null;
 
   private lastRenderPosition: { x: number, z: number } | null = null;
   private rerenderThreshold = 50;
@@ -25,10 +25,10 @@ export class TerrainRenderer {
   // Кеш списку текстур для блендів (щоб не перевизначати атрибути щоразу)
   private cachedTextureNames: string[] = [];
 
-  constructor(scene: THREE.Scene, terrainManager: TerrainManager) {
+  constructor(scene: THREE.Scene, terrainManager: TerrainManager, loadingManager?: THREE.LoadingManager) {
     this.scene = scene;
     this.terrainManager = terrainManager;
-    this.textureManager = new TextureManager();
+    this.textureManager = new TextureManager(loadingManager);
   }
 
   /**
@@ -69,7 +69,7 @@ export class TerrainRenderer {
       this.terrainMesh = new THREE.Mesh(this.geometry, this.material);
       this.terrainMesh.matrixAutoUpdate = true;
       this.terrainMesh.castShadow = false;
-      this.terrainMesh.receiveShadow = false;
+      this.terrainMesh.receiveShadow = true;
       this.terrainMesh.frustumCulled = true;
 
       this.scene.add(this.terrainMesh);
@@ -238,109 +238,84 @@ export class TerrainRenderer {
   /**
    * Створює матеріал з world-locked UV: семпл за світовими XZ, wrap = Repeat.
    */
-  private createMultiTextureMaterial(): THREE.ShaderMaterial {
-    const textureNames = Object.keys(MAP_CONFIG.terrain.textures || {});
-    const uniforms: { [key: string]: any } = {};
+  private createMultiTextureMaterial(): THREE.MeshLambertMaterial {
+    const texturesConfig = (MAP_CONFIG.terrain.textures ?? {}) as Record<string, {
+      tiling?: { x: number; y: number };
+    }>;
+    const textureNames = Object.keys(texturesConfig);
 
-    // Текстури + тайлінги (wrap → Repeat)
-    for (const name of textureNames) {
-      const tex = this.textureManager.getTexture(name);
-      if (tex) {
-        tex.wrapS = THREE.RepeatWrapping;
-        tex.wrapT = THREE.RepeatWrapping;
-        tex.needsUpdate = true;
-        uniforms[`texture_${name}`] = { value: tex };
-      }
-      const tiling = (MAP_CONFIG.terrain.textures as any)[name]?.tiling;
-      if (tiling) {
-        // Інтерпретується як «повторів на 1 світову одиницю»
-        uniforms[`tiling_${name}`] = { value: new THREE.Vector2(tiling.x, tiling.y) };
-      } else {
-        uniforms[`tiling_${name}`] = { value: new THREE.Vector2(1, 1) };
-      }
-    }
-
-    return new THREE.ShaderMaterial({
-      uniforms,
-      vertexShader: this.createVertexShader(textureNames),
-      fragmentShader: this.createFragmentShader(textureNames),
+    const material = new THREE.MeshLambertMaterial({
       side: THREE.DoubleSide,
-      transparent: false,
       depthTest: true,
-      depthWrite: true
+      depthWrite: true,
+      fog: true,
     });
-  }
 
-  /**
-   * VS: передаємо бленди + worldXZ для world-locked UV.
-   */
-  private createVertexShader(textureNames: string[]): string {
-    let attributes = '';
-    let varyings = '';
-
-    for (const name of textureNames) {
-      attributes += `attribute float blend_${name};\n`;
-      varyings   += `varying float v_blend_${name};\n`;
+    if (textureNames.length === 0) {
+      return material;
     }
 
-    return `
-      ${attributes}
-      ${varyings}
-      varying vec2 vWorldXZ;
+    material.onBeforeCompile = (shader) => {
+      const attributeDecl = textureNames.map((name) => `attribute float blend_${name};`).join('\n');
+      const varyingDeclVertex = [
+        'varying vec2 vWorldXZ;',
+        ...textureNames.map((name) => `varying float v_blend_${name};`),
+      ].join('\n');
+      const varyingDeclFragment = varyingDeclVertex;
+      const uniformDecl = textureNames
+        .map((name) => `uniform sampler2D texture_${name};\nuniform vec2 tiling_${name};`)
+        .join('\n');
 
-      void main() {
-        // Світові XZ (для world-locked UV)
-        vec4 wpos = modelMatrix * vec4(position, 1.0);
-        vWorldXZ = wpos.xz;
-
-        ${textureNames.map(name => `v_blend_${name} = blend_${name};`).join('\n')}
-
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
-  }
-
-  /**
-   * FS: семпл текстур за світовими координатами (repeat), лінійний мікс за блендами.
-   * tiling_* — «повторів на 1 світову одиницю» (тобто просто множимо на vWorldXZ).
-   */
-  private createFragmentShader(textureNames: string[]): string {
-    let uniforms = '';
-    let varyings = '';
-    let body = `vec4 finalColor = vec4(0.0);\nfloat sumW = 0.0;\n`;
-
-    for (const name of textureNames) {
-      uniforms += `uniform sampler2D texture_${name};\n`;
-      uniforms += `uniform vec2 tiling_${name};\n`;
-      varyings += `varying float v_blend_${name};\n`;
-    }
-
-    for (const name of textureNames) {
-      body += `
-        {
+      const blendLogic = [
+        'vec4 terrainColor = vec4(0.0);',
+        'float terrainWeight = 0.0;',
+        ...textureNames.map((name) => `{
           vec2 uv = vWorldXZ * tiling_${name};
-          vec4 s  = texture2D(texture_${name}, uv);
-          float w = max(0.0, v_blend_${name});
-          finalColor += s * w;
-          sumW += w;
+          vec4 sampleColor = texture2D(texture_${name}, uv);
+          float weight = max(0.0, v_blend_${name});
+          terrainColor += sampleColor * weight;
+          terrainWeight += weight;
+        }`),
+        'if (terrainWeight > 1e-5) {',
+        '  terrainColor /= terrainWeight;',
+        '} else {',
+        '  terrainColor = vec4(1.0);',
+        '}',
+        'diffuseColor *= terrainColor;',
+      ].join('\n');
+
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n${attributeDecl}\n${varyingDeclVertex}`)
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>\n${textureNames
+            .map((name) => `v_blend_${name} = blend_${name};`)
+            .join('\n')}`,
+        )
+        .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWorldXZ = worldPosition.xz;');
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\n${varyingDeclFragment}\n${uniformDecl}`)
+        .replace('vec4 diffuseColor = vec4( diffuse, opacity );', `vec4 diffuseColor = vec4( diffuse, opacity );\n${blendLogic}`);
+
+      for (const name of textureNames) {
+        const texture = this.textureManager.getTexture(name);
+        if (texture) {
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          texture.needsUpdate = true;
         }
-      `;
-    }
 
-    body += `
-      if (sumW > 1e-5) finalColor /= sumW;
-      gl_FragColor = finalColor;
-    `;
+        shader.uniforms[`texture_${name}`] = { value: texture ?? null };
 
-    return `
-      ${uniforms}
-      ${varyings}
-      varying vec2 vWorldXZ;
-
-      void main(){
-        ${body}
+        const tiling = texturesConfig[name]?.tiling;
+        shader.uniforms[`tiling_${name}`] = {
+          value: new THREE.Vector2(tiling?.x ?? 1, tiling?.y ?? 1),
+        };
       }
-    `;
+    };
+
+    return material;
   }
 
   // -------------------------
@@ -365,6 +340,6 @@ export class TerrainRenderer {
       this.terrainMesh = null;
     }
     
-    // TextureManager очищається автоматично
+    this.textureManager.dispose();
   }
 }
