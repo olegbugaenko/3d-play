@@ -1,5 +1,5 @@
 // UI Controls
-export { ResourcesBar, CommandPanel, SegmentedConstructionPanel } from './ui-controls';
+export { ResourcesBar, CommandPanel, SegmentedConstructionPanel, GlobalTimeDisplay } from './ui-controls';
 
 // Scene
 export { Scene3D, CameraController, AreaSelectionRenderer } from './scene';

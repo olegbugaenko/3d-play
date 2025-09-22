@@ -1,0 +1,43 @@
+.global-time {
+  position: fixed;
+  top: 108px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  z-index: 900;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.global-time__time {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.global-time__weather {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+@media (max-width: 1280px) {
+  .global-time {
+    top: 120px;
+    padding: 6px 12px;
+  }
+
+  .global-time__weather {
+    flex-direction: column;
+    gap: 6px;
+  }
+}

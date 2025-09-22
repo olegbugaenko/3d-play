@@ -1,3 +1,5 @@
+import type { EnvironmentConfig } from '@systems/environment/environment.types';
+
 // Конфігурація розмірів мапи
 export const MAP_CONFIG = {
     // Розміри світу
@@ -91,6 +93,32 @@ export const MAP_CONFIG = {
                 scale: { x: 1, y: 1, z: 1 }
             }
         }
+    },
+
+    environment: {
+        time: {
+            dayLengthMinutes: 24,
+            sunriseHour: 6,
+            sunsetHour: 18,
+            twilightDurationHours: 1,
+            initialHour: 12,
+            initialMinute: 0,
+        },
+        weather: {
+            temperature: { min: -50, max: 20 },
+            windSpeed: { min: 2, max: 18, changeIntervalHours: 2, transitionSeconds: 12 },
+        },
+        dustClouds: {
+            spawnIntervalSeconds: 60,
+            ttlSeconds: 60,
+            fadeDurationSeconds: 15,
+            initialCount: 2,
+            size: { min: 21, max: 43 },
+            height: { min: 4, max: 12 },
+            windSpeed: { min: 0.3, max: 1.0 },
+            particleCount: 200,
+            color: 0xd2b46c,
+        }
     }
 };
 
@@ -133,4 +161,5 @@ export interface MapConfig {
         spacing: number;
         offset: number;
     };
+    environment?: Partial<EnvironmentConfig>;
 }

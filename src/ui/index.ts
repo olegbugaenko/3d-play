@@ -9,11 +9,12 @@ export * from './screens/colony';
 export { Modal } from './shared/Modal';
 export { Button } from './shared/Button';
 export { MainMenu } from './screens/menu';
-export { 
-  ResourcesBar, 
-  CommandPanel, 
-  Scene3D, 
-  CameraController, 
+export {
+  ResourcesBar,
+  CommandPanel,
+  GlobalTimeDisplay,
+  Scene3D,
+  CameraController,
   AreaSelectionRenderer,
   UpgradesPanel, 
   UpgradesModal 
