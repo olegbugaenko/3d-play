@@ -64,7 +64,7 @@ export class ParameterResolutionService {
         }
 
         const value = this.resolveParameter(param, resolveContext);
-        if (value !== null && value !== undefined) {
+        if (value !== undefined) {
           store.set(param.id, value, source);
           cachedValues = store.snapshot();
           resolvedParameters[param.id] = value;
