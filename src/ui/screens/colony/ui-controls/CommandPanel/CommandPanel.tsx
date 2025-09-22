@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CommandGroup } from '@systems/commands';
 import { Game } from '@core/game/game';
 import { CameraController } from '@ui/screens/colony/scene/CameraController';
-import { useInteractionContext } from '@ui/screens/colony/scene/context/InteractionContext';
 import { HorizontalMenu, IconButton } from '@ui/shared';
 
 interface CommandPanelProps {
@@ -10,16 +9,19 @@ interface CommandPanelProps {
   onCommandChange: (commandGroup: CommandGroup | null) => void;
   game: Game;
   cameraController: CameraController;
+  activeCommand?: CommandGroup | null;
 }
 
-export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedUnits, onCommandChange, game, cameraController }) => {
-  const interactionManager = useInteractionContext();
+export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedUnits, onCommandChange, game, cameraController, activeCommand = null }) => {
   
   const [selectedScope, setSelectedScope] = useState<'gather' | 'build' | null>(null);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
-  const [selectedCommand, setSelectedCommand] = useState<CommandGroup | null>(null);
-  const [interpolationSpeed, setInterpolationSpeed] = useState(0.1);
+  const [selectedCommand, setSelectedCommand] = useState<CommandGroup | null>(activeCommand);
   const [isCameraPinned, setIsCameraPinned] = useState(false);
+
+  useEffect(() => {
+    setSelectedCommand(activeCommand ?? null);
+  }, [activeCommand]);
 
   // Перевіряємо чи відкрито будівництво
   const isBuildingConstructionsUnlocked = game.upgradesManager.isUnlocked('building_constructions');
@@ -90,8 +92,8 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
   
   // Оновлюємо швидкість інтерполяції в контролері камери
   useEffect(() => {
-    cameraController.setInterpolationSpeed(interpolationSpeed);
-  }, [interpolationSpeed, cameraController]);
+    cameraController.setInterpolationSpeed(0.1);
+  }, [cameraController]);
 
   // Обробник кліку по scope
   const handleScopeClick = useCallback((scope: 'gather' | 'build') => {
@@ -105,20 +107,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
   const handleCommandClick = useCallback((commandGroup: CommandGroup) => {
     setSelectedCommand(commandGroup);
     onCommandChange(commandGroup);
-    
-    // Змінюємо режим інтеракції на основі команди
-    if (interactionManager) {
-      if (commandGroup.ui?.scope === 'gather') {
-        interactionManager.setMode('gather');
-        // Встановлюємо команду для gather хендлера
-        interactionManager.setSelectedCommand(commandGroup);
-      } else {
-        interactionManager.setMode('command');
-        // Встановлюємо команду для command хендлера
-        interactionManager.setSelectedCommand(commandGroup);
-      }
-    }
-  }, [onCommandChange, interactionManager]);
+  }, [onCommandChange]);
 
   // Якщо немає вибраних юнітів, не показуємо панель
   if (selectedUnits.length === 0) {
@@ -205,11 +194,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
                     key={group.id}
                     iconId={getResourceIcon(resourceType)}
                     variant={selectedCommand?.id === group.id ? 'success' : 'primary'}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleCommandClick(group);
-                    }}
+                    onClick={() => handleCommandClick(group)}
                     title={group.ui?.description || group.ui?.name || group.name}
                   />
                 );
