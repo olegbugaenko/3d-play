@@ -2100,33 +2100,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
   }
 
   /**
-   * Згладжує висоти точок для плавності
-   */
-  private smoothPointHeights(
-    points: Array<{x: number, y: number, z: number}>, 
-    terrainManager: any
-  ): void {
-    if (points.length < 3) return;
-    
-    // Проходимо кілька ітерацій згладжування
-    for (let iteration = 0; iteration < 2; iteration++) {
-      for (let i = 1; i < points.length - 1; i++) {
-        const prev = points[i - 1];
-        const current = points[i];
-        const next = points[i + 1];
-        
-        // Отримуємо висоту террейну в цій точці
-        const terrainHeight = terrainManager.getHeightAt(current.x, current.z);
-        const minHeight = terrainHeight + 0.01;
-        
-        // Згладжуємо висоту з сусідніми точками, але не нижче террейну
-        const smoothedY = (prev.y + current.y + next.y) / 3;
-        current.y = Math.max(smoothedY, minHeight);
-      }
-    }
-  }
-
-  /**
    * Адаптує точку до висоти террейну
    */
   private adaptPointToTerrain(

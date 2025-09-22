@@ -356,6 +356,11 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       { id: 'closestStorageId', getterType: 'getClosestStorage', args: [ { type: 'lit', value: { maxDistance: 200 } } ], resolveWhen: 'before-command' },
       { id: 'storagePosition', getterType: 'getObjectAccessPoint', args: [ { type:'var', value:'resolved.closestStorageId' }, {type:'var', value:'objectId'} ], resolveWhen: 'before-command' },
       { id: 'validatePlan', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.plan' } ], resolveWhen: 'before-command' },
+      { id: 'planAmount', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.amount' } ], resolveWhen: 'before-command' },
+      { id: 'validateAmount', getterType: 'validate', args: [ { type:'lit', value:'resourceAmount' }, { type:'var', value:'resolved.planAmount' } ], resolveWhen: 'before-command' },
+      { id: 'validateStorage', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.closestStorageId' } ], resolveWhen: 'before-command' },
+      { id: 'validatePositions1', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.storagePosition' } ], resolveWhen: 'before-command' },
+      { id: 'validatePositions2', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.buildingPosition' } ], resolveWhen: 'before-command' },
       { id: 'planResourcesToUnload', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.resourcesToUnload' } ], resolveWhen: 'before-command' },
     ],
     plan: loop('building-collect-plan', ctx => {

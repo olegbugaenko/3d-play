@@ -1,5 +1,4 @@
 import React from 'react';
-import * as THREE from 'three';
 import { CameraController } from '@ui/screens/colony/scene/CameraController';
 import { IMapLogic } from '@interfaces/index';
 

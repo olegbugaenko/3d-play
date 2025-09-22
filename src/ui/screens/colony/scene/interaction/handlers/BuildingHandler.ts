@@ -97,7 +97,6 @@ export class BuildingHandler extends InteractionHandler {
           
           // Snap логіка: якщо відстань < 1м - snap до центру ребра
           let snapPosition = newWorldPos;
-          let currentSnap: any = null;
           
           if (nearestEdge && nearestEdge.distance < 1.0) {
             snapPosition = new THREE.Vector3(
@@ -105,14 +104,6 @@ export class BuildingHandler extends InteractionHandler {
               nearestEdge.edgePoint.y,
               nearestEdge.edgePoint.z
             );
-            currentSnap = {
-              roadId: nearestEdge.roadId,
-              segmentIndex: nearestEdge.segmentIndex,
-              edgeIndex: nearestEdge.edgeIndex,
-              edgeName: nearestEdge.edgeName,
-              edgePoint: { x: nearestEdge.edgePoint.x, y: nearestEdge.edgePoint.y, z: nearestEdge.edgePoint.z },
-              cursorPoint: { x: newWorldPos.x, y: newWorldPos.y, z: newWorldPos.z }
-            };
             console.log(`🧲 SNAP to road edge:`, {
               roadId: nearestEdge.roadId,
               edge: nearestEdge.edgeName,
@@ -254,7 +245,7 @@ private raycastHeightfield(
 
   // 2) Звуження інтервалу бісекцією (надійно і без осциляцій)
   let a = Math.min(t0, t1), b = Math.max(t0, t1);
-  let fa = f(a), fb = f(b);
+  let fa = f(a);
   for (let i = 0; i < maxIters; i++) {
     const m = 0.5 * (a + b);
     const fm = f(m);
@@ -273,7 +264,7 @@ private raycastHeightfield(
       return hit;
     }
     // підтримуємо знак у [a,b]
-    if ((fa > 0) === (fm > 0)) { a = m; fa = fm; } else { b = m; fb = fm; }
+    if ((fa > 0) === (fm > 0)) { a = m; fa = fm; } else { b = m; }
   }
 
   // Якщо не зійшлося (дуже рідко) — повернемо найкраще наближення середини

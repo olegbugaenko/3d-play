@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { BaseRenderer } from "../BaseRenderer";
 import { TSceneObject } from "@scene/scene.types";
-import { AuroraEffect } from "@environment/environment.types";
+import { AuroraEffect } from "@logic/systems/environment/environment.types";
 import { UiLogicBridge } from "@ui/logic/UiLogicBridge";
 
 /**

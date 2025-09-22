@@ -1,9 +1,10 @@
 import React from 'react';
-import { IconButton, IconButtonProps } from '../IconButton';
+import { IconButton } from '../IconButton';
+import type { IconButtonProps } from '../IconButton';
 import './HorizontalMenu.css';
 
 interface HorizontalMenuProps {
-  buttons: (IconButtonProps & { id: string })[];
+  buttons: Array<IconButtonProps & { id: string; visible?: boolean }>;
 }
 
 export const HorizontalMenu: React.FC<HorizontalMenuProps> = ({ buttons }) => {

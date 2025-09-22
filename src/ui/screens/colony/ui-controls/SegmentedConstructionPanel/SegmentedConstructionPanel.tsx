@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { IconButton } from '@ui/shared';
+import { IconButton, type IconButtonProps } from '@ui/shared';
 import { useInteractionContext } from '@ui/screens/colony/scene/context/InteractionContext';
 
 export const SegmentedConstructionPanel: React.FC = () => {
@@ -49,19 +49,19 @@ export const SegmentedConstructionPanel: React.FC = () => {
     }
   };
 
-  const buttons = [
+  const buttons: Array<IconButtonProps & { id: string }> = [
     {
       id: 'confirm-segmented',
       iconId: 'interface/build.png', // галочка
-      variant: segmentedState.canConfirm ? 'success' : 'secondary' as const,
+      variant: segmentedState.canConfirm ? 'success' : 'secondary',
       onClick: handleConfirm,
       title: `Confirm ${constructionTypeName}`,
       disabled: !segmentedState.canConfirm
     },
     {
       id: 'cancel-segmented',
-      iconId: 'interface/gather.png', // хрестик  
-      variant: 'danger' as const,
+      iconId: 'interface/gather.png', // хрестик
+      variant: 'danger',
       onClick: handleCancel,
       title: 'Cancel Construction'
     }

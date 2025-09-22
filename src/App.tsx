@@ -4,6 +4,7 @@ import { MainMenu, Scene3D } from './ui';
 import { ResourcesBar } from '@ui/screens/colony/ui-controls/ResourcesBar';
 import { Game } from '@core/game/game';
 import './App.css';
+import type { IMapLogic } from '@interfaces/index';
 
 function App() {
   const [showMainMenu, setShowMainMenu] = useState(true);
@@ -47,10 +48,10 @@ function App() {
       ) : (
         <>
           <ResourcesBar resourceManager={game.mapLogic.resources} />
-          <Scene3D 
+          <Scene3D
             saveManager={game.saveManager}
             onShowMainMenu={handleShowMainMenu}
-            mapLogic={game.mapLogic}
+            mapLogic={game.mapLogic as unknown as IMapLogic}
             game={game}
           />
         </>
