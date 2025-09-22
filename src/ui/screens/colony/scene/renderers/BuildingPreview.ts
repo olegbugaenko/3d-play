@@ -13,9 +13,9 @@ export class BuildingPreview {
   private isPlacementValid: boolean = true;
   private originalMaterials: Map<string, { color: THREE.Color; opacity: number }> = new Map();
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, loadingManager?: THREE.LoadingManager) {
     this.scene = scene;
-    this.gltfLoader = new GLTFLoader();
+    this.gltfLoader = new GLTFLoader(loadingManager ?? undefined);
   }
 
   public show(position: { x: number; y: number; z: number }, buildingData: any): void {

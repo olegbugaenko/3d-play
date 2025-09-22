@@ -7,9 +7,19 @@ export function useSceneCore() {
     s.background = new THREE.Color('#5a4f2e');
 
     const ambient = new THREE.AmbientLight(0xf0f0c0, 0.6);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(50, 100, 50);
-    dir.castShadow = false;
+    const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+    dir.position.set(80, 120, 60);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.bias = -0.0005;
+
+    const shadowCam = dir.shadow.camera as THREE.OrthographicCamera;
+    shadowCam.left = -220;
+    shadowCam.right = 220;
+    shadowCam.top = 220;
+    shadowCam.bottom = -220;
+    shadowCam.near = 10;
+    shadowCam.far = 400;
     s.add(ambient, dir);
 
     (s as THREE.Scene & {

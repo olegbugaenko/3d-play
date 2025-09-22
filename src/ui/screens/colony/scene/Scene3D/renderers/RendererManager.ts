@@ -23,12 +23,15 @@ export class RendererManager {
     private renderer: THREE.WebGLRenderer;
     private bridge: UiLogicBridge | null = null;
 
-    constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, bridge?: UiLogicBridge) {
+    constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, bridge?: UiLogicBridge, loadingManager?: THREE.LoadingManager) {
         this.scene = scene;
         this.renderer = renderer;
         if (bridge) this.bridge = bridge;
+        this.loadingManager = loadingManager || null;
         this.initializeRenderers();
     }
+
+    private loadingManager: THREE.LoadingManager | null = null;
 
     public setBridge(bridge: UiLogicBridge): void {
         this.bridge = bridge;
@@ -53,7 +56,7 @@ export class RendererManager {
         })); // Каменюки типу rock з звичайним рендерингом
         this.registerRenderer('biomass', new BiomassRenderer(this.scene)); // Біомаса
         this.registerRenderer('rover', new RoverRenderer(this.scene)); // Rover об'єкти
-        const buildingRenderer = new BuildingRenderer(this.scene, this.renderer);
+        const buildingRenderer = new BuildingRenderer(this.scene, this.renderer, this.loadingManager || undefined);
         if (this.bridge && (buildingRenderer as any).setUiLogicBridge) {
             (buildingRenderer as any).setUiLogicBridge(this.bridge);
         }

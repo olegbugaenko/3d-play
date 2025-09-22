@@ -40,7 +40,7 @@ export class BuildingRenderer extends BaseRenderer {
   
   private uiLogicBridge: UiLogicBridge | null = null; // Bridge to logic for storage info
 
-  constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
+  constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer, loadingManager?: THREE.LoadingManager) {
     super(scene, renderer);
 
     this.geometry = new THREE.BoxGeometry(1, 1, 1);
@@ -54,7 +54,7 @@ export class BuildingRenderer extends BaseRenderer {
       fog: false,
     });
 
-    this.loader = new GLTFLoader();
+    this.loader = new GLTFLoader(loadingManager ?? undefined);
     this.hudBuilder = new HudCanvasBuilder(renderer, this.hudStyle);
   }
 
@@ -181,6 +181,9 @@ export class BuildingRenderer extends BaseRenderer {
           } else if (child.material?.clone) {
             child.material = child.material.clone();
           }
+
+          child.castShadow = true;
+          child.receiveShadow = true;
         }
       });
 
@@ -538,6 +541,8 @@ export class BuildingRenderer extends BaseRenderer {
     const material = this.material.clone();
     const mesh = new THREE.Mesh(this.geometry, material);
     mesh.position.set(0, 0, 0);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
     return mesh;
   }
 
