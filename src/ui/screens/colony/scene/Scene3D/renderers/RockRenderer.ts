@@ -12,7 +12,7 @@ export interface RockData {
 
 interface RockInstance {
   id: string;
-  object: SceneObject;
+  object: TSceneObject;
   instanceId: number;
   modelPath: string;
   bucketKey: string; // modelPath|* (дефолт) або modelPath|#RRGGBB (палетний режим)
@@ -46,7 +46,7 @@ export class RockRenderer extends BaseRenderer {
   private instances: Map<string, RockInstance> = new Map();
 
   // Фоллбеки, що чекають заміни
-  private pendingFallbacks: Map<string, { mesh: THREE.Mesh; object: SceneObject }> = new Map();
+  private pendingFallbacks: Map<string, { mesh: THREE.Mesh; object: TSceneObject }> = new Map();
 
   private modelsReady = false;
 
@@ -408,7 +408,7 @@ export class RockRenderer extends BaseRenderer {
     mesh.count = maxIdx + 1;
   }
 
-  private createFallbackMesh(data: RockData, object: SceneObject): THREE.Mesh {
+  private createFallbackMesh(data: RockData, object: TSceneObject): THREE.Mesh {
     const { color = 0xfafafa, size = 1.0 } = data;
 
     const geometry = new THREE.SphereGeometry(size, 8, 8);

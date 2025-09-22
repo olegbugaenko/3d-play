@@ -301,7 +301,12 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       { id: 'validatePositions2', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.buildingPosition' } ], resolveWhen: 'before-command' },
       { id: 'planResourcesToUnload', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.resourcesToUnload' } ], resolveWhen: 'before-command' },
     ],
-    plan: sequence('building-refill-plan', [
+    plan:  loop(
+      'building-refill-plan',
+      ctx => {
+        const validation = ctx.getResolvedValue<{ success: boolean }>('validateAmount');
+        return !validation || validation.success;
+      }, [
       action('move-to-storage', ctx =>
         buildCommand(ctx, 'move-to', {
           priority: 1,
@@ -353,7 +358,10 @@ export const COMMAND_GROUPS: CommandGroup[] = [
       { id: 'validatePlan', getterType: 'validate', args: [ { type:'lit', value:'objectExists' }, { type:'var', value:'resolved.plan' } ], resolveWhen: 'before-command' },
       { id: 'planResourcesToUnload', getterType: 'literal', args: [ { type:'var', value:'resolved.plan.resourcesToUnload' } ], resolveWhen: 'before-command' },
     ],
-    plan: sequence('building-collect-plan', [
+    plan: loop('building-collect-plan', ctx => {
+      const validation = ctx.getResolvedValue<{ success: boolean }>('validateAmount');
+      return !validation || validation.success;
+    }, [
       action('move-to-building', ctx =>
         buildCommand(ctx, 'move-to', {
           priority: 1,
