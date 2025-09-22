@@ -365,8 +365,6 @@ export class PathfindingSystem {
 
   private runId = 1;
   private N = 0;
-  private Wbuf = 0;
-  private Hbuf = 0;
   private gScore!: Float32Array;
   private gSeen!: Uint32Array;
   private parent!: Int32Array;
@@ -379,7 +377,7 @@ export class PathfindingSystem {
   private ensureBuffers() {
     const W = this.grid.W, H = this.grid.H, N = W * H;
     if (N !== this.N) {
-      this.N = N; this.Wbuf = W; this.Hbuf = H;
+      this.N = N;
       this.gScore = new Float32Array(N);
       this.gSeen  = new Uint32Array(N);
       this.parent = new Int32Array(N);
@@ -395,9 +393,6 @@ export class PathfindingSystem {
   }
   private setG(k: number, v: number) {
     this.gSeen[k] = this.runId; this.gScore[k] = v;
-  }
-  private getParent(k: number): number {
-    return this.pSeen[k] === this.runId ? this.parent[k] : -1;
   }
   private setParent(k: number, p: number) {
     this.pSeen[k] = this.runId; this.parent[k] = p;

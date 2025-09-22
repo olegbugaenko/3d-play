@@ -3,7 +3,6 @@ import { CommandResult } from '../command.types';
 import {
     ensureDroneStorage,
     getDroneFreeCapacity,
-    getDroneCapacity,
     withdrawFromGlobalStorage,
     withdrawFromInternalStorage,
     hasAnyRequiredInGlobalStorage,

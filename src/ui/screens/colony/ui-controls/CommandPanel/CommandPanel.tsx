@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { CommandGroup } from '@systems/commands';
 import { Game } from '@core/game/game';
 import { CameraController } from '@ui/screens/colony/scene/CameraController';
-import { HorizontalMenu, IconButton } from '@ui/shared';
+import { HorizontalMenu, IconButton, type IconButtonProps } from '@ui/shared';
 
 interface CommandPanelProps {
   selectedUnits: string[];
@@ -115,11 +115,11 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
   }
 
   // Створюємо кнопки для основного меню
-  const mainMenuButtons = [
+  const mainMenuButtons: Array<IconButtonProps & { id: string; visible?: boolean }> = [
     {
       id: 'gather',
       iconId: 'interface/gather.png',
-      variant: selectedScope === 'gather' ? 'success' : 'primary' as const,
+      variant: selectedScope === 'gather' ? 'success' : 'primary',
       onClick: () => handleScopeClick('gather'),
       title: 'Gather Resources',
       visible: true
@@ -127,7 +127,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
     {
       id: 'build',
       iconId: 'build.svg',
-      variant: selectedScope === 'build' ? 'success' : 'primary' as const,
+      variant: selectedScope === 'build' ? 'success' : 'primary',
       onClick: () => handleScopeClick('build'),
       title: 'Build Structures',
       visible: isBuildingAvailable
@@ -135,7 +135,7 @@ export const CommandPanel: React.FC<CommandPanelProps> = React.memo(({ selectedU
     {
       id: 'pin-camera',
       iconId: isCameraPinned ? 'unpin-camera.svg' : 'pin-camera.svg',
-      variant: isCameraPinned ? 'success' : 'primary' as const,
+      variant: isCameraPinned ? 'success' : 'primary',
       onClick: () => {
         if (isCameraPinned) {
           cameraController.unpin();

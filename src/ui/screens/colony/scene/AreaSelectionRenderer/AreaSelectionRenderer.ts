@@ -264,7 +264,6 @@ export class AreaSelectionRenderer {
    */
   private projectToGround(origin: THREE.Vector3, dir: THREE.Vector3, tm: any): number | null {
     // Знаходимо точку на землі найближчу до променя
-    const searchRadius = 50;
     const searchSteps = 20;
     let bestT = 0;
     let bestDistance = Infinity;

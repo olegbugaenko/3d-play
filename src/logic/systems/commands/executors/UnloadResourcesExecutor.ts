@@ -164,47 +164,6 @@ export class UnloadResourcesExecutor extends CommandExecutor {
         return totalRequested > EPSILON;
     }
 
-    /**
-     * Визначає чи потрібно вивантажувати цей ресурс
-     */
-    private shouldUnloadResource(
-        resourceId: string, 
-        _currentAmount: number, 
-        resourcesToUnload?: Record<string, number>
-    ): boolean {
-        // Якщо resourcesToUnload не передано - вивантажуємо все
-        if (!resourcesToUnload) {
-            return true;
-        }
-
-        // Якщо є конкретний список ресурсів для вивантаження - використовуємо його
-        if (Object.keys(resourcesToUnload).length > 0) {
-            return resourcesToUnload[resourceId] > 0;
-        }
-
-        // Якщо передано порожній об'єкт - НЕ вивантажуємо нічого
-        return false;
-    }
-
-    /**
-     * Обчислює скільки цього ресурсу потрібно вивантажити
-     */
-    private calculateUnloadAmount(
-        resourceId: string,
-        currentAmount: number,
-        resourcesToUnload: Record<string, number> | undefined,
-        maxUnloadAmount: number
-    ): number {
-        // Якщо resourcesToUnload не передано - вивантажуємо скільки можемо
-        if (!resourcesToUnload) {
-            return Math.min(maxUnloadAmount, currentAmount);
-        }
-
-        // Використовуємо конкретний список ресурсів для вивантаження
-        const amountToUnload = resourcesToUnload[resourceId] || 0;
-        return Math.min(maxUnloadAmount, Math.min(currentAmount, amountToUnload));
-    }
-
     private buildUnloadPlan(
         storage: Record<string, number>,
         filter: Record<string, number> | undefined,

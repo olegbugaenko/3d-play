@@ -75,10 +75,6 @@ export class SceneLogic implements ISceneLogic {
         return this.dirtyObjects.has(id);
     }
 
-    private clearAllDirtyFlags(): void {
-        this.dirtyObjects.clear();
-    }
-
     /**
      * Перевіряє чи об'єкт має dirty flags
      */
