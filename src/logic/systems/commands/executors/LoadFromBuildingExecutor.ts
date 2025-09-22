@@ -2,6 +2,16 @@ import { CommandExecutor } from '../CommandExecutor';
 import { CommandResult } from '../command.types';
 
 export class LoadFromBuildingExecutor extends CommandExecutor {
+  getEnergyUpkeep(): number {
+    const drone = this.context.scene.getObjectById(this.context.objectId);
+    const loadSpeed = drone?.data?.loadSpeed;
+    if (!loadSpeed || loadSpeed <= 0) {
+      return 0.1;
+    }
+
+    return loadSpeed * 0.1;
+  }
+
   canExecute(): boolean {
     const drone = this.context.scene.getObjectById(this.context.objectId);
     const targetId = this.command.targetId;
@@ -36,6 +46,21 @@ export class LoadFromBuildingExecutor extends CommandExecutor {
     this.context.scene.markObjectDirty?.(building.id);
 
     return { success: true, message: `Loaded ${take} ${resourceId} from ${building.id}` };
+  }
+
+  completeCheck(): boolean {
+    const resourceId: string | undefined = this.command.parameters?.resourceId;
+    const amount: number = Math.max(0, this.command.parameters?.amount || 0);
+    if (!resourceId || amount <= 0) {
+      return true;
+    }
+
+    const drone = this.context.scene.getObjectById(this.context.objectId);
+    if (!drone?.data?.storage) {
+      return true;
+    }
+
+    return (drone.data.storage[resourceId] || 0) >= amount;
   }
 }
 

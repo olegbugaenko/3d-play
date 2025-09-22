@@ -29,7 +29,7 @@ export class Success<T> {
     return fn(this.value);
   }
 
-  getOrElse<U>(defaultValue: U): T | U {
+  getOrElse<U>(_defaultValue: U): T | U {
     return this.value;
   }
 
@@ -54,11 +54,11 @@ export class Failure<E> {
     return true;
   }
 
-  map<U>(fn: (value: never) => U): Result<U, E> {
+  map<U>(_fn: (value: never) => U): Result<U, E> {
     return this as unknown as Result<U, E>;
   }
 
-  flatMap<U, F>(fn: (value: never) => Result<U, F>): Result<U, E | F> {
+  flatMap<U, F>(_fn: (value: never) => Result<U, F>): Result<U, E | F> {
     return this as unknown as Result<U, E | F>;
   }
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import './IconButton.css';
 
-interface IconButtonProps {
+export interface IconButtonProps {
   iconId: string;
   onClick?: () => void;
   variant?: 'primary' | 'secondary' | 'danger' | 'success' | 'ghost';

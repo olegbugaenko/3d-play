@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { UiLogicBridge } from '../../../../logic/UiLogicBridge';
 import './PathfindingDebug.css';
 
