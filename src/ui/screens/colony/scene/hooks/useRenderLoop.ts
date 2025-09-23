@@ -107,6 +107,15 @@ export function useRenderLoop(
         sunState.haloColor.b,
       );
 
+      // Оновлюємо колір фону в залежності від пори доби
+      if (scene.background instanceof THREE.Color) {
+        scene.background.setRGB(
+          sunState.backgroundColor.r,
+          sunState.backgroundColor.g,
+          sunState.backgroundColor.b,
+        );
+      }
+
       const sunRenderer = rendererManagerRef.current?.renderers.get('sun') as
         | { updateSunState?: (state: typeof sunState) => void }
         | undefined;

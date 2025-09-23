@@ -15,10 +15,11 @@ export class SunRenderer extends BaseRenderer {
 
   // юніформи диска
   private discUniforms = {
-    uColor:   { value: new THREE.Color(1, 1, 1) },
-    uOpacity: { value: 1.0 },
-    uRadius:  { value: 0.5 },  // половина розміру (world units)
-    uBlur:    { value: 15.0 }, // товщина пера (world units)
+    uColor:     { value: new THREE.Color(1, 1, 1) },
+    uIntensity: { value: 1.0 }, // ← ДОДАНО: множник яскравості для RGB (premultiplied)
+    uOpacity:   { value: 1.0 }, // залишив для твоєї перевірки visibility
+    uRadius:    { value: 0.5 }, // половина розміру (world units)
+    uBlur:      { value: 8.0 }, // товщина пера (world units)
   };
 
   constructor(scene: THREE.Scene) {
@@ -38,7 +39,7 @@ export class SunRenderer extends BaseRenderer {
       opacity: 0,
       depthTest: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
     });
 
     this.halo = new THREE.Sprite(haloMaterial);
@@ -50,7 +51,13 @@ export class SunRenderer extends BaseRenderer {
       transparent: true,
       depthTest: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      premultipliedAlpha: true,
+      blending: THREE.CustomBlending,
+      blendEquation: THREE.AddEquation,
+      blendSrc: THREE.OneFactor,                // RGB: out = Cs + Cd*(1-αs)
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.OneFactor,           // A:   out = As + Ad*(1-As)
+      blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
       uniforms: this.discUniforms,
       vertexShader: `
         varying vec2 vUv;
@@ -62,31 +69,32 @@ export class SunRenderer extends BaseRenderer {
       fragmentShader: `
         varying vec2 vUv;
         uniform vec3  uColor;
-        uniform float uOpacity;
-        uniform float uRadius;  // половина діаметра в світових одиницях
-        uniform float uBlur;    // товщина пера в світових одиницях
+        uniform float uIntensity;  // множник яскравості (не впливає на α композиції)
+        uniform float uRadius;     // половина діаметра в world units
+        uniform float uBlur;       // товщина пера в world units
 
         void main() {
-          // UV у центр
-          vec2 centered = vUv - 0.5;
-          // Відстань у "світових" одиницях пропорційна радіусу (2*uRadius — повний розмір площини по ширині)
-          float r_world = length(centered) * (2.0 * uRadius);
+          vec2  centered = vUv - 0.5;
+          float r_world  = length(centered) * (2.0 * uRadius);
 
           float coreR   = max(uRadius - uBlur, 0.0);
           float feather = smoothstep(coreR, uRadius, r_world);
-          float alpha   = (1.0 - feather) * uOpacity;
 
-          if (alpha < 0.001) discard;
-          gl_FragColor = vec4(uColor, alpha);
+          float aShape = 1.0 - feather;        // 1 у центрі → 0 на краю
+          if (aShape < 0.001) discard;
+
+          // premultiplied RGB
+          vec3 srcRGB = uColor * uIntensity * aShape;
+          gl_FragColor = vec4(srcRGB, aShape);
         }
       `,
     });
 
-    const discGeo = new THREE.PlaneGeometry(1, 1); // скейл задаємо ззовні
+    const discGeo = new THREE.PlaneGeometry(1, 1);
     this.disc = new THREE.Mesh(discGeo, discMat);
     this.disc.renderOrder = 10000;
 
-    // Білбординг: повертаємося до камери перед рендером
+    // білбординг
     this.disc.onBeforeRender = (_r, _s, camera) => {
       this.disc.quaternion.copy(camera.quaternion);
     };
@@ -115,7 +123,7 @@ export class SunRenderer extends BaseRenderer {
     if (radius > 0) {
       const horizontal = Math.sqrt(renderPosition.x * renderPosition.x + renderPosition.z * renderPosition.z);
       const altitude = Math.atan2(renderPosition.y, horizontal);
-      const minAltitude = THREE.MathUtils.degToRad(-10); // Дозволяємо сонцю зайти глибше
+      const minAltitude = THREE.MathUtils.degToRad(-10);
       if (altitude < minAltitude) {
         const azimuth = Math.atan2(renderPosition.z, renderPosition.x);
         const clampedHorizontal = Math.cos(minAltitude) * radius;
@@ -129,14 +137,15 @@ export class SunRenderer extends BaseRenderer {
 
     this.sunGroup.position.copy(renderPosition);
 
-    // -------- DISC (колір, прозорість, розмір) --------
-    // колір із state.sunColor — дуже важливо ✅
+    // -------- DISC (колір, інтенсивність, розмір) --------
     this.discUniforms.uColor.value.setRGB(state.sunColor.r, state.sunColor.g, state.sunColor.b);
 
-    const discOpacity = THREE.MathUtils.clamp(state.discOpacity, 0, 1);
-    this.discUniforms.uOpacity.value = discOpacity;
+    // ВАЖЛИВО: інтенсивність повинна бути > 0, інакше отримаєш чорний диск
+    this.discUniforms.uIntensity.value = 1.0; // або (state.discIntensity ?? 1.0)
 
-    // розмір диска: state.discSize — повний розмір; у шейдері використовуємо половину
+    // якщо хочеш fade-in/out — тоді ще множ аутпут через visibility у фрагментнику,
+    // або тут тимчасово: this.discUniforms.uIntensity.value *= state.discOpacity;
+
     const discSize = state.discSize;
     this.disc.scale.setScalar(discSize);
     this.discUniforms.uRadius.value = discSize * 0.5;
@@ -147,7 +156,7 @@ export class SunRenderer extends BaseRenderer {
     haloMaterial.opacity = THREE.MathUtils.clamp(state.haloIntensity, 0, 1);
     this.halo.scale.setScalar(state.haloSize);
 
-    // видимість групи
+    // видимість групи (залишив твій прапорець)
     this.sunGroup.visible = this.discUniforms.uOpacity.value > 0.01 || haloMaterial.opacity > 0.01;
   }
 

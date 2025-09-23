@@ -98,8 +98,8 @@ export const MAP_CONFIG = {
     environment: {
         time: {
             dayLengthMinutes: 24,
-            sunriseHour: 6,
-            sunsetHour: 18,
+            sunriseHour: 6.5,
+            sunsetHour: 18.65,
             twilightDurationHours: 1,
             initialHour: 12,
             initialMinute: 0,
@@ -124,7 +124,7 @@ export const MAP_CONFIG = {
             azimuthOffsetDeg: -10,
             orbitRadiusMultiplier: 0.6,
             orbitFlattening: 0.45,
-            discSize: 46,
+            discSize: 36,
             haloSize: 155,
             haloIntensity: { day: 0.55, horizon: 0.9, night: 0 },
             colorShiftExponent: 1.6,
@@ -132,7 +132,7 @@ export const MAP_CONFIG = {
             colors: {
                 base: 0xfff1d2,
                 sunrise: 0xffb27d,
-                sunset: 0xff6a57,
+                sunset: 0xffab93,
                 halo: 0xffd2a4,
             },
         }

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 export function useSceneCore() {
   const scene = useMemo(() => {
     const s = new THREE.Scene();
-    s.background = new THREE.Color('#5a4f2e');
+    s.background = new THREE.Color('#5a4f2e'); // Початковий колір, буде оновлений динамічно
 
     const ambient = new THREE.AmbientLight(0xf0f0c0, 0.6);
     const dir = new THREE.DirectionalLight(0xffffff, 0.85);

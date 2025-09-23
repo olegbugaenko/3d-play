@@ -31,8 +31,8 @@ const DEFAULT_CONFIG: EnvironmentConfig = {
   },
   time: {
     dayLengthMinutes: 24,
-    sunriseHour: 6,
-    sunsetHour: 18,
+    sunriseHour: 6.5,
+    sunsetHour: 19.0,
     twilightDurationHours: 1,
     initialHour: 12,
     initialMinute: 0,
@@ -72,8 +72,8 @@ const DEFAULT_CONFIG: EnvironmentConfig = {
     haloFalloffExponent: 1.4,
     colors: {
       base: 0xfff1c2,
-      sunrise: 0xffc08a,
-      sunset: 0xff7b63,
+      sunrise: 0xffa08a,
+      sunset: 0xffa093,
       halo: 0xffd8a1,
     },
   },
@@ -621,16 +621,18 @@ export class EnvironmentLogic {
 
     let intensity = 0;
     if (minutes >= dawnStart && minutes < sunriseMinutes) {
+      // Перед сходом: поступово зростає від 0 до 1
       const t = (minutes - dawnStart) / Math.max(1, sunriseMinutes - dawnStart);
-      intensity = this.easeInOut(t) * 0.55;
+      intensity = this.easeInOut(t);
     } else if (minutes >= sunriseMinutes && minutes <= sunsetMinutes) {
-      const dayRange = Math.max(1, sunsetMinutes - sunriseMinutes);
-      const t = (minutes - sunriseMinutes) / dayRange;
-      intensity = 0.55 + Math.sin(t * Math.PI) * 0.45;
+      // Вдень: завжди 1
+      intensity = 1;
     } else if (minutes > sunsetMinutes && minutes < duskEnd) {
+      // Після заходу: поступово падає від 1 до 0
       const t = (duskEnd - minutes) / Math.max(1, duskEnd - sunsetMinutes);
-      intensity = this.easeInOut(t) * 0.55;
+      intensity = this.easeInOut(t);
     } else {
+      // Ніч: 0
       intensity = 0;
     }
 
@@ -727,7 +729,7 @@ export class EnvironmentLogic {
     const haloSizeMultiplier = this.lerp(1, 0.42, haloShrinkInfluence);
     const haloSize = sunCfg.haloSize * haloSizeMultiplier;
 
-    const fadeStartBelow = maxVisibleDropDeg;
+    const fadeStartBelow = maxVisibleDropDeg + 5; // Почати зникати на 8° нижче горизонту замість 5°
     const fadeEndBelow = fadeStartBelow + Math.max(2, horizonFadeDeg * 0.5);
     let discVisibility = 1;
     if (belowHorizon > 0) {
@@ -743,10 +745,14 @@ export class EnvironmentLogic {
     const glowPresence = Math.max(horizonWeight, Math.pow(belowRatio, 0.75));
     const discBaseLuminance = 0.7 + Math.max(directionalBrightness, glowPresence) * 0.3;
     const discOpacity = this.clamp(discBaseLuminance * discVisibility, 0, 1);
-    console.log('discBaseLuminance', discOpacity, discSize, discScaleBoost);
     const haloVisibilityFalloff = this.clamp(1 - (Math.pow(horizonWeight, 0.9) * 0.45 + belowRatio * 0.35), 0.2, 1);
     const haloIntensity = 0; // Вимкнено для тесту
 
+    // Колір фону в залежності від пори доби
+    const dayBackgroundColor = this.hexToRgb(0x7a6f2e);   // Денний колір
+    const nightBackgroundColor = this.hexToRgb(0x11130e); // Нічний колір
+    const backgroundColor = this.lerpColor(nightBackgroundColor, dayBackgroundColor, intensity);
+    
     return {
       direction: { x, y, z },
       directionalIntensity: intensity,
@@ -758,6 +764,7 @@ export class EnvironmentLogic {
       haloSize,
       discSize,
       discOpacity,
+      backgroundColor,
     };
   }
 

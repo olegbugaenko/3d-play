@@ -98,6 +98,7 @@ export interface SunLightState {
   haloSize: number;
   discSize: number;
   discOpacity: number;
+  backgroundColor: ColorRGB;
 }
 
 export interface EnvironmentState {
