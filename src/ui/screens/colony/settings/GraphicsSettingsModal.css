@@ -1,0 +1,84 @@
+.graphics-settings-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: #f0f0f0;
+}
+
+.graphics-settings-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+}
+
+.graphics-settings-tab {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.graphics-settings-tab.is-active {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.graphics-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.graphics-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.graphics-settings-section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.graphics-settings-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.graphics-settings-option {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.graphics-settings-option input {
+  margin-top: 5px;
+}
+
+.graphics-settings-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.graphics-settings-option-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.graphics-settings-option-description {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}

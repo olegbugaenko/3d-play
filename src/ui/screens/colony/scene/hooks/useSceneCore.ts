@@ -10,7 +10,7 @@ export function useSceneCore() {
     const dir = new THREE.DirectionalLight(0xffffff, 0.85);
     dir.position.set(80, 120, 60);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.mapSize.set(1024, 1024);
     dir.shadow.bias = -0.0005;
 
     const shadowCam = dir.shadow.camera as THREE.OrthographicCamera;
@@ -38,7 +38,7 @@ export function useSceneCore() {
   const renderer = useMemo(() => {
     const r = new THREE.WebGLRenderer({ antialias: true });
     r.setSize(window.innerWidth, window.innerHeight);
-    r.shadowMap.enabled = true;
+    r.shadowMap.enabled = false;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     return r;
   }, []);

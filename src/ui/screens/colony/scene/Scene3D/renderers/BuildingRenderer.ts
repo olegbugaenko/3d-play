@@ -9,6 +9,8 @@ import { ResourceRequest } from '@logic/modules/resources/resource-types';
 import { HudCanvasBuilder, BUILDING_HUD_STYLE } from './hud/HudCanvasBuilder';
 import type { HudCanvasRequest, HudResourceEntry } from './hud/HudCanvasBuilder';
 import { clampScaleByWidth, computeScreenSpaceScale } from './hud/hudMath';
+import { applyBakedShadow, removeBakedShadow } from './utils/bakedShadows';
+import type { ShadowQuality } from '@systems/graphics';
 
 // ---------- TMP ----------
 const _qCam = new THREE.Quaternion();
@@ -16,6 +18,9 @@ const _worldScale = new THREE.Vector3();
 const _worldPos = new THREE.Vector3();
 const _localOffset = new THREE.Vector3();
 const _viewDir = new THREE.Vector3();
+const _shadowSize = new THREE.Vector3();
+const _shadowCenter = new THREE.Vector3();
+const _shadowBox = new THREE.Box3();
 
 // ---------- Screen-space таргети ----------
 // Позиціонування у світі
@@ -30,6 +35,8 @@ type ResourceInfo = {
   progress: number;
 };
 
+type ShadowOptions = { intensity?: number; softness?: number; minSize?: number; offset?: number };
+
 export class BuildingRenderer extends BaseRenderer {
   private geometry: THREE.BoxGeometry;
   private material: THREE.MeshBasicMaterial;
@@ -37,8 +44,11 @@ export class BuildingRenderer extends BaseRenderer {
   private modelCache: Map<string, THREE.Group> = new Map();
   private readonly hudStyle = BUILDING_HUD_STYLE;
   private readonly hudBuilder: HudCanvasBuilder;
-  
+
   private uiLogicBridge: UiLogicBridge | null = null; // Bridge to logic for storage info
+
+  private shadowMode: ShadowQuality = 'pseudo';
+  private shadowSources = new WeakMap<THREE.Object3D, { source: THREE.Object3D; options?: ShadowOptions }>();
 
   constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer, loadingManager?: THREE.LoadingManager) {
     super(scene, renderer);
@@ -56,6 +66,95 @@ export class BuildingRenderer extends BaseRenderer {
 
     this.loader = new GLTFLoader(loadingManager ?? undefined);
     this.hudBuilder = new HudCanvasBuilder(renderer, this.hudStyle);
+  }
+
+  private applyShadowFromSource(
+    container: THREE.Object3D,
+    source: THREE.Object3D,
+    options?: ShadowOptions
+  ): void {
+    source.updateWorldMatrix(true, true);
+    _shadowBox.setFromObject(source);
+    _shadowBox.getSize(_shadowSize);
+    _shadowBox.getCenter(_shadowCenter);
+
+    applyBakedShadow(container, {
+      width: _shadowSize.x,
+      depth: _shadowSize.z,
+      minY: _shadowBox.min.y,
+      centerX: _shadowCenter.x,
+      centerZ: _shadowCenter.z,
+      intensity: options?.intensity,
+      softness: options?.softness,
+      minSize: options?.minSize,
+      offset: options?.offset,
+    });
+  }
+
+  public setShadowMode(mode: ShadowQuality): void {
+    this.shadowMode = mode;
+    for (const container of this.meshes.values()) {
+      this.reapplyStoredShadow(container);
+    }
+  }
+
+  private reapplyStoredShadow(container: THREE.Object3D): void {
+    const stored = this.shadowSources.get(container);
+    if (stored) {
+      this.applyShadowPreset(container, stored.source, stored.options);
+      return;
+    }
+
+    const fallbackSource = this.findShadowSource(container);
+    if (fallbackSource) {
+      this.applyShadowPreset(container, fallbackSource, undefined);
+    } else {
+      this.setContainerShadowFlags(container, this.shadowMode === 'detailed');
+      removeBakedShadow(container);
+    }
+  }
+
+  private applyShadowPreset(container: THREE.Object3D, source: THREE.Object3D, options?: ShadowOptions): void {
+    this.shadowSources.set(container, { source, options });
+
+    const enableDynamic = this.shadowMode === 'detailed';
+    this.setContainerShadowFlags(container, enableDynamic);
+    removeBakedShadow(container);
+
+    if (!enableDynamic && this.shadowMode === 'pseudo') {
+      this.applyShadowFromSource(container, source, options);
+    }
+  }
+
+  private setContainerShadowFlags(container: THREE.Object3D, enabled: boolean): void {
+    this.forEachShadowMesh(container, (mesh) => {
+      mesh.castShadow = enabled;
+      mesh.receiveShadow = enabled;
+    });
+  }
+
+  private forEachShadowMesh(root: THREE.Object3D, handler: (mesh: THREE.Mesh) => void): void {
+    root.traverse((child) => {
+      if ((child as any).userData?.bakedShadow) return;
+      if (child.name === 'combinedHUD') return;
+      if ((child as THREE.Mesh).isMesh) {
+        handler(child as THREE.Mesh);
+      }
+    });
+  }
+
+  private findShadowSource(container: THREE.Object3D): THREE.Object3D | null {
+    const queue: THREE.Object3D[] = [...container.children];
+    while (queue.length > 0) {
+      const child = queue.shift()!;
+      if ((child as any).userData?.bakedShadow) continue;
+      if (child.name === 'combinedHUD') continue;
+      if ((child as THREE.Mesh).isMesh || child.children.length > 0) {
+        return child;
+      }
+      queue.push(...child.children);
+    }
+    return null;
   }
 
   /**
@@ -134,6 +233,7 @@ export class BuildingRenderer extends BaseRenderer {
     const fallback = this.createFallbackMesh();
     fallback.name = 'fallback';
     container.add(fallback);
+    this.applyShadowPreset(container, fallback, { intensity: 0.25, softness: 1.15, minSize: 0.6 });
 
     if (isUnderConstruction) {
       const resourceInfo = this.getBuildingResourceInfo(buildingType, data?.resourcesCollected || {});
@@ -182,8 +282,8 @@ export class BuildingRenderer extends BaseRenderer {
             child.material = child.material.clone();
           }
 
-          child.castShadow = true;
-          child.receiveShadow = true;
+          child.castShadow = false;
+          child.receiveShadow = false;
         }
       });
 
@@ -204,6 +304,9 @@ export class BuildingRenderer extends BaseRenderer {
         if (child.isMesh && child.material) this.sanitizePBR(child, isUnderConstruction);
       });
 
+      const shadowIntensity = isUnderConstruction ? 0.32 : 0.55;
+      const shadowSoftness = isUnderConstruction ? 1.1 : 1.35;
+      this.applyShadowPreset(container, model, { intensity: shadowIntensity, softness: shadowSoftness, minSize: 0.6 });
       container.add(model);
 
       if (isUnderConstruction) {
@@ -541,8 +644,8 @@ export class BuildingRenderer extends BaseRenderer {
     const material = this.material.clone();
     const mesh = new THREE.Mesh(this.geometry, material);
     mesh.position.set(0, 0, 0);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
     return mesh;
   }
 
