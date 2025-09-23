@@ -700,6 +700,9 @@ export class EnvironmentLogic {
 
     const horizonFadeDeg = Math.max(0, sunCfg.altitudeRangeDeg.min);
     const altitudeAboveHorizon = Math.max(0, altitudeDeg);
+    const nearHorizonRangeDeg = Math.max(1, horizonFadeDeg * 1.5);
+    const nearHorizon = this.clamp(1 - altitudeAboveHorizon / nearHorizonRangeDeg, 0, 1);
+    const horizonInfluence = Math.max(horizonWeight, Math.pow(nearHorizon, 0.85));
     const horizonFade =
       horizonFadeDeg > 0
         ? Math.pow(this.clamp(altitudeAboveHorizon / horizonFadeDeg, 0, 1), 0.85)
@@ -717,11 +720,12 @@ export class EnvironmentLogic {
       haloColor = this.lerpColor(haloColor, dominantWarmColor, warmBlend * 0.7);
     }
 
-    const discScaleBoost = 1 + horizonWeight * 0.35 + Math.pow(belowRatio, 0.7) * 0.25;
+    const discScaleBoost = 1 + horizonInfluence * 0.5 + Math.pow(belowRatio, 0.75) * 0.35;
     const discSize = sunCfg.discSize * discScaleBoost;
 
-    const haloScaleFactor = this.clamp(1 - Math.max(horizonWeight, belowRatio) * 0.45, 0.45, 1);
-    const haloSize = sunCfg.haloSize * haloScaleFactor;
+    const haloShrinkInfluence = Math.max(horizonInfluence, Math.pow(belowRatio, 0.8));
+    const haloSizeMultiplier = this.lerp(1, 0.42, haloShrinkInfluence);
+    const haloSize = sunCfg.haloSize * haloSizeMultiplier;
 
     const fadeStartBelow = maxVisibleDropDeg;
     const fadeEndBelow = fadeStartBelow + Math.max(2, horizonFadeDeg * 0.5);
@@ -741,7 +745,10 @@ export class EnvironmentLogic {
     const discOpacity = this.clamp(discBaseLuminance * discVisibility, 0, 1);
     const haloVisibilityFalloff = this.clamp(1 - (Math.pow(horizonWeight, 0.9) * 0.45 + belowRatio * 0.35), 0.2, 1);
     const haloIntensity = this.clamp(
-      haloBaseIntensity * Math.max(horizonFade, Math.pow(horizonWeight, 0.6)) * haloVisibilityFalloff,
+      haloBaseIntensity *
+        Math.max(horizonFade, Math.pow(horizonWeight, 0.6)) *
+        haloVisibilityFalloff *
+        Math.pow(haloSizeMultiplier, 0.8),
       0,
       1
     );

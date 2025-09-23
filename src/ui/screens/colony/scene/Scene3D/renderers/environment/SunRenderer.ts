@@ -25,7 +25,7 @@ export class SunRenderer extends BaseRenderer {
       color: new THREE.Color(1, 0.9, 0.7),
       transparent: true,
       opacity: 0,
-      depthTest: false,
+      depthTest: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
@@ -39,7 +39,7 @@ export class SunRenderer extends BaseRenderer {
       color: new THREE.Color(1, 1, 1),
       transparent: true,
       opacity: 0,
-      depthTest: false,
+      depthTest: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
