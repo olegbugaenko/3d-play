@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TerrainManager } from '@scene/terrain-manager';
 import { MAP_CONFIG } from '@systems/map';
 import { TextureManager } from './TextureManager';
+import type { ShadowQuality } from '@systems/graphics';
 
 export class TerrainRenderer {
   private scene: THREE.Scene;
@@ -24,6 +25,8 @@ export class TerrainRenderer {
 
   // Кеш списку текстур для блендів (щоб не перевизначати атрибути щоразу)
   private cachedTextureNames: string[] = [];
+
+  private shadowMode: ShadowQuality = 'pseudo';
 
   constructor(scene: THREE.Scene, terrainManager: TerrainManager, loadingManager?: THREE.LoadingManager) {
     this.scene = scene;
@@ -69,7 +72,7 @@ export class TerrainRenderer {
       this.terrainMesh = new THREE.Mesh(this.geometry, this.material);
       this.terrainMesh.matrixAutoUpdate = true;
       this.terrainMesh.castShadow = false;
-      this.terrainMesh.receiveShadow = true;
+      this.terrainMesh.receiveShadow = this.shadowMode === 'detailed';
       this.terrainMesh.frustumCulled = true;
 
       this.scene.add(this.terrainMesh);
@@ -131,6 +134,13 @@ export class TerrainRenderer {
 
   getTerrainMesh(): THREE.Mesh | null {
     return this.terrainMesh;
+  }
+
+  public setShadowMode(mode: ShadowQuality): void {
+    this.shadowMode = mode;
+    if (this.terrainMesh) {
+      this.terrainMesh.receiveShadow = mode === 'detailed';
+    }
   }
 
   // === ВНУТРІШНЄ ===================================================================

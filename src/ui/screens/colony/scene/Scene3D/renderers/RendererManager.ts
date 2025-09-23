@@ -18,11 +18,17 @@ import { AuroraRenderer } from './environment/AuroraRenderer'
 import { SunRenderer } from './environment/SunRenderer'
 // import { ExplosionRenderer } from './ExplosionRenderer'
 
+import type { GraphicsSettingsManager, ParticleQuality, ShadowQuality } from '@systems/graphics'
+
 export class RendererManager {
     public renderers: Map<string, BaseRenderer> = new Map();
     private scene: THREE.Scene;
     private renderer: THREE.WebGLRenderer;
     private bridge: UiLogicBridge | null = null;
+    private graphicsSettings: GraphicsSettingsManager | null = null;
+    private graphicsSettingsUnsubscribe: (() => void) | null = null;
+    private shadowMode: ShadowQuality | null = null;
+    private particleQuality: ParticleQuality | null = null;
 
     constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, bridge?: UiLogicBridge, loadingManager?: THREE.LoadingManager) {
         this.scene = scene;
@@ -61,10 +67,21 @@ export class RendererManager {
         if (this.bridge && (buildingRenderer as any).setUiLogicBridge) {
             (buildingRenderer as any).setUiLogicBridge(this.bridge);
         }
+        if (this.shadowMode) {
+            (buildingRenderer as any).setShadowMode?.(this.shadowMode);
+        }
         this.registerRenderer('building', buildingRenderer); // Будівлі
         this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Хмари
-        this.registerRenderer('smoke', new SmokeRenderer(this.scene, this.renderer)); // Дим (GPU)
-        this.registerRenderer('fire', new FireRenderer(this.scene, this.renderer)); // Вогонь (GPU)
+        const smokeRenderer = new SmokeRenderer(this.scene, this.renderer);
+        if (this.particleQuality) {
+            smokeRenderer.setQuality(this.particleQuality);
+        }
+        this.registerRenderer('smoke', smokeRenderer); // Дим (GPU)
+        const fireRenderer = new FireRenderer(this.scene, this.renderer);
+        if (this.particleQuality) {
+            fireRenderer.setQuality(this.particleQuality);
+        }
+        this.registerRenderer('fire', fireRenderer); // Вогонь (GPU)
         this.registerRenderer('sun', new SunRenderer(this.scene));
         const roadRenderer = new RoadRenderer(this.scene, this.renderer);
         if (this.bridge && (roadRenderer as any).setUiLogicBridge) {
@@ -132,14 +149,44 @@ export class RendererManager {
     // Очищення ресурсів (важливо для HMR!)
     // -------------------------
     public dispose(): void {
+        this.graphicsSettingsUnsubscribe?.();
+        this.graphicsSettingsUnsubscribe = null;
+        this.graphicsSettings = null;
         // Очищаємо всі рендерери
         for (const renderer of this.renderers.values()) {
             if (renderer.dispose) {
                 renderer.dispose();
             }
         }
-        
+
         // Очищаємо Map
         this.renderers.clear();
+    }
+
+    public attachGraphicsSettings(manager: GraphicsSettingsManager): void {
+        if (this.graphicsSettings === manager) return;
+
+        this.graphicsSettingsUnsubscribe?.();
+        this.graphicsSettings = manager;
+        this.graphicsSettingsUnsubscribe = manager.subscribe((state) => {
+            this.setShadowMode(state.shadows);
+            this.setParticleQuality(state.particles);
+        });
+    }
+
+    public setShadowMode(mode: ShadowQuality): void {
+        this.shadowMode = mode;
+        const buildingRenderer = this.renderers.get('building') as any;
+        buildingRenderer?.setShadowMode?.(mode);
+        const biomassRenderer = this.renderers.get('biomass') as any;
+        biomassRenderer?.setShadowMode?.(mode);
+    }
+
+    public setParticleQuality(quality: ParticleQuality): void {
+        this.particleQuality = quality;
+        const smokeRenderer = this.renderers.get('smoke') as any;
+        smokeRenderer?.setQuality?.(quality);
+        const fireRenderer = this.renderers.get('fire') as any;
+        fireRenderer?.setQuality?.(quality);
     }
 }

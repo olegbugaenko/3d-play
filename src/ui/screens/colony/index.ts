@@ -9,3 +9,6 @@ export { UpgradesPanel, UpgradesModal } from './upgrades';
 
 // Buildings
 export { BuildingsPanel, BuildingsModal } from './buildings';
+
+// Settings
+export { GraphicsSettingsModal, useGraphicsSettingsMenuButton } from './settings';

@@ -689,29 +689,11 @@ export class EnvironmentLogic {
     const white = { r: 1, g: 1, b: 1 };
     const directionalColor = this.lerpColor(sunColor, white, 0.1 + horizonWeight * 0.2);
 
-    const haloDay = this.lerp(
-      sunCfg.haloIntensity.day,
-      sunCfg.haloIntensity.horizon,
-      Math.pow(horizonWeight, sunCfg.haloFalloffExponent)
-    );
-    const haloBaseIntensity = this.lerp(
-      sunCfg.haloIntensity.night,
-      haloDay,
-      Math.max(intensity, horizonWeight)
-    );
-
     const horizonFadeDeg = Math.max(0, sunCfg.altitudeRangeDeg.min);
     const altitudeAboveHorizon = Math.max(0, altitudeDeg);
     const nearHorizonRangeDeg = Math.max(1, horizonFadeDeg * 1.5);
     const nearHorizon = this.clamp(1 - altitudeAboveHorizon / nearHorizonRangeDeg, 0, 1);
     const horizonInfluence = Math.max(horizonWeight, Math.pow(nearHorizon, 0.85));
-    const horizonFade =
-      horizonFadeDeg > 0
-        ? Math.pow(this.clamp(altitudeAboveHorizon / horizonFadeDeg, 0, 1), 0.85)
-        : altitudeAboveHorizon > 0
-        ? 1
-        : 0;
-
     const belowHorizon = Math.abs(Math.min(0, altitudeDeg));
     const maxVisibleDropDeg = 5;
     const belowRatio = this.clamp(belowHorizon / maxVisibleDropDeg, 0, 1);
@@ -745,7 +727,6 @@ export class EnvironmentLogic {
     const glowPresence = Math.max(horizonWeight, Math.pow(belowRatio, 0.75));
     const discBaseLuminance = 0.7 + Math.max(directionalBrightness, glowPresence) * 0.3;
     const discOpacity = this.clamp(discBaseLuminance * discVisibility, 0, 1);
-    const haloVisibilityFalloff = this.clamp(1 - (Math.pow(horizonWeight, 0.9) * 0.45 + belowRatio * 0.35), 0.2, 1);
     const haloIntensity = 0; // Вимкнено для тесту
 
     // Колір фону в залежності від пори доби

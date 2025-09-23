@@ -7,13 +7,15 @@ import { AreaSelectionRenderer } from '@ui/screens/colony/scene/AreaSelectionRen
 import { createUiLogicBridge } from '@ui/logic/UiLogicBridge';
 import { IMapLogic } from '@interfaces/index';
 import { SceneLoadingManager } from '../Scene3D/loading/SceneLoadingManager';
+import type { GraphicsSettingsManager } from '@systems/graphics';
 
 export function useSceneManagers(
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
   renderer: THREE.WebGLRenderer,
   appMapLogic: IMapLogic,
-  loadingManager?: SceneLoadingManager
+  loadingManager: SceneLoadingManager | undefined,
+  graphicsSettings: GraphicsSettingsManager
 ) {
   const rendererManagerRef = useRef<RendererManager | null>(null);
   const selectionRendererRef = useRef<SelectionRenderer | null>(null);
@@ -26,6 +28,7 @@ export function useSceneManagers(
     const bridge = createUiLogicBridge(appMapLogic);
     const manager = loadingManager?.getLoadingManager();
     rendererManagerRef.current = new RendererManager(scene, renderer, bridge, manager);
+    rendererManagerRef.current.attachGraphicsSettings(graphicsSettings);
     mapLogicRef.current = appMapLogic;
 
     selectionRendererRef.current = new SelectionRenderer(
@@ -61,7 +64,7 @@ export function useSceneManagers(
 
       setManagersReady(false);
     };
-  }, [scene, camera, renderer, appMapLogic, loadingManager]);
+  }, [scene, camera, renderer, appMapLogic, loadingManager, graphicsSettings]);
 
   return {
     rendererManagerRef,
