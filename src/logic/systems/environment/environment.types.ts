@@ -81,10 +81,23 @@ export interface MapSizeConfig {
   depth: number;
 }
 
+export interface ColorRGB {
+  r: number;
+  g: number;
+  b: number;
+}
+
 export interface SunLightState {
   direction: Vector3;
   directionalIntensity: number;
   ambientIntensity: number;
+  directionalColor: ColorRGB;
+  sunColor: ColorRGB;
+  haloColor: ColorRGB;
+  haloIntensity: number;
+  haloSize: number;
+  discSize: number;
+  discOpacity: number;
 }
 
 export interface EnvironmentState {
@@ -99,6 +112,35 @@ export interface EnvironmentState {
   windSpeed: number;
   isNight: boolean;
   sun: SunLightState;
+}
+
+export interface SunColorConfig {
+  base: number;
+  sunrise: number;
+  sunset: number;
+  halo: number;
+}
+
+export interface SunVisualConfig {
+  altitudeRangeDeg: { min: number; max: number };
+  azimuthOffsetDeg: number;
+  orbitRadiusMultiplier: number;
+  orbitFlattening: number;
+  discSize: number;
+  haloSize: number;
+  haloIntensity: { day: number; horizon: number; night: number };
+  colorShiftExponent: number;
+  haloFalloffExponent: number;
+  colors: SunColorConfig;
+}
+
+export interface EnvironmentSaveData {
+  time: { totalMinutes: number };
+  weather?: {
+    windSpeed: number;
+    windTarget: number;
+    nextWindChangeMinute: number;
+  };
 }
 
 /**
@@ -130,4 +172,7 @@ export interface EnvironmentConfig {
 
   // Параметри хмар з пилу
   dustClouds: DustCloudConfig;
+
+  // Параметри вигляду сонця
+  sun: SunVisualConfig;
 }

@@ -1,4 +1,5 @@
 import { Vector3 } from '@utils/vector-math';
+import { EnvironmentSaveData } from '@systems/environment/environment.types';
 
 // Базовий інтерфейс для всіх менеджерів
 export interface SaveLoadManager {
@@ -39,6 +40,7 @@ export interface MapLogicSaveData {
     seed: number; // Seed для генерації карти
     collectedRocks: string[] | Set<string> | Record<string, string>; // ID зібраних каменюків (різні типи для сумісності)
     // buildingPositions тепер зберігаються в BuildingsManager
+    environment?: EnvironmentSaveData;
 }
 
 // Дані командної системи

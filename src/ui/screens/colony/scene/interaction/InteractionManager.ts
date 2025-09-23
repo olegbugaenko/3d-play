@@ -27,10 +27,21 @@ export class InteractionManager {
     document.addEventListener('contextmenu', this.handleContextMenu);
   }
 
+  private isUiTarget(target: HTMLElement | null): boolean {
+    if (!target) return false;
+    return Boolean(
+      target.closest('.command-panel') ||
+      target.closest('.buildings-panel') ||
+      target.closest('.ui-panel') ||
+      target.closest('button') ||
+      target.closest('input')
+    );
+  }
+
   private readonly handleMouseDown = (event: MouseEvent): void => {
     // Перевіряємо, чи подія відбувається над UI елементом
     const target = event.target as HTMLElement;
-    if (target && (target.closest('.command-panel') || target.closest('.buildings-panel') || target.closest('.ui-panel') || target.closest('button') || target.closest('input'))) {
+    if (this.isUiTarget(target)) {
       return; // Ігноруємо події над UI елементами
     }
 
@@ -50,8 +61,8 @@ export class InteractionManager {
   private readonly handleMouseMove = (event: MouseEvent): void => {
     // Перевіряємо, чи подія відбувається над UI елементом
     const target = event.target as HTMLElement;
-    if (target && (target.closest('.command-panel') || target.closest('.buildings-panel') || target.closest('.ui-panel') || target.closest('button') || target.closest('input'))) {
-      return; // Ігноруємо події над UI елементами
+    if (this.isUiTarget(target) && !this.isMouseDown) {
+      return; // Ігноруємо рухи, які почалися на UI
     }
 
     this.mousePosition = { x: event.clientX, y: event.clientY };
@@ -68,8 +79,8 @@ export class InteractionManager {
   private readonly handleMouseUp = (event: MouseEvent): void => {
     // Перевіряємо, чи подія відбувається над UI елементом
     const target = event.target as HTMLElement;
-    if (target && (target.closest('.command-panel') || target.closest('.buildings-panel') || target.closest('.ui-panel') || target.closest('button') || target.closest('input'))) {
-      return; // Ігноруємо події над UI елементами
+    if (this.isUiTarget(target) && !this.isMouseDown) {
+      return; // Ігноруємо завершення, яке не стосується сцени
     }
 
     this.isMouseDown = false;
