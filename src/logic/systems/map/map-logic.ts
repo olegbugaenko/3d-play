@@ -732,13 +732,20 @@ export class MapLogic implements SaveLoadManager {
   // ==================== SaveLoadManager ====================
   save(): MapLogicSaveData {
     const collectedRocks: string[] = Array.from(this.collectedRocks);
-    return { seed: this.generatedSeed, collectedRocks };
+    return {
+      seed: this.generatedSeed,
+      collectedRocks,
+      environment: this.environment.getSaveData(),
+    };
   }
   load(data: MapLogicSaveData): void {
     if (data.seed) {
       this.generatedSeed = data.seed;
       this.generationTracker = new MapGenerationTracker(data.seed);
       this.initializeSeeded();
+    }
+    if (data.environment) {
+      this.environment.loadFromSave(data.environment);
     }
     if (data.collectedRocks) {
       let rockIds: string[];

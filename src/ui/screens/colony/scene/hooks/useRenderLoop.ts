@@ -95,7 +95,22 @@ export function useRenderLoop(
         sunState.direction.y,
         sunState.direction.z,
       );
+      lights.dir.color.setRGB(
+        sunState.directionalColor.r,
+        sunState.directionalColor.g,
+        sunState.directionalColor.b,
+      );
       lights.ambient.intensity = sunState.ambientIntensity;
+      lights.ambient.color.setRGB(
+        sunState.haloColor.r,
+        sunState.haloColor.g,
+        sunState.haloColor.b,
+      );
+
+      const sunRenderer = rendererManagerRef.current?.renderers.get('sun') as
+        | { updateSunState?: (state: typeof sunState) => void }
+        | undefined;
+      sunRenderer?.updateSunState?.(sunState);
     }
 
     options.syncVisibleObjects();

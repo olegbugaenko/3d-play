@@ -15,6 +15,7 @@ import { UiLogicBridge } from '@ui/logic/UiLogicBridge'
 import { SmokeRenderer } from './SmokeRenderer'
 import { RoadRenderer } from './RoadRenderer'
 import { AuroraRenderer } from './environment/AuroraRenderer'
+import { SunRenderer } from './environment/SunRenderer'
 // import { ExplosionRenderer } from './ExplosionRenderer'
 
 export class RendererManager {
@@ -64,6 +65,7 @@ export class RendererManager {
         this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Хмари
         this.registerRenderer('smoke', new SmokeRenderer(this.scene, this.renderer)); // Дим (GPU)
         this.registerRenderer('fire', new FireRenderer(this.scene, this.renderer)); // Вогонь (GPU)
+        this.registerRenderer('sun', new SunRenderer(this.scene));
         const roadRenderer = new RoadRenderer(this.scene, this.renderer);
         if (this.bridge && (roadRenderer as any).setUiLogicBridge) {
             (roadRenderer as any).setUiLogicBridge(this.bridge as any);
