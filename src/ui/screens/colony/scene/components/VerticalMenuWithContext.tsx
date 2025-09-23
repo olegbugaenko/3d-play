@@ -2,6 +2,7 @@ import React from 'react';
 import { VerticalMenu } from '@ui/shared';
 import { useUpgradesMenuButton } from '@ui/screens/colony/upgrades/UpgradesPanel';
 import { useBuildingsMenuButton } from '@ui/screens/colony/buildings/BuildingsPanel';
+import { useGraphicsSettingsMenuButton } from '@ui/screens/colony/settings';
 
 interface VerticalMenuWithContextProps {
   game: any;
@@ -13,6 +14,7 @@ export const VerticalMenuWithContext: React.FC<VerticalMenuWithContextProps> = (
   const buildingsMenu = useBuildingsMenuButton(game, (typeId: string) => {
     console.log(`Selected building for construction: ${typeId}`);
   });
+  const graphicsSettingsMenu = useGraphicsSettingsMenuButton(game.graphicsSettings);
 
   return (
     <>
@@ -32,12 +34,14 @@ export const VerticalMenuWithContext: React.FC<VerticalMenuWithContextProps> = (
             onClick: () => game.saveToCurrentSlot(),
             title: 'Зберегти гру'
           },
+          graphicsSettingsMenu.button,
           upgradesMenu.button,
           buildingsMenu.button
         ]}
       />
 
       {/* Modals */}
+      {graphicsSettingsMenu.modal}
       {upgradesMenu.modal}
       {buildingsMenu.modal}
     </>

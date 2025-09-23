@@ -52,6 +52,7 @@ export class SaveManager implements SaveLoadManager, ISaveManager {
                 droneManager: this.managers.get('droneManager')?.save() as any,
                 upgradesManager: this.managers.get('upgradesManager')?.save() as any,
                 buildingsManager: this.managers.get('buildingsManager')?.save() as any,
+                graphicsSettings: this.managers.get('graphicsSettings')?.save() as any,
             };
             
             // Зберігаємо в localStorage
@@ -158,7 +159,16 @@ export class SaveManager implements SaveLoadManager, ISaveManager {
     }
 
     public getLoadOrder(): string[] {
-        return ['mapLogic', 'resourceManager', 'droneManager', 'upgradesManager', 'buildingsManager', 'commandGroupSystem', 'commandSystem'];
+        return [
+            'mapLogic',
+            'resourceManager',
+            'droneManager',
+            'upgradesManager',
+            'buildingsManager',
+            'graphicsSettings',
+            'commandGroupSystem',
+            'commandSystem'
+        ];
     }
 
     // ==================== SaveLoadManager Implementation ====================

@@ -14,6 +14,7 @@ import { initEffects } from '@shared/effects';
 import { GameContainer } from './GameContainer';
 import { ISceneLogic, IResourceManager, IBonusSystem, IBuildingsManager, IUpgradesManager, IDroneManager, ISaveManager } from '../../interfaces/index';
 import { Logger } from '@shared/ErrorService';
+import { GraphicsSettingsManager } from '@systems/graphics';
 // Видалено невикористовувані імпорти для Result
 
 
@@ -28,6 +29,7 @@ export class Game {
   public readonly commandSystem: CommandSystem;  // Конкретний клас для сумісності
   public readonly commandGroupSystem: CommandGroupSystem;  // Конкретний клас для сумісності
   public readonly saveManager: ISaveManager;
+  public readonly graphicsSettings: GraphicsSettingsManager;
   
   // Система бонусів та модифікаторів
   public readonly bonusSystem: IBonusSystem;
@@ -111,6 +113,8 @@ export class Game {
     this.container.register('saveManager', () => new SaveManager(
       this.container.get('mapLogic') as any  // Тимчасовий cast
     ));
+
+    this.container.register('graphicsSettingsManager', () => new GraphicsSettingsManager());
   }
 
   private constructor() {
@@ -132,6 +136,7 @@ export class Game {
     this.commandSystem = this.container.get('commandSystem') as CommandSystem;
     this.commandGroupSystem = this.container.get('commandGroupSystem') as CommandGroupSystem;
     this.saveManager = this.container.get('saveManager');
+    this.graphicsSettings = this.container.get('graphicsSettingsManager');
 
     this.mapLogic.setCommandSystems(this.commandSystem, this.commandGroupSystem);
     
@@ -154,6 +159,7 @@ export class Game {
     this.saveManager.registerManager('commandGroupSystem', this.commandGroupSystem as any);
     this.saveManager.registerManager('upgradesManager', this.upgradesManager);
     this.saveManager.registerManager('buildingsManager', this.buildingsManager);
+    this.saveManager.registerManager('graphicsSettings', this.graphicsSettings);
 
     initEffects(this.bonusSystem)
     

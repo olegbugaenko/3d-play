@@ -14,7 +14,8 @@ export type ServiceKey =
   | 'mapLogic'
   | 'commandSystem'
   | 'commandGroupSystem'
-  | 'saveManager';
+  | 'saveManager'
+  | 'graphicsSettingsManager';
 
 // Мапа типів сервісів
 export interface ServiceTypeMap {
@@ -30,6 +31,7 @@ export interface ServiceTypeMap {
   commandSystem: import('../../interfaces/ICommandSystem').ICommandSystem;
   commandGroupSystem: import('../../interfaces/ICommandGroupSystem').ICommandGroupSystem;
   saveManager: import('../../interfaces/ISaveManager').ISaveManager;
+  graphicsSettingsManager: import('../../systems/graphics').GraphicsSettingsManager;
 }
 
 export class GameContainer {
@@ -115,7 +117,7 @@ export class GameContainer {
     const requiredServices: ServiceKey[] = [
       'sceneLogic', 'bonusSystem', 'dynamicsLogic', 'resourceManager',
       'upgradesManager', 'buildingsManager', 'droneManager', 'mapLogic',
-      'commandSystem', 'commandGroupSystem', 'saveManager'
+      'commandSystem', 'commandGroupSystem', 'saveManager', 'graphicsSettingsManager'
     ];
     
     const missing = requiredServices.filter(service => !this.has(service));

@@ -1,5 +1,6 @@
 import { Vector3 } from '@utils/vector-math';
 import { EnvironmentSaveData } from '@systems/environment/environment.types';
+import type { GraphicsSettingsState } from '@systems/graphics';
 
 // Базовий інтерфейс для всіх менеджерів
 export interface SaveLoadManager {
@@ -13,7 +14,7 @@ export interface GameSave {
     slot: number;
     timestamp: number;
     version: string;
-    
+
     // Дані менеджерів
     resourceManager: ResourceSaveData;
     mapLogic: MapLogicSaveData;
@@ -22,6 +23,7 @@ export interface GameSave {
     droneManager: DroneSaveData;
     upgradesManager: UpgradesManagerSaveData;
     buildingsManager: BuildingsManagerSaveData;
+    graphicsSettings: GraphicsSettingsState;
 }
 
 // Дані ресурсів
@@ -121,4 +123,12 @@ export interface BuildingsManagerSaveData {
 }
 
 // Тип для даних менеджера
-export type SaveData = ResourceSaveData | MapLogicSaveData | CommandSystemSaveData | CommandGroupSystemSaveData | DroneSaveData | UpgradesManagerSaveData | BuildingsManagerSaveData;
+export type SaveData =
+  | ResourceSaveData
+  | MapLogicSaveData
+  | CommandSystemSaveData
+  | CommandGroupSystemSaveData
+  | DroneSaveData
+  | UpgradesManagerSaveData
+  | BuildingsManagerSaveData
+  | GraphicsSettingsState;

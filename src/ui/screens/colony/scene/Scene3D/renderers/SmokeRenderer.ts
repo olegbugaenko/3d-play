@@ -3,14 +3,33 @@ import * as THREE from 'three';
 import { BaseRenderer } from './BaseRenderer';
 import { TSceneObject } from '@logic/systems/scene/scene.types';
 import { GPUComputationRenderer } from 'three/examples/jsm/misc/GPUComputationRenderer.js';
+import type { ParticleQuality } from '@systems/graphics';
 
 type Vec3 = { x:number; y:number; z:number };
 
+type SmokeEmitterParams = {
+  position: Vec3;
+  color?: number;
+  emitRate?: number;
+  spreadR?: number;
+  spreadY?: number;
+  sizeMul?: number;
+  spreadGrow?: number;
+  riseHeight?: number;
+  alphaMul?: number;
+  alphaDiminish?: number;
+};
+
 export class SmokeRenderer extends BaseRenderer {
-  private readonly PARTICLES_W = 128;
-  private readonly PARTICLES_H = 128;
-  private readonly MAX_PARTICLES = this.PARTICLES_W * this.PARTICLES_H;
+  private particleResolution = 128;
+  private get PARTICLES_W(): number { return this.particleResolution; }
+  private get PARTICLES_H(): number { return this.particleResolution; }
+  private get MAX_PARTICLES(): number { return this.particleResolution * this.particleResolution; }
   private readonly MAX_EMITTERS = 64;
+  private quality: ParticleQuality = 'high';
+  private emitRateScale = 1;
+  private basePointSize = 10;
+  private emitterParams = new Map<string, SmokeEmitterParams>();
 
   // --- анти-сплеск/анти-борг для спавну та симуляції ---
   private readonly MAX_DT_SIM = 1/30;          // clamp для фізики (uDelta) ~33мс
@@ -37,18 +56,18 @@ export class SmokeRenderer extends BaseRenderer {
   // emitColTex:   rgb + emitRate(=a)
   // emitPropTex:  spreadR(=x), spreadY(=y), sizeMul(=z), alphaMul(=w)
   // emitExtraTex: riseHeight(=x), spreadGrow(=y), alphaDiminish(=z), pad(=w)
-  private emitPosData: Float32Array;
-  private emitColData: Float32Array;
-  private emitPropData: Float32Array;
-  private emitExtraData: Float32Array;
+  private emitPosData!: Float32Array;
+  private emitColData!: Float32Array;
+  private emitPropData!: Float32Array;
+  private emitExtraData!: Float32Array;
 
-  private emitPosTex: THREE.DataTexture;
-  private emitColTex: THREE.DataTexture;
-  private emitPropTex: THREE.DataTexture;
-  private emitExtraTex: THREE.DataTexture;
+  private emitPosTex!: THREE.DataTexture;
+  private emitColTex!: THREE.DataTexture;
+  private emitPropTex!: THREE.DataTexture;
+  private emitExtraTex!: THREE.DataTexture;
 
   private emitterCount = 0;
-  private emitterActive: boolean[];
+  private emitterActive!: boolean[];
 
   // --- Dirty flags для емітерних текстур ---
   private emitPosDirty = false;
@@ -58,11 +77,11 @@ export class SmokeRenderer extends BaseRenderer {
 
   // --- OPT#2: Spawn map у RGBA8 + "touched list" ---
   // Формат: (R=emitterIndex 0..255, G=seed1 0..255, B=seed2 0..255, A=flag 0/255)
-  private spawnMapData8: Uint8Array;
-  private spawnMapTex: THREE.DataTexture;
+  private spawnMapData8!: Uint8Array;
+  private spawnMapTex!: THREE.DataTexture;
   private touched: number[] = []; // індекси пікселів, які ми ставили в попередньому кадрі
 
-  private emitAcc: Float32Array;
+  private emitAcc!: Float32Array;
   private spawnHead = 0;
 
   constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
@@ -72,12 +91,19 @@ export class SmokeRenderer extends BaseRenderer {
     this.group.name = 'SmokeGroup_MWE_EmitRateSpreadCone';
     this.scene.add(this.group);
 
-    // --- Емітерні текстури ---
+    this.initEmitterTextures();
+    this.initGPU();
+    this.initRenderPoints();
+  }
+
+  private initEmitterTextures(): void {
+    this.disposeDataTextures();
+
     this.emitPosData = new Float32Array(this.MAX_EMITTERS * 4);
     this.emitPosTex = new THREE.DataTexture(
       this.emitPosData as BufferSource, this.MAX_EMITTERS, 1, THREE.RGBAFormat, THREE.FloatType
     );
-    this.emitPosTex.needsUpdate = true; // перший аплоад
+    this.emitPosTex.needsUpdate = true;
     this.emitPosTex.magFilter = THREE.NearestFilter;
     this.emitPosTex.minFilter = THREE.NearestFilter;
     this.emitPosTex.wrapS = this.emitPosTex.wrapT = THREE.ClampToEdgeWrapping;
@@ -109,9 +135,6 @@ export class SmokeRenderer extends BaseRenderer {
     this.emitExtraTex.minFilter = THREE.NearestFilter;
     this.emitExtraTex.wrapS = this.emitExtraTex.wrapT = THREE.ClampToEdgeWrapping;
 
-    this.emitterActive = Array(this.MAX_EMITTERS).fill(false);
-
-    // --- OPT#2: Spawn map RGBA8 ---
     this.spawnMapData8 = new Uint8Array(this.MAX_PARTICLES * 4);
     this.spawnMapTex = new THREE.DataTexture(
       this.spawnMapData8 as BufferSource, this.PARTICLES_W, this.PARTICLES_H, THREE.RGBAFormat, THREE.UnsignedByteType
@@ -121,10 +144,94 @@ export class SmokeRenderer extends BaseRenderer {
     this.spawnMapTex.minFilter = THREE.NearestFilter;
     this.spawnMapTex.wrapS = this.spawnMapTex.wrapT = THREE.ClampToEdgeWrapping;
 
+    this.emitterActive = Array(this.MAX_EMITTERS).fill(false);
     this.emitAcc = new Float32Array(this.MAX_EMITTERS);
+    this.spawnHead = 0;
+    this.touched = [];
+    this.clock = new THREE.Clock();
 
+    this.emitPosDirty = true;
+    this.emitColDirty = true;
+    this.emitPropDirty = true;
+    this.emitExtraDirty = true;
+  }
+
+  private disposeDataTextures(): void {
+    this.spawnMapTex?.dispose();
+    this.emitPosTex?.dispose();
+    this.emitColTex?.dispose();
+    this.emitPropTex?.dispose();
+    this.emitExtraTex?.dispose();
+  }
+
+  private recreateSimulation(): void {
+    const cachedEmitters = Array.from(this.emitterParams.entries());
+
+    this.points?.removeFromParent();
+    this.material?.dispose();
+    this.geometry?.dispose();
+
+    this.initEmitterTextures();
     this.initGPU();
     this.initRenderPoints();
+
+    this.emitterCount = 0;
+    this.spawnHead = 0;
+    this.touched.length = 0;
+
+    const indexMap = (this.points as any).__emitterIndexMap as Map<string, number>;
+    indexMap.clear();
+
+    for (const [id, params] of cachedEmitters) {
+      const idx = this.addEmitter(
+        params.position,
+        params.color,
+        params.emitRate,
+        params.spreadR,
+        params.spreadY,
+        params.sizeMul,
+        params.spreadGrow,
+        params.riseHeight,
+        params.alphaMul,
+        params.alphaDiminish
+      );
+      indexMap.set(id, idx);
+    }
+
+    for (const key of this.meshes.keys()) {
+      this.meshes.set(key, this.points);
+    }
+
+    if (this.material?.uniforms?.uPointSize) {
+      this.material.uniforms.uPointSize.value = this.basePointSize;
+    }
+  }
+
+  private extractEmitterParams(object: TSceneObject): SmokeEmitterParams {
+    const data: any = object.data || {};
+    return {
+      position: { x: object.coordinates.x, y: object.coordinates.y, z: object.coordinates.z },
+      color: data.color,
+      emitRate: data.emitRate ?? 20,
+      spreadR: data.spreadRadius ?? 0.15,
+      spreadY: data.spreadY ?? 0.03,
+      sizeMul: (data.baseSize ?? 10.0) / 10.0,
+      spreadGrow: data.spreadGrow ?? 0.25,
+      riseHeight: data.riseHeight ?? data.rise ?? 2.0,
+      alphaMul: data.alphaMul ?? data.opacity ?? 1.0,
+      alphaDiminish: data.alphaDiminish ?? data.alphaFade ?? 0.0,
+    };
+  }
+
+  public setQuality(quality: ParticleQuality): void {
+    if (this.quality === quality) return;
+
+    this.quality = quality;
+    this.emitRateScale = quality === 'high' ? 1 : 0.25;
+    this.basePointSize = quality === 'high' ? 10 : 20;
+    this.particleResolution = quality === 'high' ? 128 : 64;
+
+    this.recreateSimulation();
   }
 
   // ---------- GPU (compute) ----------
@@ -297,7 +404,7 @@ export class SmokeRenderer extends BaseRenderer {
         uEmitPosTex:   { value: this.emitPosTex },   // для heightFrac
         uEmitExtraTex: { value: this.emitExtraTex }, // для riseHeight & alphaDiminish
         uPixelRatio:   { value: (typeof window !== 'undefined' ? window.devicePixelRatio : 1) },
-        uPointSize:    { value: 10.0 },
+        uPointSize:    { value: this.basePointSize },
       },
     });
 
@@ -508,7 +615,7 @@ export class SmokeRenderer extends BaseRenderer {
     }
 
     const c  = new THREE.Color(color ?? 0xcccccc);
-    const r  = (emitRate ?? 20);
+    const r  = (emitRate ?? 20) * this.emitRateScale;
     const sr = (spreadR ?? 0.15);
     const sy = (spreadY ?? 0.03);
     const sm = (sizeMul ?? 1.0);
@@ -584,7 +691,7 @@ export class SmokeRenderer extends BaseRenderer {
         this.emitColData[o2+1] = c.g;
         this.emitColData[o2+2] = c.b;
       }
-      if (emitRate !== undefined) this.emitColData[o2+3] = emitRate;
+      if (emitRate !== undefined) this.emitColData[o2+3] = emitRate * this.emitRateScale;
       this.emitColDirty = true;
     }
 
@@ -616,19 +723,20 @@ export class SmokeRenderer extends BaseRenderer {
 
   // інтеграція з твоїм TSceneObject
   render(object: TSceneObject): THREE.Object3D {
-    const alpha = (object.data?.alphaMul ?? object.data?.opacity ?? 1.0);
+    const params = this.extractEmitterParams(object);
     const idx = this.addEmitter(
-      object.coordinates,
-      object.data?.color,
-      object.data?.emitRate,
-      object.data?.spreadRadius,                 // spreadR
-      object.data?.spreadY ?? 0.03,              // вертикальний джиттер
-      (object.data?.baseSize ?? 10.0) / 10.0,    // sizeMul від uPointSize=10
-      object.data?.spreadGrow ?? 0.25,           // розгін по XZ з висотою
-      (object.data?.riseHeight ?? object.data?.rise ?? 2.0), // висота підйому
-      alpha,
-      object.data?.alphaDiminish ?? object.data?.alphaFade ?? 0.0 // NEW
+      params.position,
+      params.color,
+      params.emitRate,
+      params.spreadR,
+      params.spreadY,
+      params.sizeMul,
+      params.spreadGrow,
+      params.riseHeight,
+      params.alphaMul,
+      params.alphaDiminish
     );
+    this.emitterParams.set(object.id, params);
     this.addMesh(object.id, this.points);
     (this.points as any).__emitterIndexMap = (this.points as any).__emitterIndexMap || new Map<string, number>();
     (this.points as any).__emitterIndexMap.set(object.id, idx);
@@ -639,20 +747,21 @@ export class SmokeRenderer extends BaseRenderer {
     const map: Map<string, number> = (this.points as any).__emitterIndexMap;
     const idx = map?.get(object.id);
     if (idx !== undefined && idx >= 0) {
-      const alpha = (object.data?.alphaMul ?? object.data?.opacity);
+      const params = this.extractEmitterParams(object);
       this.moveEmitter(
         idx,
-        object.coordinates,
-        object.data?.color,
-        object.data?.emitRate,
-        object.data?.spreadRadius,
-        object.data?.spreadY,
-        (object.data?.baseSize !== undefined) ? (object.data.baseSize / 10.0) : undefined,
-        object.data?.spreadGrow,
-        (object.data?.riseHeight ?? object.data?.rise),
-        alpha,
-        (object.data?.alphaDiminish ?? object.data?.alphaFade)
+        params.position,
+        params.color,
+        params.emitRate,
+        params.spreadR,
+        params.spreadY,
+        params.sizeMul,
+        params.spreadGrow,
+        params.riseHeight,
+        params.alphaMul,
+        params.alphaDiminish
       );
+      this.emitterParams.set(object.id, params);
     }
   }
 
@@ -663,6 +772,8 @@ export class SmokeRenderer extends BaseRenderer {
       this.setEmitterActive(idx, false);
       map.delete(id);
     }
+
+    this.emitterParams.delete(id);
   }
 
   dispose(): void {

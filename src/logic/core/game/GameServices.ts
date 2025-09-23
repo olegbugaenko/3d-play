@@ -1,5 +1,6 @@
 // Групуємо пов'язані сервіси разом
 import { ISceneLogic, IResourceManager, IBonusSystem, IBuildingsManager, IUpgradesManager, IDroneManager, ICommandSystem, ICommandGroupSystem, ISaveManager } from '../../interfaces/index';
+import type { GraphicsSettingsManager } from '@systems/graphics';
 import { DynamicsLogic } from '../../systems/scene/dynamics-logic';
 
 /**
@@ -38,12 +39,13 @@ export interface GameObjectServices {
 /**
  * Всі сервіси разом (поточний інтерфейс для сумісності)
  */
-export interface AllGameServices extends 
-  CoreServices, 
-  ResourceServices, 
-  CommandServices, 
+export interface AllGameServices extends
+  CoreServices,
+  ResourceServices,
+  CommandServices,
   GameObjectServices {
   saveManager: ISaveManager;
+  graphicsSettingsManager: GraphicsSettingsManager;
 }
 
 /**

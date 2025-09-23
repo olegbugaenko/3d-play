@@ -40,6 +40,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
   const loadingManager = loadingManagerRef.current;
   const loadingSnapshot = useSceneLoadingSnapshot(loadingManager);
   const [isSceneReady, setIsSceneReady] = useState(false);
+  const [graphicsSettingsState, setGraphicsSettingsState] = useState(game.graphicsSettings.getState());
   const manualPending = Math.max(0, loadingSnapshot.manualTotal - loadingSnapshot.manualCompleted);
   const loadingMessage = loadingSnapshot.lastUrl
     ? `Завантаження: ${loadingSnapshot.lastUrl.split('/').pop()}`
@@ -54,7 +55,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
     areaSelectionRendererRef,
     mapLogicRef,
     managersReady,
-  } = useSceneManagers(scene, camera, renderer, appMapLogic, loadingManager);
+  } = useSceneManagers(scene, camera, renderer, appMapLogic, loadingManager, game.graphicsSettings);
 
   const { buildingPreviewRef, isReady: buildingPreviewReady } = useBuildingPreview(
     scene,
@@ -118,6 +119,33 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
       setIsSceneReady(true);
     }
   }, [isSceneReady, managersReady, buildingPreviewReady, loadingManager, loadingSnapshot]);
+
+  useEffect(() => {
+    return game.graphicsSettings.subscribe(setGraphicsSettingsState);
+  }, [game]);
+
+  useEffect(() => {
+    if (!managersReady) return;
+    const shadows = graphicsSettingsState.shadows;
+    const enableDetailed = shadows === 'detailed';
+    renderer.shadowMap.enabled = enableDetailed;
+    if (enableDetailed) {
+      renderer.shadowMap.needsUpdate = true;
+    }
+    const lights = (scene as THREE.Scene & {
+      __lights__?: { ambient: THREE.AmbientLight; dir: THREE.DirectionalLight };
+    }).__lights__;
+    if (lights?.dir) {
+      lights.dir.castShadow = enableDetailed;
+    }
+    rendererManagerRef.current?.setShadowMode(shadows);
+    terrainRendererRef.current?.setShadowMode(shadows);
+  }, [graphicsSettingsState.shadows, renderer, scene, rendererManagerRef, terrainRendererRef, managersReady]);
+
+  useEffect(() => {
+    if (!managersReady) return;
+    rendererManagerRef.current?.setParticleQuality(graphicsSettingsState.particles);
+  }, [graphicsSettingsState.particles, rendererManagerRef, managersReady]);
 
   useEffect(() => {
     const map = mapLogicRef.current;

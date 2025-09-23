@@ -3,6 +3,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { BaseRenderer } from './BaseRenderer'
 import { TSceneObject } from '@logic/systems/scene/scene.types'
 import { MapLogic } from '@logic/systems/map/map-logic'
+import { applyBakedShadow, removeBakedShadow } from './utils/bakedShadows'
+import type { ShadowQuality } from '@systems/graphics'
 
 interface BiomassData {
   resourceId?: string;
@@ -16,6 +18,8 @@ interface BiomassInstance {
   mesh: THREE.Object3D;
 }
 
+type ShadowOptions = { intensity?: number; softness?: number; minSize?: number; offset?: number };
+
 export class BiomassRenderer extends BaseRenderer {
   private loader: GLTFLoader;
   
@@ -27,11 +31,89 @@ export class BiomassRenderer extends BaseRenderer {
   
   // Фоллбеки, що чекають заміни
   private pendingFallbacks: Map<string, { mesh: THREE.Mesh; object: TSceneObject }> = new Map();
-  
+
   private modelsReady = false;
-  
+
   // Моделі біомаси - використовуємо централізований список з MapLogic
   private readonly BIOMASS_MODELS = MapLogic.BIOMASS_MODELS;
+
+  private readonly shadowBox = new THREE.Box3();
+  private readonly shadowSize = new THREE.Vector3();
+  private readonly shadowCenter = new THREE.Vector3();
+
+  private shadowMode: ShadowQuality = 'pseudo';
+  private shadowConfigs = new Map<string, ShadowOptions>();
+
+  private computeShadowFootprint(source: THREE.Object3D) {
+    source.updateWorldMatrix(true, true)
+    this.shadowBox.setFromObject(source)
+    this.shadowBox.getSize(this.shadowSize)
+    this.shadowCenter.set(0, 0, 0)
+    this.shadowBox.getCenter(this.shadowCenter)
+
+    return {
+      width: this.shadowSize.x,
+      depth: this.shadowSize.z,
+      minY: this.shadowBox.min.y,
+      centerX: this.shadowCenter.x,
+      centerZ: this.shadowCenter.z,
+    }
+  }
+
+  private applyShadow(
+    instanceId: string,
+    target: THREE.Object3D,
+    footprint: { width: number; depth: number; minY: number; centerX: number; centerZ: number },
+    options?: ShadowOptions
+  ) {
+    this.shadowConfigs.set(instanceId, options ?? {});
+
+    const enableDynamic = this.shadowMode === 'detailed';
+    this.setShadowFlags(target, enableDynamic);
+    removeBakedShadow(target);
+
+    if (!enableDynamic && this.shadowMode === 'pseudo') {
+      applyBakedShadow(target, {
+        width: footprint.width,
+        depth: footprint.depth,
+        minY: footprint.minY,
+        centerX: footprint.centerX,
+        centerZ: footprint.centerZ,
+        intensity: options?.intensity ?? 0.4,
+        softness: options?.softness ?? 1.3,
+        minSize: options?.minSize ?? 0.35,
+        offset: options?.offset,
+      });
+    }
+  }
+
+  private setShadowFlags(target: THREE.Object3D, enabled: boolean) {
+    target.traverse((child) => {
+      if ((child as any).userData?.bakedShadow) return;
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = enabled;
+        child.receiveShadow = enabled;
+      }
+    });
+  }
+
+  public setShadowMode(mode: ShadowQuality): void {
+    this.shadowMode = mode;
+
+    for (const instance of this.instances.values()) {
+      removeBakedShadow(instance.mesh);
+      const footprint = this.computeShadowFootprint(instance.mesh);
+      const options = this.shadowConfigs.get(instance.id);
+      this.applyShadow(instance.id, instance.mesh, footprint, options);
+    }
+
+    for (const [id, { mesh }] of this.pendingFallbacks) {
+      removeBakedShadow(mesh);
+      const footprint = this.computeShadowFootprint(mesh);
+      const options = this.shadowConfigs.get(id);
+      this.applyShadow(id, mesh, footprint, options);
+    }
+  }
 
   constructor(scene: THREE.Scene) {
     super(scene);
@@ -53,8 +135,8 @@ export class BiomassRenderer extends BaseRenderer {
           // Оптимізуємо модель
           clonedScene.traverse((child) => {
             if (child instanceof THREE.Mesh) {
-              child.castShadow = true;
-              child.receiveShadow = true;
+              child.castShadow = false;
+              child.receiveShadow = false;
             }
           });
           
@@ -127,9 +209,20 @@ export class BiomassRenderer extends BaseRenderer {
     // Клонуємо модель з кешу
     const cachedModel = this.modelCache.get(modelPath)!;
     const mesh = cachedModel.clone();
-    
+
+    mesh.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = false;
+        child.receiveShadow = false;
+      }
+    });
+
+    const footprint = this.computeShadowFootprint(mesh);
+
     // Налаштовуємо позицію, масштаб та обертання
     this.setupMeshTransform(mesh, object);
+
+    this.applyShadow(object.id, mesh, footprint, { intensity: 0.45, softness: 1.25, minSize: 0.35 });
     
     // Додаємо до сцени
     this.addMesh(object.id, mesh);
@@ -162,7 +255,9 @@ export class BiomassRenderer extends BaseRenderer {
       this.scene.remove(instance.mesh);
       this.instances.delete(id);
     }
-    
+
+    this.shadowConfigs.delete(id);
+
     // Видаляємо з базового рендерера
     super.remove(id);
     
@@ -180,6 +275,10 @@ export class BiomassRenderer extends BaseRenderer {
 
   private updateInstance(instance: BiomassInstance): void {
     this.setupMeshTransform(instance.mesh, instance.object);
+    removeBakedShadow(instance.mesh);
+    const footprint = this.computeShadowFootprint(instance.mesh);
+    const options = this.shadowConfigs.get(instance.id);
+    this.applyShadow(instance.id, instance.mesh, footprint, options);
   }
 
   private setupMeshTransform(mesh: THREE.Object3D, object: TSceneObject): void {
@@ -207,12 +306,16 @@ export class BiomassRenderer extends BaseRenderer {
     });
     
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+
+    const footprint = this.computeShadowFootprint(mesh);
+
     // Налаштовуємо позицію
     this.setupMeshTransform(mesh, object);
-    
+
+    this.applyShadow(object.id, mesh, footprint, { intensity: 0.38, softness: 1.3, minSize: 0.3 });
+
     return mesh;
   }
 
