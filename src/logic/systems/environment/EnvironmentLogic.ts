@@ -2,10 +2,13 @@ import { SceneLogic } from '@scene/scene-logic';
 import { TSceneObject } from '@scene/scene.types';
 import {
   AuroraEffect,
+  ColorRGB,
   EnvironmentConfig,
+  EnvironmentSaveData,
   EnvironmentState,
   IEnvironmentEffect,
   SunLightState,
+  SunVisualConfig,
 } from './environment.types';
 
 /**
@@ -56,6 +59,23 @@ const DEFAULT_CONFIG: EnvironmentConfig = {
     windSpeed: { min: 0.3, max: 1.0 },
     particleCount: 200,
     color: 0xd2b46c,
+  },
+  sun: {
+    altitudeRangeDeg: { min: 6, max: 45 },
+    azimuthOffsetDeg: -10,
+    orbitRadiusMultiplier: 0.6,
+    orbitFlattening: 0.45,
+    discSize: 42,
+    haloSize: 140,
+    haloIntensity: { day: 0.55, horizon: 0.85, night: 0 },
+    colorShiftExponent: 1.6,
+    haloFalloffExponent: 1.4,
+    colors: {
+      base: 0xfff1c2,
+      sunrise: 0xffc08a,
+      sunset: 0xff7b63,
+      halo: 0xffd8a1,
+    },
   },
 };
 
@@ -198,6 +218,67 @@ export class EnvironmentLogic {
   }
 
   /**
+   * Отримати поточні налаштування вигляду сонця
+   */
+  getSunVisualConfig(): SunVisualConfig {
+    return {
+      ...this.config.sun,
+      altitudeRangeDeg: { ...this.config.sun.altitudeRangeDeg },
+      haloIntensity: { ...this.config.sun.haloIntensity },
+      colors: { ...this.config.sun.colors },
+    };
+  }
+
+  /**
+   * Оновити налаштування вигляду сонця
+   */
+  updateSunVisualConfig(update: Partial<SunVisualConfig>): void {
+    this.config.sun = this.mergeSunConfig(this.config.sun, update);
+    this.state = this.buildEnvironmentState();
+  }
+
+  /**
+   * Дані для збереження стану енвайронменту
+   */
+  getSaveData(): EnvironmentSaveData {
+    return {
+      time: { totalMinutes: this.time.totalMinutes },
+      weather: {
+        windSpeed: this.weather.windSpeed,
+        windTarget: this.weather.windTarget,
+        nextWindChangeMinute: this.weather.nextWindChangeMinute,
+      },
+    };
+  }
+
+  /**
+   * Відновити стан енвайронменту з сейву
+   */
+  loadFromSave(data: EnvironmentSaveData | undefined): void {
+    if (!data) return;
+
+    if (typeof data.time?.totalMinutes === 'number' && !Number.isNaN(data.time.totalMinutes)) {
+      this.time.totalMinutes = data.time.totalMinutes;
+      this.updateTimeFromTotalMinutes();
+    }
+
+    if (data.weather) {
+      if (typeof data.weather.windSpeed === 'number') {
+        this.weather.windSpeed = data.weather.windSpeed;
+      }
+      if (typeof data.weather.windTarget === 'number') {
+        this.weather.windTarget = data.weather.windTarget;
+      }
+      if (typeof data.weather.nextWindChangeMinute === 'number') {
+        this.weather.nextWindChangeMinute = data.weather.nextWindChangeMinute;
+      }
+    }
+
+    this.weather.temperature = this.calculateTemperature();
+    this.state = this.buildEnvironmentState();
+  }
+
+  /**
    * Встановити час доби (0.0 = північ, 0.5 = полудень, 1.0 = північ)
    */
   setTimeOfDay(timeOfDay: number): void {
@@ -284,9 +365,38 @@ export class EnvironmentLogic {
           ...(overrides.dustClouds?.windSpeed ?? {}),
         },
       },
+      sun: this.mergeSunConfig(base.sun, overrides.sun),
     };
 
     return merged;
+  }
+
+  private mergeSunConfig(base: SunVisualConfig, overrides?: Partial<SunVisualConfig>): SunVisualConfig {
+    if (!overrides) {
+      return {
+        ...base,
+        altitudeRangeDeg: { ...base.altitudeRangeDeg },
+        haloIntensity: { ...base.haloIntensity },
+        colors: { ...base.colors },
+      };
+    }
+
+    return {
+      ...base,
+      ...overrides,
+      altitudeRangeDeg: {
+        ...base.altitudeRangeDeg,
+        ...(overrides.altitudeRangeDeg ?? {}),
+      },
+      haloIntensity: {
+        ...base.haloIntensity,
+        ...(overrides.haloIntensity ?? {}),
+      },
+      colors: {
+        ...base.colors,
+        ...(overrides.colors ?? {}),
+      },
+    };
   }
 
   private advanceTime(deltaTimeSeconds: number): void {
@@ -501,6 +611,7 @@ export class EnvironmentLogic {
 
   private calculateSunLightState(): SunLightState {
     const { sunriseHour, sunsetHour, twilightDurationHours } = this.config.time;
+    const sunCfg = this.config.sun;
     const sunriseMinutes = sunriseHour * 60;
     const sunsetMinutes = sunsetHour * 60;
     const twilightMinutes = twilightDurationHours * 60;
@@ -511,14 +622,14 @@ export class EnvironmentLogic {
     let intensity = 0;
     if (minutes >= dawnStart && minutes < sunriseMinutes) {
       const t = (minutes - dawnStart) / Math.max(1, sunriseMinutes - dawnStart);
-      intensity = this.easeInOut(t) * 0.5;
+      intensity = this.easeInOut(t) * 0.55;
     } else if (minutes >= sunriseMinutes && minutes <= sunsetMinutes) {
       const dayRange = Math.max(1, sunsetMinutes - sunriseMinutes);
       const t = (minutes - sunriseMinutes) / dayRange;
-      intensity = 0.5 + Math.sin(t * Math.PI) * 0.5;
+      intensity = 0.55 + Math.sin(t * Math.PI) * 0.45;
     } else if (minutes > sunsetMinutes && minutes < duskEnd) {
       const t = (duskEnd - minutes) / Math.max(1, duskEnd - sunsetMinutes);
-      intensity = this.easeInOut(t) * 0.5;
+      intensity = this.easeInOut(t) * 0.55;
     } else {
       intensity = 0;
     }
@@ -526,19 +637,83 @@ export class EnvironmentLogic {
     intensity = this.clamp(intensity, 0, 1);
     const ambientIntensity = 0.18 + intensity * 0.35;
 
-    const fullProgress = this.time.currentMinutes / 1440;
-    const orbitAngle = (fullProgress - 0.25) * 2 * Math.PI;
-    const radius = Math.max(this.config.mapSize.width, this.config.mapSize.depth) * 0.6;
-    const direction = {
-      x: Math.cos(orbitAngle) * radius,
-      y: Math.max(30, Math.sin(orbitAngle) * radius * 0.8),
-      z: Math.sin(orbitAngle * 0.5) * radius * 0.4,
-    };
+    const dayMinutes = 1440;
+    const fullProgress = (this.time.totalMinutes % dayMinutes) / dayMinutes;
+    const orbitOffset = (sunCfg.azimuthOffsetDeg / 360) * 2 * Math.PI;
+    const orbitAngle = (fullProgress - 0.25) * 2 * Math.PI + orbitOffset;
+    const rawElevation = Math.sin(orbitAngle);
+    const elevationSign = rawElevation >= 0 ? 1 : -1;
+    const aboveHorizon = Math.max(0, rawElevation);
+
+    const altitudeDeg = this.lerp(
+      sunCfg.altitudeRangeDeg.min,
+      sunCfg.altitudeRangeDeg.max,
+      aboveHorizon
+    );
+    const altitudeRad = (altitudeDeg * Math.PI) / 180;
+    const baseRadius = Math.max(this.config.mapSize.width, this.config.mapSize.depth) * sunCfg.orbitRadiusMultiplier;
+    const horizontalRadius = Math.cos(altitudeRad) * baseRadius;
+
+    const minAltitudeRad = (sunCfg.altitudeRangeDeg.min * Math.PI) / 180;
+    const minY = Math.sin(minAltitudeRad) * baseRadius;
+    let y = Math.sin(altitudeRad) * baseRadius * elevationSign;
+    if (Math.abs(y) < minY) {
+      y = minY * elevationSign;
+    }
+
+    const x = Math.cos(orbitAngle) * horizontalRadius;
+    const z = Math.sin(orbitAngle) * horizontalRadius * sunCfg.orbitFlattening;
+
+    const sunriseWeight = Math.pow(
+      this.clamp(1 - Math.abs(minutes - sunriseMinutes) / Math.max(1, twilightMinutes), 0, 1),
+      sunCfg.colorShiftExponent
+    );
+    const sunsetWeight = Math.pow(
+      this.clamp(1 - Math.abs(minutes - sunsetMinutes) / Math.max(1, twilightMinutes), 0, 1),
+      sunCfg.colorShiftExponent
+    );
+    const horizonWeight = Math.max(sunriseWeight, sunsetWeight);
+
+    const baseColor = this.hexToRgb(sunCfg.colors.base);
+    const sunriseColor = this.hexToRgb(sunCfg.colors.sunrise);
+    const sunsetColor = this.hexToRgb(sunCfg.colors.sunset);
+    const haloBase = this.hexToRgb(sunCfg.colors.halo);
+
+    let sunColor = { ...baseColor };
+    if (sunriseWeight > 0) {
+      sunColor = this.lerpColor(sunColor, sunriseColor, sunriseWeight);
+    }
+    if (sunsetWeight > 0) {
+      sunColor = this.lerpColor(sunColor, sunsetColor, sunsetWeight);
+    }
+
+    let haloColor = { ...haloBase };
+    if (sunriseWeight > 0) {
+      haloColor = this.lerpColor(haloColor, sunriseColor, sunriseWeight * 0.6);
+    }
+    if (sunsetWeight > 0) {
+      haloColor = this.lerpColor(haloColor, sunsetColor, sunsetWeight * 0.6);
+    }
+
+    const white = { r: 1, g: 1, b: 1 };
+    const directionalColor = this.lerpColor(sunColor, white, 0.1 + horizonWeight * 0.2);
+
+    const haloDay = this.lerp(sunCfg.haloIntensity.day, sunCfg.haloIntensity.horizon, Math.pow(horizonWeight, sunCfg.haloFalloffExponent));
+    const haloIntensity = this.lerp(sunCfg.haloIntensity.night, haloDay, Math.max(intensity, horizonWeight));
+
+    const discSize = sunCfg.discSize * (1 + horizonWeight * 0.2);
+    const haloSize = sunCfg.haloSize * (1 + horizonWeight * 0.35);
 
     return {
-      direction,
+      direction: { x, y, z },
       directionalIntensity: intensity,
       ambientIntensity,
+      directionalColor,
+      sunColor,
+      haloColor,
+      haloIntensity: this.clamp(haloIntensity, 0, 1),
+      haloSize,
+      discSize,
     };
   }
 
@@ -549,6 +724,29 @@ export class EnvironmentLogic {
 
   private clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
+  }
+
+  private lerp(a: number, b: number, t: number): number {
+    const clamped = this.clamp(t, 0, 1);
+    return a + (b - a) * clamped;
+  }
+
+  private lerpColor(a: ColorRGB, b: ColorRGB, t: number): ColorRGB {
+    const clamped = this.clamp(t, 0, 1);
+    return {
+      r: a.r + (b.r - a.r) * clamped,
+      g: a.g + (b.g - a.g) * clamped,
+      b: a.b + (b.b - a.b) * clamped,
+    };
+  }
+
+  private hexToRgb(hex: number): ColorRGB {
+    const value = Math.round(hex) & 0xffffff;
+    return {
+      r: ((value >> 16) & 0xff) / 255,
+      g: ((value >> 8) & 0xff) / 255,
+      b: (value & 0xff) / 255,
+    };
   }
 
   private randomBetween(min: number, max: number): number {

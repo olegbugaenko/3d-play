@@ -3,6 +3,10 @@ export type {
   IEnvironmentEffect,
   AuroraEffect,
   EnvironmentConfig,
+  EnvironmentSaveData,
   EnvironmentState,
-  SunLightState
+  SunLightState,
+  SunVisualConfig,
+  SunColorConfig,
+  ColorRGB
 } from "./environment.types";

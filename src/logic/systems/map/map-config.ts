@@ -118,6 +118,23 @@ export const MAP_CONFIG = {
             windSpeed: { min: 0.3, max: 1.0 },
             particleCount: 200,
             color: 0xd2b46c,
+        },
+        sun: {
+            altitudeRangeDeg: { min: 6, max: 45 },
+            azimuthOffsetDeg: -10,
+            orbitRadiusMultiplier: 0.6,
+            orbitFlattening: 0.45,
+            discSize: 46,
+            haloSize: 155,
+            haloIntensity: { day: 0.55, horizon: 0.9, night: 0 },
+            colorShiftExponent: 1.6,
+            haloFalloffExponent: 1.4,
+            colors: {
+                base: 0xfff1d2,
+                sunrise: 0xffb27d,
+                sunset: 0xff6a57,
+                halo: 0xffd2a4,
+            },
         }
     }
 };
