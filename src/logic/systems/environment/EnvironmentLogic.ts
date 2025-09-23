@@ -65,7 +65,7 @@ const DEFAULT_CONFIG: EnvironmentConfig = {
     azimuthOffsetDeg: -10,
     orbitRadiusMultiplier: 0.6,
     orbitFlattening: 0.45,
-    discSize: 42,
+    discSize: 28,
     haloSize: 140,
     haloIntensity: { day: 0.55, horizon: 0.85, night: 0 },
     colorShiftExponent: 1.6,
@@ -658,7 +658,7 @@ export class EnvironmentLogic {
       sunCfg.colorShiftExponent
     );
     const sunsetWeight = Math.pow(
-      this.clamp(1 - Math.abs(minutes - sunsetMinutes) / Math.max(1, twilightMinutes), 0, 1),
+      this.clamp(1 - Math.abs(Math.min(0, minutes - sunsetMinutes)) / Math.max(1, twilightMinutes), 0, 1),
       sunCfg.colorShiftExponent
     );
     const horizonWeight = Math.max(sunriseWeight, sunsetWeight);
@@ -720,7 +720,7 @@ export class EnvironmentLogic {
       haloColor = this.lerpColor(haloColor, dominantWarmColor, warmBlend * 0.7);
     }
 
-    const discScaleBoost = 1 + horizonInfluence * 0.5 + Math.pow(belowRatio, 0.75) * 0.35;
+    const discScaleBoost = 1 + horizonInfluence * 0.75 + Math.pow(belowRatio, 0.75) * 0.35;
     const discSize = sunCfg.discSize * discScaleBoost;
 
     const haloShrinkInfluence = Math.max(horizonInfluence, Math.pow(belowRatio, 0.8));
@@ -743,15 +743,9 @@ export class EnvironmentLogic {
     const glowPresence = Math.max(horizonWeight, Math.pow(belowRatio, 0.75));
     const discBaseLuminance = 0.7 + Math.max(directionalBrightness, glowPresence) * 0.3;
     const discOpacity = this.clamp(discBaseLuminance * discVisibility, 0, 1);
+    console.log('discBaseLuminance', discOpacity, discSize, discScaleBoost);
     const haloVisibilityFalloff = this.clamp(1 - (Math.pow(horizonWeight, 0.9) * 0.45 + belowRatio * 0.35), 0.2, 1);
-    const haloIntensity = this.clamp(
-      haloBaseIntensity *
-        Math.max(horizonFade, Math.pow(horizonWeight, 0.6)) *
-        haloVisibilityFalloff *
-        Math.pow(haloSizeMultiplier, 0.8),
-      0,
-      1
-    );
+    const haloIntensity = 0; // Вимкнено для тесту
 
     return {
       direction: { x, y, z },

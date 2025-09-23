@@ -5,21 +5,32 @@ import { SunLightState } from '@logic/systems/environment/environment.types';
 
 export class SunRenderer extends BaseRenderer {
   private sunGroup: THREE.Group;
-  private disc: THREE.Sprite;
+
+  // DISC: Mesh + ShaderMaterial (фіксована товщина краю у світових одиницях)
+  private disc: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+
+  // HALO: як було — спрайт з CanvasTexture
   private halo: THREE.Sprite;
-  private discTexture: THREE.Texture;
   private haloTexture: THREE.Texture;
+
+  // юніформи диска
+  private discUniforms = {
+    uColor:   { value: new THREE.Color(1, 1, 1) },
+    uOpacity: { value: 1.0 },
+    uRadius:  { value: 0.5 },  // половина розміру (world units)
+    uBlur:    { value: 15.0 }, // товщина пера (world units)
+  };
 
   constructor(scene: THREE.Scene) {
     super(scene);
 
-    this.discTexture = this.createRadialTexture(0.45, 0.05);
     this.haloTexture = this.createRadialTexture(0.12, 0.0);
 
     this.sunGroup = new THREE.Group();
     this.sunGroup.name = 'SunVisual';
     this.sunGroup.renderOrder = 9999;
 
+    // ---------- HALO ----------
     const haloMaterial = new THREE.SpriteMaterial({
       map: this.haloTexture,
       color: new THREE.Color(1, 0.9, 0.7),
@@ -34,32 +45,69 @@ export class SunRenderer extends BaseRenderer {
     this.halo.renderOrder = 9998;
     this.sunGroup.add(this.halo);
 
-    const discMaterial = new THREE.SpriteMaterial({
-      map: this.discTexture,
-      color: new THREE.Color(1, 1, 1),
+    // ---------- DISC (ShaderMaterial на PlaneGeometry) ----------
+    const discMat = new THREE.ShaderMaterial({
       transparent: true,
-      opacity: 0,
       depthTest: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
+      uniforms: this.discUniforms,
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform vec3  uColor;
+        uniform float uOpacity;
+        uniform float uRadius;  // половина діаметра в світових одиницях
+        uniform float uBlur;    // товщина пера в світових одиницях
+
+        void main() {
+          // UV у центр
+          vec2 centered = vUv - 0.5;
+          // Відстань у "світових" одиницях пропорційна радіусу (2*uRadius — повний розмір площини по ширині)
+          float r_world = length(centered) * (2.0 * uRadius);
+
+          float coreR   = max(uRadius - uBlur, 0.0);
+          float feather = smoothstep(coreR, uRadius, r_world);
+          float alpha   = (1.0 - feather) * uOpacity;
+
+          if (alpha < 0.001) discard;
+          gl_FragColor = vec4(uColor, alpha);
+        }
+      `,
     });
 
-    this.disc = new THREE.Sprite(discMaterial);
+    const discGeo = new THREE.PlaneGeometry(1, 1); // скейл задаємо ззовні
+    this.disc = new THREE.Mesh(discGeo, discMat);
     this.disc.renderOrder = 10000;
+
+    // Білбординг: повертаємося до камери перед рендером
+    this.disc.onBeforeRender = (_r, _s, camera) => {
+      this.disc.quaternion.copy(camera.quaternion);
+    };
+
     this.sunGroup.add(this.disc);
 
     this.scene.add(this.sunGroup);
   }
 
-  render(_object: TSceneObject): THREE.Object3D {
-    return new THREE.Group();
+  /** Задати товщину "пірʼячка" диска у світових одиницях (наприклад, 10). */
+  setDiscBlur(widthWorld: number) {
+    this.discUniforms.uBlur.value = Math.max(0, widthWorld);
   }
 
+  render(_object: TSceneObject): THREE.Object3D { return new THREE.Group(); }
   update(_object: TSceneObject): void {}
   remove(_id: string): void {}
   getMeshById(_id: string): THREE.Object3D | null { return null; }
 
   updateSunState(state: SunLightState): void {
+    // --- позиція з клемпом по мінімальній висоті ---
     const position = new THREE.Vector3(state.direction.x, state.direction.y, state.direction.z);
     const renderPosition = position.clone();
 
@@ -67,7 +115,7 @@ export class SunRenderer extends BaseRenderer {
     if (radius > 0) {
       const horizontal = Math.sqrt(renderPosition.x * renderPosition.x + renderPosition.z * renderPosition.z);
       const altitude = Math.atan2(renderPosition.y, horizontal);
-      const minAltitude = THREE.MathUtils.degToRad(-5);
+      const minAltitude = THREE.MathUtils.degToRad(-10); // Дозволяємо сонцю зайти глибше
       if (altitude < minAltitude) {
         const azimuth = Math.atan2(renderPosition.z, renderPosition.x);
         const clampedHorizontal = Math.cos(minAltitude) * radius;
@@ -81,31 +129,42 @@ export class SunRenderer extends BaseRenderer {
 
     this.sunGroup.position.copy(renderPosition);
 
-    const discMaterial = this.disc.material as THREE.SpriteMaterial;
-    discMaterial.color.setRGB(state.sunColor.r, state.sunColor.g, state.sunColor.b);
-    const discOpacity = THREE.MathUtils.clamp(state.discOpacity, 0, 1);
-    discMaterial.opacity = discOpacity;
+    // -------- DISC (колір, прозорість, розмір) --------
+    // колір із state.sunColor — дуже важливо ✅
+    this.discUniforms.uColor.value.setRGB(state.sunColor.r, state.sunColor.g, state.sunColor.b);
 
+    const discOpacity = THREE.MathUtils.clamp(state.discOpacity, 0, 1);
+    this.discUniforms.uOpacity.value = discOpacity;
+
+    // розмір диска: state.discSize — повний розмір; у шейдері використовуємо половину
+    const discSize = state.discSize;
+    this.disc.scale.setScalar(discSize);
+    this.discUniforms.uRadius.value = discSize * 0.5;
+
+    // -------- HALO --------
     const haloMaterial = this.halo.material as THREE.SpriteMaterial;
     haloMaterial.color.setRGB(state.haloColor.r, state.haloColor.g, state.haloColor.b);
-    const haloOpacity = THREE.MathUtils.clamp(state.haloIntensity, 0, 1);
-    haloMaterial.opacity = haloOpacity;
-
-    this.disc.scale.setScalar(state.discSize);
+    haloMaterial.opacity = THREE.MathUtils.clamp(state.haloIntensity, 0, 1);
     this.halo.scale.setScalar(state.haloSize);
 
-    this.sunGroup.visible = discOpacity > 0.01 || haloOpacity > 0.01;
+    // видимість групи
+    this.sunGroup.visible = this.discUniforms.uOpacity.value > 0.01 || haloMaterial.opacity > 0.01;
   }
 
   dispose(): void {
     super.dispose();
     this.scene.remove(this.sunGroup);
-    this.discTexture.dispose();
+
+    // halo
     this.haloTexture.dispose();
-    (this.disc.material as THREE.Material).dispose();
     (this.halo.material as THREE.Material).dispose();
+
+    // disc
+    this.disc.geometry.dispose();
+    (this.disc.material as THREE.Material).dispose();
   }
 
+  /** Залишив генератор для HALO; диск більше не використовує текстуру. */
   private createRadialTexture(coreStop: number, outerOpacity: number): THREE.Texture {
     const size = 256;
     const canvas = document.createElement('canvas');
