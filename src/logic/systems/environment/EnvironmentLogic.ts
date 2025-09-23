@@ -709,7 +709,23 @@ export class EnvironmentLogic {
         : altitudeAboveHorizon > 0
         ? 1
         : 0;
-    const discOpacity = this.clamp(intensity, 0, 1) * horizonFade;
+
+    const belowHorizon = Math.abs(Math.min(0, altitudeDeg));
+    const fadeStartBelow = Math.max(2.5, horizonFadeDeg * 0.5);
+    const fadeEndBelow = fadeStartBelow + Math.max(2.5, horizonFadeDeg * 0.6);
+    let discVisibility = 1;
+    if (belowHorizon > 0) {
+      if (belowHorizon >= fadeEndBelow) {
+        discVisibility = 0;
+      } else if (belowHorizon > fadeStartBelow) {
+        const fadeT = (belowHorizon - fadeStartBelow) / Math.max(0.0001, fadeEndBelow - fadeStartBelow);
+        discVisibility = Math.pow(1 - fadeT, 1.15);
+      }
+    }
+
+    const directionalBrightness = this.clamp(intensity, 0, 1);
+    const discBaseLuminance = 0.6 + directionalBrightness * 0.4;
+    const discOpacity = this.clamp(discBaseLuminance * discVisibility, 0, 1);
     const haloIntensity = this.clamp(
       haloBaseIntensity * Math.max(horizonFade, Math.pow(horizonWeight, 0.6)),
       0,
