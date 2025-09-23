@@ -62,9 +62,23 @@ export class SunRenderer extends BaseRenderer {
   updateSunState(state: SunLightState): void {
     const position = new THREE.Vector3(state.direction.x, state.direction.y, state.direction.z);
     const renderPosition = position.clone();
-    if (renderPosition.y < 0) {
-      renderPosition.y = 0;
+
+    const radius = renderPosition.length();
+    if (radius > 0) {
+      const horizontal = Math.sqrt(renderPosition.x * renderPosition.x + renderPosition.z * renderPosition.z);
+      const altitude = Math.atan2(renderPosition.y, horizontal);
+      const minAltitude = THREE.MathUtils.degToRad(-5);
+      if (altitude < minAltitude) {
+        const azimuth = Math.atan2(renderPosition.z, renderPosition.x);
+        const clampedHorizontal = Math.cos(minAltitude) * radius;
+        renderPosition.set(
+          Math.cos(azimuth) * clampedHorizontal,
+          Math.sin(minAltitude) * radius,
+          Math.sin(azimuth) * clampedHorizontal,
+        );
+      }
     }
+
     this.sunGroup.position.copy(renderPosition);
 
     const discMaterial = this.disc.material as THREE.SpriteMaterial;

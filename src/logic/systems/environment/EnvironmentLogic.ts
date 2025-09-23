@@ -698,9 +698,6 @@ export class EnvironmentLogic {
       Math.max(intensity, horizonWeight)
     );
 
-    const discSize = sunCfg.discSize * (1 + horizonWeight * 0.2);
-    const haloSize = sunCfg.haloSize * (1 + horizonWeight * 0.35);
-
     const horizonFadeDeg = Math.max(0, sunCfg.altitudeRangeDeg.min);
     const altitudeAboveHorizon = Math.max(0, altitudeDeg);
     const horizonFade =
@@ -711,23 +708,40 @@ export class EnvironmentLogic {
         : 0;
 
     const belowHorizon = Math.abs(Math.min(0, altitudeDeg));
-    const fadeStartBelow = Math.max(2.5, horizonFadeDeg * 0.5);
-    const fadeEndBelow = fadeStartBelow + Math.max(2.5, horizonFadeDeg * 0.6);
+    const maxVisibleDropDeg = 5;
+    const belowRatio = this.clamp(belowHorizon / maxVisibleDropDeg, 0, 1);
+    if (belowHorizon > 0) {
+      const dominantWarmColor = sunriseWeight >= sunsetWeight ? sunriseColor : sunsetColor;
+      const warmBlend = Math.pow(belowRatio, 0.8);
+      sunColor = this.lerpColor(sunColor, dominantWarmColor, warmBlend);
+      haloColor = this.lerpColor(haloColor, dominantWarmColor, warmBlend * 0.7);
+    }
+
+    const discScaleBoost = 1 + horizonWeight * 0.35 + Math.pow(belowRatio, 0.7) * 0.25;
+    const discSize = sunCfg.discSize * discScaleBoost;
+
+    const haloScaleFactor = this.clamp(1 - Math.max(horizonWeight, belowRatio) * 0.45, 0.45, 1);
+    const haloSize = sunCfg.haloSize * haloScaleFactor;
+
+    const fadeStartBelow = maxVisibleDropDeg;
+    const fadeEndBelow = fadeStartBelow + Math.max(2, horizonFadeDeg * 0.5);
     let discVisibility = 1;
     if (belowHorizon > 0) {
       if (belowHorizon >= fadeEndBelow) {
         discVisibility = 0;
       } else if (belowHorizon > fadeStartBelow) {
         const fadeT = (belowHorizon - fadeStartBelow) / Math.max(0.0001, fadeEndBelow - fadeStartBelow);
-        discVisibility = Math.pow(1 - fadeT, 1.15);
+        discVisibility = Math.pow(1 - fadeT, 1.1);
       }
     }
 
     const directionalBrightness = this.clamp(intensity, 0, 1);
-    const discBaseLuminance = 0.6 + directionalBrightness * 0.4;
+    const glowPresence = Math.max(horizonWeight, Math.pow(belowRatio, 0.75));
+    const discBaseLuminance = 0.7 + Math.max(directionalBrightness, glowPresence) * 0.3;
     const discOpacity = this.clamp(discBaseLuminance * discVisibility, 0, 1);
+    const haloVisibilityFalloff = this.clamp(1 - (Math.pow(horizonWeight, 0.9) * 0.45 + belowRatio * 0.35), 0.2, 1);
     const haloIntensity = this.clamp(
-      haloBaseIntensity * Math.max(horizonFade, Math.pow(horizonWeight, 0.6)),
+      haloBaseIntensity * Math.max(horizonFade, Math.pow(horizonWeight, 0.6)) * haloVisibilityFalloff,
       0,
       1
     );
