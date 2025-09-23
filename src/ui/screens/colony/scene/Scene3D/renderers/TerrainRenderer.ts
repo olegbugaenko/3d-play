@@ -294,6 +294,17 @@ export class TerrainRenderer {
         'diffuseColor *= terrainColor;',
       ].join('\n');
 
+      const worldPositionSnippet = [
+        '{',
+        '  vec4 terrainWorldPosition = vec4( transformed, 1.0 );',
+        '#ifdef USE_INSTANCING',
+        '  terrainWorldPosition = instanceMatrix * terrainWorldPosition;',
+        '#endif',
+        '  terrainWorldPosition = modelMatrix * terrainWorldPosition;',
+        '  vWorldXZ = terrainWorldPosition.xz;',
+        '}',
+      ].join('\n');
+
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>\n${attributeDecl}\n${varyingDeclVertex}`)
         .replace(
@@ -302,7 +313,7 @@ export class TerrainRenderer {
             .map((name) => `v_blend_${name} = blend_${name};`)
             .join('\n')}`,
         )
-        .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWorldXZ = worldPosition.xz;');
+        .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>\n${worldPositionSnippet}`);
 
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>\n${varyingDeclFragment}\n${uniformDecl}`)
