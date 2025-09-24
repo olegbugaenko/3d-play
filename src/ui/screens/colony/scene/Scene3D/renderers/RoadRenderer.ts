@@ -5,6 +5,8 @@ import { TSceneObject } from '@logic/systems/scene/scene.types';
 import { HudCanvasBuilder, ROAD_HUD_STYLE } from './hud/HudCanvasBuilder';
 import type { HudCanvasRequest, HudResourceEntry } from './hud/HudCanvasBuilder';
 import { clampScaleByWidth, computeScreenSpaceScale } from './hud/hudMath';
+import { ROADS_DB } from '@buildings/buildings-db';
+import type { RoadTypeData, RoadTypeId } from '@buildings/buildings.types';
 
 interface RoadSegment {
   startLeft: THREE.Vector3;
@@ -24,6 +26,8 @@ interface RoadHudInfo {
 }
 
 const HUD_WORLD_Z_OFFSET = 0.035;
+const DEFAULT_ROAD_COLOR = '#8B4513';
+const DEFAULT_MATERIAL_KEY = '__default__';
 const _hudQuat = new THREE.Quaternion();
 const _hudViewDir = new THREE.Vector3();
 const _hudWorldPos = new THREE.Vector3();
@@ -31,8 +35,13 @@ const _hudLocalOffset = new THREE.Vector3();
 const _hudWorldScale = new THREE.Vector3();
 
 export class RoadRenderer extends BaseRenderer {
-  private roadMaterial: THREE.Material;
-  private plannedRoadMaterial: THREE.Material;
+  private defaultRoadMaterial: THREE.MeshLambertMaterial;
+  private defaultPlannedRoadMaterial: THREE.MeshLambertMaterial;
+  private textureLoader: THREE.TextureLoader;
+  private textureCache: Map<string, THREE.Texture> = new Map();
+  private texturePromises: Map<string, Promise<THREE.Texture>> = new Map();
+  private builtMaterialCache: Map<string, THREE.MeshLambertMaterial> = new Map();
+  private plannedMaterialCache: Map<string, THREE.MeshLambertMaterial> = new Map();
   private roadSegments: Map<string, RoadSegment[]> = new Map();
   private uiLogicBridge: UiLogicBridge | null = null;
 
@@ -43,8 +52,9 @@ export class RoadRenderer extends BaseRenderer {
 
   constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer) {
     super(scene, renderer);
-    this.roadMaterial = this.createRoadMaterial();
-    this.plannedRoadMaterial = this.createPlannedRoadMaterial();
+    this.textureLoader = new THREE.TextureLoader();
+    this.defaultRoadMaterial = this.createRoadMaterial();
+    this.defaultPlannedRoadMaterial = this.createPlannedRoadMaterial();
     this.hudBuilder = new HudCanvasBuilder(renderer, this.hudStyle);
   }
 
@@ -52,20 +62,19 @@ export class RoadRenderer extends BaseRenderer {
     this.uiLogicBridge = bridge;
   }
 
-  private createRoadMaterial(): THREE.Material {
-    // Поки що простий матеріал з коричневим кольором
-    // Пізніше замінимо на текстуру
+  private createRoadMaterial(): THREE.MeshLambertMaterial {
+    // Базовий матеріал на випадок відсутності текстури
     return new THREE.MeshLambertMaterial({
-      color: 0x8B4513, // коричневий колір
+      color: DEFAULT_ROAD_COLOR,
       transparent: false,
       side: THREE.DoubleSide
     });
   }
 
-  private createPlannedRoadMaterial(): THREE.Material {
+  private createPlannedRoadMaterial(): THREE.MeshLambertMaterial {
     // Матеріал для запланованих доріг (напівпрозорий)
     return new THREE.MeshLambertMaterial({
-      color: 0x8B4513, // той же коричневий колір
+      color: DEFAULT_ROAD_COLOR,
       side: THREE.DoubleSide,
       transparent: true,
       opacity: 0.5 // напівпрозорість
@@ -103,13 +112,15 @@ export class RoadRenderer extends BaseRenderer {
       b: new THREE.Vector3(s.endPoint?.x ?? 0, s.endPoint?.y ?? 0, s.endPoint?.z ?? 0)
     }));
     
+    const roadTypeId = object.data?.roadTypeId as RoadTypeId | undefined;
+
     segments.forEach((segment, index) => {
       // Знаходимо батьківський логічний сегмент для цього підсегмента
       const parentIdx = this.findParentLogicalSegmentIndex(segment, logicalLines);
       const parentState = segmentStates[parentIdx];
       // Якщо вся дорога збудована (object.data.built) - всі сегменти вважаються збудованими
       const isSegmentPlanned = (isPlanned || !object.data?.built) && parentState?.buildingState !== 'completed';
-      const segmentMesh = this.createSegmentMesh(segment, `${object.id}_segment_${index}`, isSegmentPlanned);
+      const segmentMesh = this.createSegmentMesh(segment, `${object.id}_segment_${index}`, roadTypeId, isSegmentPlanned);
       roadGroup.add(segmentMesh);
     });
 
@@ -155,9 +166,14 @@ export class RoadRenderer extends BaseRenderer {
     return roadGroup;
   }
 
-  private createSegmentMesh(segment: RoadSegment, name: string, isPlanned: boolean = false): THREE.Mesh {
+  private createSegmentMesh(
+    segment: RoadSegment,
+    name: string,
+    roadTypeId?: RoadTypeId,
+    isPlanned: boolean = false
+  ): THREE.Mesh {
     const { startLeft, startRight, endLeft, endRight } = segment;
-    
+
     // Створюємо геометрію з 4 вершин
     const geometry = new THREE.BufferGeometry();
     
@@ -194,24 +210,151 @@ export class RoadRenderer extends BaseRenderer {
     geometry.computeVertexNormals();
     
     // Створюємо меш з відповідним матеріалом
-    let material: THREE.Material;
-    if (isPlanned) {
-      material = this.plannedRoadMaterial;
-    } else {
-      // Гарантовано непрозорий матеріал для завершених сегментів
-      const base = this.roadMaterial as THREE.MeshLambertMaterial;
-      const opaque = base.clone();
-      opaque.transparent = false;
-      opaque.opacity = 1.0;
-      opaque.depthWrite = true;
-      opaque.depthTest = true;
-      opaque.needsUpdate = true;
-      material = opaque;
-    }
+    const material = this.getMaterialForRoad(roadTypeId, isPlanned);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = name;
 
     return mesh;
+  }
+
+  private getMaterialForRoad(roadTypeId: RoadTypeId | undefined, isPlanned: boolean): THREE.MeshLambertMaterial {
+    const cache = isPlanned ? this.plannedMaterialCache : this.builtMaterialCache;
+    const key = roadTypeId ?? DEFAULT_MATERIAL_KEY;
+
+    let material = cache.get(key);
+    if (!material) {
+      const base = isPlanned ? this.defaultPlannedRoadMaterial : this.defaultRoadMaterial;
+      material = base.clone();
+      if (!isPlanned) {
+        material.transparent = false;
+        material.opacity = 1.0;
+        material.depthWrite = true;
+        material.depthTest = true;
+      }
+      this.applyRoadAppearance(material, roadTypeId, isPlanned);
+      cache.set(key, material);
+    }
+
+    return material;
+  }
+
+  private applyRoadAppearance(
+    material: THREE.MeshLambertMaterial,
+    roadTypeId?: RoadTypeId,
+    isPlanned: boolean = false
+  ): void {
+    const roadType = this.getRoadTypeData(roadTypeId);
+    const fallbackColor = roadType?.ui?.color ?? DEFAULT_ROAD_COLOR;
+    const texturePath = roadType?.ui?.texture;
+
+    if (texturePath) {
+      this.assignTextureToMaterial(material, texturePath, fallbackColor);
+    } else {
+      material.map = null;
+      this.setMaterialColor(material, fallbackColor);
+    }
+
+    if (isPlanned) {
+      material.transparent = true;
+      material.opacity = this.defaultPlannedRoadMaterial.opacity;
+    }
+  }
+
+  private getRoadTypeData(roadTypeId?: RoadTypeId): RoadTypeData | null {
+    if (!roadTypeId) return null;
+    return ROADS_DB.get(roadTypeId) ?? null;
+  }
+
+  private assignTextureToMaterial(
+    material: THREE.MeshLambertMaterial,
+    texturePath: string,
+    fallbackColor: THREE.ColorRepresentation
+  ): void {
+    const resolvedPath = this.resolveTexturePath(texturePath);
+
+    if (this.textureCache.has(resolvedPath)) {
+      material.map = this.textureCache.get(resolvedPath)!;
+      this.setMaterialColor(material, 0xffffff);
+      material.needsUpdate = true;
+      return;
+    }
+
+    this.setMaterialColor(material, fallbackColor);
+
+    this.loadTexture(resolvedPath)
+      .then((texture) => {
+        if (this.isMaterialDisposed(material)) return;
+        material.map = texture;
+        this.setMaterialColor(material, 0xffffff);
+        material.needsUpdate = true;
+      })
+      .catch((error) => {
+        console.warn(`[RoadRenderer] Failed to load texture '${texturePath}':`, (error as Error)?.message ?? error);
+        if (this.isMaterialDisposed(material)) return;
+        material.map = null;
+        this.setMaterialColor(material, fallbackColor);
+      });
+  }
+
+  private loadTexture(path: string): Promise<THREE.Texture> {
+    if (this.textureCache.has(path)) {
+      return Promise.resolve(this.textureCache.get(path)!);
+    }
+
+    const existing = this.texturePromises.get(path);
+    if (existing) {
+      return existing;
+    }
+
+    const promise = new Promise<THREE.Texture>((resolve, reject) => {
+      this.textureLoader.load(
+        path,
+        (texture) => {
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          const maxAnisotropy = this.renderer?.capabilities?.getMaxAnisotropy?.();
+          if (typeof maxAnisotropy === 'number' && maxAnisotropy > 0) {
+            texture.anisotropy = maxAnisotropy;
+          }
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.generateMipmaps = true;
+          texture.minFilter = THREE.LinearMipmapLinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          texture.needsUpdate = true;
+          this.textureCache.set(path, texture);
+          resolve(texture);
+        },
+        undefined,
+        (error) => {
+          reject(error);
+        }
+      );
+    }).finally(() => {
+      this.texturePromises.delete(path);
+    });
+
+    this.texturePromises.set(path, promise);
+    return promise;
+  }
+
+  private resolveTexturePath(path: string): string {
+    if (/^(https?:)?\/\//i.test(path) || path.startsWith('data:')) {
+      return path;
+    }
+    const normalized = path.replace(/^\.\/+/, '');
+    if (normalized.startsWith('/')) {
+      return normalized;
+    }
+    return `/${normalized}`;
+  }
+
+  private setMaterialColor(material: THREE.MeshLambertMaterial, color: THREE.ColorRepresentation): void {
+    material.color.set(color);
+    material.needsUpdate = true;
+  }
+
+  private isMaterialDisposed(material: THREE.MeshLambertMaterial): boolean {
+    return Boolean((material.userData as Record<string, unknown> | undefined)?.__roadDisposed);
   }
 
   // Визначає індекс логічного сегмента (startPoint-endPoint) для підсегмента за мінімальною сумою відстаней до лінії
@@ -387,13 +530,32 @@ export class RoadRenderer extends BaseRenderer {
 
     super.dispose();
 
-    // Очищаємо матеріали
-    if (this.roadMaterial) {
-      this.roadMaterial.dispose();
+    const markDisposed = (material: THREE.MeshLambertMaterial) => {
+      material.userData = { ...(material.userData ?? {}), __roadDisposed: true };
+    };
+
+    for (const material of this.builtMaterialCache.values()) {
+      markDisposed(material);
+      material.dispose();
     }
-    if (this.plannedRoadMaterial) {
-      this.plannedRoadMaterial.dispose();
+    this.builtMaterialCache.clear();
+
+    for (const material of this.plannedMaterialCache.values()) {
+      markDisposed(material);
+      material.dispose();
     }
+    this.plannedMaterialCache.clear();
+
+    markDisposed(this.defaultRoadMaterial);
+    this.defaultRoadMaterial.dispose();
+    markDisposed(this.defaultPlannedRoadMaterial);
+    this.defaultPlannedRoadMaterial.dispose();
+
+    for (const texture of this.textureCache.values()) {
+      texture.dispose();
+    }
+    this.textureCache.clear();
+    this.texturePromises.clear();
   }
 
   // ---------- Combined HUD (mirrors BuildingRenderer) ----------
