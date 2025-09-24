@@ -204,6 +204,8 @@ export class SkyCloudRenderer extends BaseRenderer {
         );
         rotated.x += rotated.y * uSkew;
 
+        float ellipse = clamp(1.0 - dot(rotated, rotated), 0.0, 1.0);
+
         vec2 domain = rotated;
         float domainScale = max(0.2, uDomainScale);
         float domainStrength = uDomainStrength;
