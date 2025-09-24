@@ -926,6 +926,108 @@ export class EnvironmentLogic {
     const activation = Math.pow(Math.random(), Math.max(0.0001, layer.coverageWeight));
     const parallax = this.randomBetween(cfg.parallaxRange.min, cfg.parallaxRange.max);
 
+    const isHighAltitude = layer.altitude >= 150 || layer.id.toLowerCase().includes('cirrus');
+    const orientationRange = isHighAltitude ? Math.PI / 2.6 : Math.PI / 4.2;
+    const orientation = this.randomBetween(-orientationRange, orientationRange);
+    const skew = this.randomBetween(
+      isHighAltitude ? -0.35 : -0.22,
+      isHighAltitude ? 0.35 : 0.22,
+    );
+    const detailScale = this.randomBetween(
+      isHighAltitude ? 1.15 : 0.8,
+      isHighAltitude ? 2.05 : 1.35,
+    );
+    const detailContrast = this.randomBetween(
+      isHighAltitude ? 1.05 : 0.7,
+      isHighAltitude ? 1.75 : 1.35,
+    );
+    const densityOffset = this.randomBetween(
+      isHighAltitude ? -0.25 : -0.12,
+      isHighAltitude ? 0.25 : 0.18,
+    );
+    const warpStrength = this.randomBetween(
+      isHighAltitude ? 0.18 : 0.06,
+      isHighAltitude ? 0.45 : 0.3,
+    );
+    const warpFrequency = this.randomBetween(
+      isHighAltitude ? 1.2 : 0.8,
+      isHighAltitude ? 2.6 : 1.8,
+    );
+    const domainScale = this.randomBetween(
+      isHighAltitude ? 1.05 : 0.7,
+      isHighAltitude ? 2.55 : 1.65,
+    );
+    const domainStrength = this.randomBetween(
+      isHighAltitude ? 0.5 : 0.2,
+      isHighAltitude ? 1.15 : 0.75,
+    );
+    const streakStrength = this.randomBetween(
+      isHighAltitude ? 0.4 : 0.08,
+      isHighAltitude ? 1.05 : 0.45,
+    );
+    const streakFrequency = this.randomBetween(
+      isHighAltitude ? 0.85 : 0.45,
+      isHighAltitude ? 1.85 : 1.25,
+    );
+    const topFeather = this.randomBetween(
+      isHighAltitude ? 0.38 : 0.24,
+      isHighAltitude ? 1.2 : 0.95,
+    );
+    const bottomFeather = this.randomBetween(
+      isHighAltitude ? 0.22 : 0.38,
+      isHighAltitude ? 0.75 : 1.05,
+    );
+    const erosionScale = this.randomBetween(
+      isHighAltitude ? 1.3 : 0.9,
+      isHighAltitude ? 2.8 : 2.2,
+    );
+    const erosionStrength = this.randomBetween(
+      isHighAltitude ? 0.45 : 0.2,
+      isHighAltitude ? 1.05 : 0.68,
+    );
+
+    const profileExponent = this.randomBetween(
+      isHighAltitude ? 0.85 : 0.6,
+      isHighAltitude ? 1.6 : 1.3,
+    );
+    const billowStrength = this.randomBetween(
+      isHighAltitude ? 0.4 : 0.55,
+      isHighAltitude ? 1.05 : 1.3,
+    );
+    const capBreakup = this.randomBetween(
+      isHighAltitude ? 0.55 : 0.35,
+      isHighAltitude ? 1.2 : 0.95,
+    );
+    const edgeNoiseMix = this.randomBetween(0.25, 0.85);
+    const anvilStrength = this.randomBetween(
+      isHighAltitude ? 0.25 : 0.08,
+      isHighAltitude ? 0.85 : 0.45,
+    );
+    const anvilHeight = this.randomBetween(
+      isHighAltitude ? -0.05 : -0.25,
+      isHighAltitude ? 0.45 : 0.2,
+    );
+    const anvilFalloff = this.randomBetween(
+      isHighAltitude ? 0.22 : 0.35,
+      isHighAltitude ? 0.55 : 0.75,
+    );
+    const curlStrength = this.randomBetween(
+      isHighAltitude ? -0.35 : -0.2,
+      isHighAltitude ? 0.55 : 0.35,
+    );
+    const curlFrequency = this.randomBetween(
+      isHighAltitude ? 1.2 : 0.7,
+      isHighAltitude ? 2.7 : 1.8,
+    );
+    const frayStrength = this.randomBetween(
+      isHighAltitude ? 0.28 : 0.14,
+      isHighAltitude ? 0.7 : 0.48,
+    );
+    const frayScale = this.randomBetween(
+      isHighAltitude ? 2.1 : 1.2,
+      isHighAltitude ? 3.9 : 2.6,
+    );
+
     const spawnSide: 'north' | 'west' = Math.random() < 0.5 ? 'north' : 'west';
     const halfWidth = mapWidth / 2;
     const halfDepth = mapDepth / 2;
@@ -977,6 +1079,32 @@ export class EnvironmentLogic {
       activation,
       parallax,
       heightOffset,
+      orientation,
+      skew,
+      detailScale,
+      detailContrast,
+      densityOffset,
+      warpStrength,
+      warpFrequency,
+      domainScale,
+      domainStrength,
+      streakStrength,
+      streakFrequency,
+      topFeather,
+      bottomFeather,
+      erosionScale,
+      erosionStrength,
+      profileExponent,
+      billowStrength,
+      capBreakup,
+      edgeNoiseMix,
+      anvilStrength,
+      anvilHeight,
+      anvilFalloff,
+      curlStrength,
+      curlFrequency,
+      frayStrength,
+      frayScale,
     };
 
     const cloud: InternalSkyCloud = {
@@ -989,8 +1117,6 @@ export class EnvironmentLogic {
       age: progressTime,
       maxAge,
     };
-
-    console.log('ClooudData: ', data, maxAge, velocityX, velocityZ, cloud, despawnX, despawnZ);
 
     this.skyCloudInstances.set(cloudId, cloud);
     this.skyCloudLayerCounts.set(layer.id, currentLayerCount + 1);

@@ -68,15 +68,15 @@ export function useRenderLoop(
 
     const rm = rendererManagerRef.current;
     if (rm) {
-      const tryCall = (key: string, fn: string) => {
+      const tryCall = (key: string, fn: string, ...args: unknown[]) => {
         const r = rm.renderers.get(key);
         if (r && fn in r) {
-          const rendererAny = r as unknown as { [key: string]: () => void };
-          rendererAny[fn]();
+          const rendererAny = r as unknown as { [key: string]: (...cbArgs: unknown[]) => void };
+          rendererAny[fn](...args);
         }
       };
 
-      tryCall('sky-cloud', 'updateSkyClouds');
+      tryCall('sky-cloud', 'updateSkyClouds', camera);
       tryCall('cloud', 'updateAllClouds');
       tryCall('smoke', 'updateAllSmoke');
       tryCall('fire', 'updateAllFire');

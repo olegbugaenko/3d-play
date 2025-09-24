@@ -128,6 +128,32 @@ export interface SkyCloudObjectData {
   activation: number;
   parallax: number;
   heightOffset: number;
+  orientation: number;
+  skew: number;
+  detailScale: number;
+  detailContrast: number;
+  densityOffset: number;
+  warpStrength: number;
+  warpFrequency: number;
+  domainScale: number;
+  domainStrength: number;
+  streakStrength: number;
+  streakFrequency: number;
+  topFeather: number;
+  bottomFeather: number;
+  erosionScale: number;
+  erosionStrength: number;
+  profileExponent: number;
+  billowStrength: number;
+  capBreakup: number;
+  edgeNoiseMix: number;
+  anvilStrength: number;
+  anvilHeight: number;
+  anvilFalloff: number;
+  curlStrength: number;
+  curlFrequency: number;
+  frayStrength: number;
+  frayScale: number;
 }
 
 export interface SkyCloudRenderState {
