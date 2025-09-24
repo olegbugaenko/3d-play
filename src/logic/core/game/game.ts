@@ -19,7 +19,7 @@ import { GraphicsSettingsManager } from '@systems/graphics';
 
 
 export class Game {
-  private static instance: Game;
+  private static instance: Game | null = null;
   private container: GameContainer;
   
   // Основні менеджери  
@@ -197,6 +197,18 @@ export class Game {
       Game.instance = new Game();
     }
     return Game.instance;
+  }
+
+  private destroy(): void {
+    this.stopTicks();
+  }
+
+  public static destroyInstance(): void {
+    if (Game.instance) {
+      Game.instance.destroy();
+      Game.instance = null;
+      GameContainer.resetInstance();
+    }
   }
   
   /**

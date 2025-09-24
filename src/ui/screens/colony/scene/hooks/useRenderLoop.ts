@@ -26,6 +26,41 @@ export function useRenderLoop(
   const [fps, setFps] = useState(0);
   const frameCountRef = useRef(0);
   const lastTimeRef = useRef(performance.now());
+  const pinnedLookAtRef = useRef(new THREE.Vector3());
+  const pinnedCameraPosRef = useRef(new THREE.Vector3());
+  const sunDirectionRef = useRef(new THREE.Vector3());
+  const sunColorRef = useRef(new THREE.Color());
+  const ambientColorRef = useRef(new THREE.Color());
+  const skyGlobalStateRef = useRef<
+    (SkyCloudRenderState & {
+      sunDirection: THREE.Vector3;
+      sunColor: THREE.Color;
+      ambientColor: THREE.Color;
+    })
+  >({
+    cloudyFactor: 0,
+    speedMultiplier: 1,
+    wispyMultiplier: 1,
+    opacityMultiplier: 1,
+    sunDirection: sunDirectionRef.current,
+    sunColor: sunColorRef.current,
+    ambientColor: ambientColorRef.current,
+  });
+
+  const callRendererMethod = useCallback(
+    (key: string, fn: string) => {
+      const manager = rendererManagerRef.current;
+      if (!manager) return;
+      const rendererEntry = manager.renderers.get(key) as
+        | { [method: string]: (() => void) | undefined }
+        | undefined;
+      const method = rendererEntry?.[fn];
+      if (typeof method === 'function') {
+        method.call(rendererEntry);
+      }
+    },
+    [rendererManagerRef]
+  );
 
   const tick = useCallback(() => {
     rafRef.current = requestAnimationFrame(tick);
@@ -53,38 +88,28 @@ export function useRenderLoop(
       if (pinnedObjectId) {
         const pinnedObject = mapLogicRef.current?.scene.getObjectById(pinnedObjectId);
         if (pinnedObject) {
-          const targetLookAt = new THREE.Vector3(
+          const targetLookAt = pinnedLookAtRef.current;
+          targetLookAt.set(
             pinnedObject.coordinates.x,
             pinnedObject.coordinates.y,
             pinnedObject.coordinates.z
           );
 
-          const targetPos = controller.getPinnedCameraPosition();
+          const targetPos = controller.getPinnedCameraPosition(pinnedCameraPosRef.current);
           controller.setTargetPosition(targetPos, targetLookAt);
           controller.updateSmoothMovement();
         }
       }
     }
 
-    const rm = rendererManagerRef.current;
-    if (rm) {
-      const tryCall = (key: string, fn: string) => {
-        const r = rm.renderers.get(key);
-        if (r && fn in r) {
-          const rendererAny = r as unknown as { [key: string]: () => void };
-          rendererAny[fn]();
-        }
-      };
-
-      tryCall('sky-cloud', 'updateSkyClouds');
-      tryCall('cloud', 'updateAllClouds');
-      tryCall('smoke', 'updateAllSmoke');
-      tryCall('fire', 'updateAllFire');
-      tryCall('explosion', 'updateAllExplosions');
-      tryCall('electric-arc', 'updateAllArcs');
-      tryCall('aurora', 'updateEnvironmentEffects');
-      tryCall('rover', 'updateDustTrails');
-    }
+    callRendererMethod('sky-cloud', 'updateSkyClouds');
+    callRendererMethod('cloud', 'updateAllClouds');
+    callRendererMethod('smoke', 'updateAllSmoke');
+    callRendererMethod('fire', 'updateAllFire');
+    callRendererMethod('explosion', 'updateAllExplosions');
+    callRendererMethod('electric-arc', 'updateAllArcs');
+    callRendererMethod('aurora', 'updateEnvironmentEffects');
+    callRendererMethod('rover', 'updateDustTrails');
 
     const lights = (scene as THREE.Scene & {
       __lights__?: { ambient: THREE.AmbientLight; dir: THREE.DirectionalLight };
@@ -108,6 +133,27 @@ export function useRenderLoop(
         sunState.haloColor.r,
         sunState.haloColor.g,
         sunState.haloColor.b,
+      );
+
+      const sunDirection = sunDirectionRef.current;
+      sunDirection.set(
+        sunState.direction.x,
+        sunState.direction.y,
+        sunState.direction.z,
+      );
+
+      const sunColor = sunColorRef.current;
+      sunColor.setRGB(
+        sunState.sunColor.r,
+        sunState.sunColor.g,
+        sunState.sunColor.b,
+      );
+
+      const ambientColor = ambientColorRef.current;
+      ambientColor.setRGB(
+        sunState.backgroundColor.r,
+        sunState.backgroundColor.g,
+        sunState.backgroundColor.b,
       );
 
       // Оновлюємо колір фону в залежності від пори доби
@@ -141,24 +187,12 @@ export function useRenderLoop(
       if (skyRenderer) {
         const skyState = environment.getSkyCloudRenderState?.();
         if (skyState) {
-          skyRenderer.updateGlobalState?.({
-            ...skyState,
-            sunDirection: new THREE.Vector3(
-              sunState.direction.x,
-              sunState.direction.y,
-              sunState.direction.z,
-            ),
-            sunColor: new THREE.Color(
-              sunState.sunColor.r,
-              sunState.sunColor.g,
-              sunState.sunColor.b,
-            ),
-            ambientColor: new THREE.Color(
-              sunState.backgroundColor.r,
-              sunState.backgroundColor.g,
-              sunState.backgroundColor.b,
-            ),
-          });
+          const skyGlobalState = skyGlobalStateRef.current;
+          skyGlobalState.cloudyFactor = skyState.cloudyFactor;
+          skyGlobalState.speedMultiplier = skyState.speedMultiplier;
+          skyGlobalState.wispyMultiplier = skyState.wispyMultiplier;
+          skyGlobalState.opacityMultiplier = skyState.opacityMultiplier;
+          skyRenderer.updateGlobalState?.(skyGlobalState);
         }
 
         const skyInstances = environment.getSkyCloudInstances?.();

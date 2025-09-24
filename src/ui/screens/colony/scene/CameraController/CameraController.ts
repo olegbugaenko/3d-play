@@ -43,11 +43,12 @@ export class CameraController {
   private targetPosition = new THREE.Vector3()
   private targetLookAt = new THREE.Vector3()
   private interpolationSpeed = 0.1 // Швидкість інтерполяції (0.1 = плавно, 1.0 = миттєво)
-  
+
   // Camera pinning orbit controls
   private pinnedDistance = 10 // Відстань до закріпленого об'єкта
   private pinnedAngleX = 0 // Вертикальний кут (нахил)
   private pinnedAngleY = 0 // Горизонтальний кут (обертання)
+  private pinnedScratch = new THREE.Vector3()
 
   constructor(
     camera: THREE.PerspectiveCamera, 
@@ -490,15 +491,17 @@ export class CameraController {
     }
   }
   
-  public getPinnedCameraPosition(): THREE.Vector3 {
-    if (!this.isPinned) return this.camera.position.clone()
-    
+  public getPinnedCameraPosition(target: THREE.Vector3 = this.pinnedScratch): THREE.Vector3 {
+    if (!this.isPinned) {
+      return target.copy(this.camera.position)
+    }
+
     // Розраховуємо позицію камери на основі кутів та відстані
     const x = this.target.x + this.pinnedDistance * Math.sin(this.pinnedAngleY) * Math.cos(this.pinnedAngleX)
     const y = this.target.y + this.pinnedDistance * Math.sin(this.pinnedAngleX)
     const z = this.target.z + this.pinnedDistance * Math.cos(this.pinnedAngleY) * Math.cos(this.pinnedAngleX)
-    
-    return new THREE.Vector3(x, y, z)
+
+    return target.set(x, y, z)
   }
 
   // Cleanup

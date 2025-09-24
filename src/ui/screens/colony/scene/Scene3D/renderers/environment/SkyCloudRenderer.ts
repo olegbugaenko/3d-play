@@ -291,6 +291,8 @@ export class SkyCloudRenderer extends BaseRenderer {
 
     const info: InternalCloudData = {
       data: { ...instance.data },
+      velocity: new THREE.Vector3(),
+      boundsRadius: Math.max(instance.data.size, instance.data.size * instance.data.aspectRatio),
       basePosition: new THREE.Vector3(instance.position.x, instance.position.y, instance.position.z),
     };
 
