@@ -60,8 +60,10 @@ export class BuildRoadExecutor extends CommandExecutor {
     this.lastTime = now;
 
     const buildSpeed = (this.context.scene.getObjectById(this.context.objectId)?.data?.buildSpeed ?? 0.5) as number;
+    const effort = seg.constructionEffort ?? (seg.length && seg.length > 0 ? seg.length : 1);
+    const normalizedEffort = effort > 0 ? effort : 1;
     const oldProgress = seg.constructionProgress || 0;
-    const newProgress = Math.min(1.0, oldProgress + buildSpeed * dt);
+    const newProgress = Math.min(1.0, oldProgress + (buildSpeed * dt) / normalizedEffort);
     
     seg.constructionProgress = newProgress;
     

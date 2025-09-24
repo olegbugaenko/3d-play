@@ -719,6 +719,8 @@ export class RoadRenderer extends BaseRenderer {
     const deliveredTotals: Record<string, number> = {};
     let segmentsBuiltFromStates = 0;
     let segmentsTotal = segmentStates.length;
+    let totalEffort = 0;
+    let completedEffort = 0;
 
     for (const state of segmentStates) {
       if (!state) continue;
@@ -728,6 +730,16 @@ export class RoadRenderer extends BaseRenderer {
       if (builtFlag || progressFlag) {
         segmentsBuiltFromStates += 1;
       }
+
+      const rawEffort = Number((state as any).constructionEffort ?? (state as any).length ?? 0);
+      const segmentEffort = rawEffort > 0 ? rawEffort : Math.max(Number((state as any).length) || 0, 1);
+      totalEffort += segmentEffort;
+      const segmentProgress = builtFlag
+        ? 1
+        : typeof state.constructionProgress === 'number'
+          ? THREE.MathUtils.clamp(state.constructionProgress, 0, 1)
+          : 0;
+      completedEffort += segmentEffort * segmentProgress;
 
       const required = state.requiredResources ?? {};
       for (const [resource, amount] of Object.entries(required)) {
@@ -795,7 +807,18 @@ export class RoadRenderer extends BaseRenderer {
       }
     }
 
-    const progress = totalRequired > 0 ? Math.min(1, totalCollected / totalRequired) : 0;
+    const resourceProgress = totalRequired > 0 ? Math.min(1, totalCollected / totalRequired) : 0;
+
+    let progress: number;
+    if (totalEffort > 0) {
+      progress = Math.min(1, completedEffort / totalEffort);
+    } else if (aggregates) {
+      const totalSegs = Math.max(segmentsTotal, aggregates.totalSegments ?? 0);
+      const builtSegs = Math.max(segmentsBuiltFromStates, aggregates.builtSegments ?? 0);
+      progress = totalSegs > 0 ? Math.min(1, builtSegs / totalSegs) : 0;
+    } else {
+      progress = resourceProgress;
+    }
 
     return {
       required,
