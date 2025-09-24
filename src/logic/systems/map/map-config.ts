@@ -107,6 +107,7 @@ export const MAP_CONFIG = {
         weather: {
             temperature: { min: -50, max: 20 },
             windSpeed: { min: 2, max: 18, changeIntervalHours: 2, transitionSeconds: 12 },
+            cloudyFactor: 0.35,
         },
         dustClouds: {
             spawnIntervalSeconds: 60,

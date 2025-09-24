@@ -4,6 +4,7 @@ import { CameraController } from '@ui/screens/colony/scene/CameraController';
 import { RendererManager } from '@ui/screens/colony/scene/Scene3D/renderers/RendererManager';
 import { AreaSelectionRenderer } from '@ui/screens/colony/scene/AreaSelectionRenderer';
 import { IMapLogic } from '@interfaces/index';
+import { SkyCloudInstance, SkyCloudRenderState } from '@logic/systems/environment/environment.types';
 
 export interface RenderLoopOptions {
   maybeUpdateViewportOnMove: () => void;
@@ -75,6 +76,7 @@ export function useRenderLoop(
         }
       };
 
+      tryCall('sky-cloud', 'updateSkyClouds');
       tryCall('cloud', 'updateAllClouds');
       tryCall('smoke', 'updateAllSmoke');
       tryCall('fire', 'updateAllFire');
@@ -121,6 +123,48 @@ export function useRenderLoop(
         | { updateSunState?: (state: typeof sunState) => void }
         | undefined;
       sunRenderer?.updateSunState?.(sunState);
+
+      const skyRenderer = rendererManagerRef.current?.renderers.get('sky-cloud') as
+        | {
+            updateGlobalState?: (
+              state: SkyCloudRenderState & {
+                sunDirection: THREE.Vector3;
+                sunColor: THREE.Color;
+                ambientColor: THREE.Color;
+              }
+            ) => void;
+            syncFromEnvironment?: (instances: SkyCloudInstance[]) => void;
+          }
+        | undefined;
+
+      if (skyRenderer) {
+        const skyState = environment.getSkyCloudRenderState?.();
+        if (skyState) {
+          skyRenderer.updateGlobalState?.({
+            ...skyState,
+            sunDirection: new THREE.Vector3(
+              sunState.direction.x,
+              sunState.direction.y,
+              sunState.direction.z,
+            ),
+            sunColor: new THREE.Color(
+              sunState.sunColor.r,
+              sunState.sunColor.g,
+              sunState.sunColor.b,
+            ),
+            ambientColor: new THREE.Color(
+              sunState.backgroundColor.r,
+              sunState.backgroundColor.g,
+              sunState.backgroundColor.b,
+            ),
+          });
+        }
+
+        const skyInstances = environment.getSkyCloudInstances?.();
+        if (skyInstances) {
+          skyRenderer.syncFromEnvironment?.(skyInstances);
+        }
+      }
     }
 
     options.syncVisibleObjects();

@@ -7,6 +7,11 @@ import {
   EnvironmentSaveData,
   EnvironmentState,
   IEnvironmentEffect,
+  SkyCloudConfig,
+  SkyCloudLayerConfig,
+  SkyCloudObjectData,
+  SkyCloudInstance,
+  SkyCloudRenderState,
   SunLightState,
   SunVisualConfig,
 } from './environment.types';
@@ -48,6 +53,7 @@ const DEFAULT_CONFIG: EnvironmentConfig = {
       changeIntervalHours: 3,
       transitionSeconds: 12,
     },
+    cloudyFactor: 0.35,
   },
   dustClouds: {
     initialCount: 2,
@@ -59,6 +65,58 @@ const DEFAULT_CONFIG: EnvironmentConfig = {
     windSpeed: { min: 0.3, max: 1.0 },
     particleCount: 200,
     color: 0xd2b46c,
+  },
+  skyClouds: {
+    initialCloudyFactor: 0.35,
+    smoothingSeconds: 25,
+    globalSpeedMultiplier: 0.8,
+    globalWispyMultiplier: 1.0,
+    globalOpacityMultiplier: 1.0,
+    coverageExponent: 1.35,
+    windDirectionDeg: 15,
+    parallaxRange: { min: 0.7, max: 1.35 },
+    cloudinessUpdateIntervalMinutes: 30,
+    cloudinessVariance: 0.3,
+    layers: [
+      {
+        id: 'stratus',
+        altitude: 110,
+        altitudeJitter: 18,
+        maxCount: 22,
+        areaMultiplier: 1.35,
+        sizeRange: { min: 160, max: 260 },
+        aspectRatioRange: { min: 1.4, max: 2.2 },
+        opacityRange: { min: 0.35, max: 0.65 },
+        speedRange: { min: 0.45, max: 0.9 },
+        directionJitterDeg: 12,
+        wispinessRange: { min: 0.35, max: 0.6 },
+        softnessRange: { min: 0.14, max: 0.24 },
+        noiseScaleRange: { min: 1.6, max: 2.4 },
+        noiseStrengthRange: { min: 0.8, max: 1.3 },
+        color: 0xd9d2c5,
+        colorVariance: 0.12,
+        coverageWeight: 1.2,
+      },
+      {
+        id: 'cirrus',
+        altitude: 165,
+        altitudeJitter: 26,
+        maxCount: 18,
+        areaMultiplier: 1.6,
+        sizeRange: { min: 200, max: 320 },
+        aspectRatioRange: { min: 2.2, max: 3.4 },
+        opacityRange: { min: 0.18, max: 0.38 },
+        speedRange: { min: 0.9, max: 1.6 },
+        directionJitterDeg: 18,
+        wispinessRange: { min: 0.6, max: 0.92 },
+        softnessRange: { min: 0.2, max: 0.34 },
+        noiseScaleRange: { min: 2.3, max: 3.2 },
+        noiseStrengthRange: { min: 0.9, max: 1.5 },
+        color: 0xf3f0ea,
+        colorVariance: 0.08,
+        coverageWeight: 0.85,
+      },
+    ],
   },
   sun: {
     altitudeRangeDeg: { min: 6, max: 45 },
@@ -79,6 +137,17 @@ const DEFAULT_CONFIG: EnvironmentConfig = {
   },
 };
 
+type InternalSkyCloud = {
+  id: string;
+  layerId: string;
+  position: { x: number; y: number; z: number };
+  data: SkyCloudObjectData;
+  despawnX: number;
+  despawnZ: number;
+  age: number;
+  maxAge: number;
+};
+
 /**
  * Логіка управління енвайронмент-ефектами (полярне сяйво, погода, добовий цикл)
  */
@@ -94,6 +163,18 @@ export class EnvironmentLogic {
   private dustCloudIdCounter = 0;
   private dustClouds: Map<string, { createdAt: number; ttl: number }> = new Map();
 
+  private skyCloudIdCounter = 0;
+  private skyCloudInstances: Map<string, InternalSkyCloud> = new Map();
+  private skyCloudLayerCounts: Map<string, number> = new Map();
+  private skyCloudSnapshot: SkyCloudInstance[] = [];
+  private skyCloudSnapshotDirty = true;
+  private skyCloudSpawnAccumulator = 0;
+  private skyCloudTotalCap = 0;
+  private nextCloudinessUpdateMinute = 0;
+
+  private cloudyFactor = 0;
+  private cloudyTarget = 0;
+
   private initialized = false;
 
   private time = {
@@ -107,6 +188,8 @@ export class EnvironmentLogic {
     windSpeed: 0,
     windTarget: 0,
     nextWindChangeMinute: 0,
+    cloudyFactor: 0,
+    cloudyTarget: 0,
   };
 
   private state: EnvironmentState;
@@ -129,6 +212,20 @@ export class EnvironmentLogic {
     this.weather.nextWindChangeMinute =
       this.time.totalMinutes + windRange.changeIntervalHours * 60;
 
+    const initialCloudiness =
+      this.config.skyClouds.initialCloudyFactor ?? this.config.weather.cloudyFactor ?? 0;
+    const clampedCloudiness = this.clamp(initialCloudiness, 0, 1);
+    this.weather.cloudyFactor = clampedCloudiness;
+    this.weather.cloudyTarget = clampedCloudiness;
+    this.cloudyFactor = clampedCloudiness;
+    this.cloudyTarget = clampedCloudiness;
+
+    this.skyCloudTotalCap = this.config.skyClouds.layers.reduce(
+      (sum, layer) => sum + Math.max(0, layer.maxCount),
+      0,
+    );
+    this.scheduleNextCloudinessUpdate();
+
     this.state = this.buildEnvironmentState();
   }
 
@@ -139,6 +236,7 @@ export class EnvironmentLogic {
     this.initialized = true;
     this.clearAllEffects();
     this.clearDustClouds();
+    this.clearSkyClouds();
     this.dustCloudTimer = 0;
 
     const startTotalMinutes =
@@ -153,6 +251,16 @@ export class EnvironmentLogic {
     this.weather.nextWindChangeMinute =
       this.time.totalMinutes + windRange.changeIntervalHours * 60;
 
+    const startCloudiness =
+      this.config.skyClouds.initialCloudyFactor ?? this.config.weather.cloudyFactor ?? 0;
+    const clampedCloudiness = this.clamp(startCloudiness, 0, 1);
+    this.weather.cloudyFactor = clampedCloudiness;
+    this.weather.cloudyTarget = clampedCloudiness;
+    this.cloudyFactor = clampedCloudiness;
+    this.cloudyTarget = clampedCloudiness;
+
+    this.scheduleNextCloudinessUpdate();
+    this.seedSkyClouds();
     this.generateInitialDustClouds();
     this.state = this.buildEnvironmentState();
   }
@@ -168,6 +276,9 @@ export class EnvironmentLogic {
     this.advanceTime(deltaTimeSeconds);
     this.updateWeather(deltaTimeSeconds);
     this.updateDustClouds(deltaTimeSeconds);
+    this.updateCloudinessCycle();
+    this.updateCloudyFactor(deltaTimeSeconds);
+    this.updateSkyCloudLifecycle(deltaTimeSeconds);
 
     const now = Date.now();
     if (now - this.lastUpdateTime >= this.config.updateInterval) {
@@ -230,6 +341,51 @@ export class EnvironmentLogic {
   }
 
   /**
+   * Параметри для шейдера небесних хмар
+   */
+  getSkyCloudRenderState(): SkyCloudRenderState {
+    const skyConfig = this.config.skyClouds;
+    const speedMultiplier = this.getCurrentCloudSpeedMultiplier();
+
+    return {
+      cloudyFactor: this.cloudyFactor,
+      speedMultiplier,
+      wispyMultiplier: skyConfig.globalWispyMultiplier,
+      opacityMultiplier: skyConfig.globalOpacityMultiplier,
+    };
+  }
+
+  getSkyCloudInstances(): SkyCloudInstance[] {
+    if (this.skyCloudSnapshotDirty) {
+      this.skyCloudSnapshot = Array.from(this.skyCloudInstances.values()).map((cloud) => ({
+        id: cloud.id,
+        layerId: cloud.layerId,
+        position: { ...cloud.position },
+        data: { ...cloud.data },
+      }));
+      this.skyCloudSnapshotDirty = false;
+    }
+
+    return this.skyCloudSnapshot;
+  }
+
+  /**
+   * Поточний рівень хмарності (0..1)
+   */
+  getCloudyFactor(): number {
+    return this.cloudyFactor;
+  }
+
+  /**
+   * Встановити нову цільову хмарність (0..1)
+   */
+  setCloudyFactor(value: number): void {
+    const clamped = this.clamp(value, 0, 1);
+    this.cloudyTarget = clamped;
+    this.weather.cloudyTarget = clamped;
+  }
+
+  /**
    * Оновити налаштування вигляду сонця
    */
   updateSunVisualConfig(update: Partial<SunVisualConfig>): void {
@@ -247,6 +403,7 @@ export class EnvironmentLogic {
         windSpeed: this.weather.windSpeed,
         windTarget: this.weather.windTarget,
         nextWindChangeMinute: this.weather.nextWindChangeMinute,
+        cloudyFactor: this.weather.cloudyTarget,
       },
     };
   }
@@ -272,9 +429,18 @@ export class EnvironmentLogic {
       if (typeof data.weather.nextWindChangeMinute === 'number') {
         this.weather.nextWindChangeMinute = data.weather.nextWindChangeMinute;
       }
+      if (typeof data.weather.cloudyFactor === 'number') {
+        const clamped = this.clamp(data.weather.cloudyFactor, 0, 1);
+        this.weather.cloudyFactor = clamped;
+        this.weather.cloudyTarget = clamped;
+        this.cloudyFactor = clamped;
+        this.cloudyTarget = clamped;
+      }
     }
 
     this.weather.temperature = this.calculateTemperature();
+    this.scheduleNextCloudinessUpdate();
+    this.seedSkyClouds();
     this.state = this.buildEnvironmentState();
   }
 
@@ -329,43 +495,65 @@ export class EnvironmentLogic {
   // ──────────────────────────────
 
   private mergeConfig(base: EnvironmentConfig, overrides?: Partial<EnvironmentConfig>): EnvironmentConfig {
-    if (!overrides) {
-      return base;
-    }
-
-    const merged: EnvironmentConfig = {
+    const cloned: EnvironmentConfig = {
       ...base,
-      ...overrides,
-      aurora: { ...base.aurora, ...(overrides.aurora ?? {}) },
-      mapSize: { ...base.mapSize, ...(overrides.mapSize ?? {}) },
-      time: { ...base.time, ...(overrides.time ?? {}) },
+      aurora: { ...base.aurora },
+      mapSize: { ...base.mapSize },
+      time: { ...base.time },
       weather: {
-        temperature: {
-          ...base.weather.temperature,
-          ...(overrides.weather?.temperature ?? {}),
-        },
-        windSpeed: {
-          ...base.weather.windSpeed,
-          ...(overrides.weather?.windSpeed ?? {}),
-        },
+        temperature: { ...base.weather.temperature },
+        windSpeed: { ...base.weather.windSpeed },
+        cloudyFactor: base.weather.cloudyFactor,
       },
       dustClouds: {
         ...base.dustClouds,
+        size: { ...base.dustClouds.size },
+        height: { ...base.dustClouds.height },
+        windSpeed: { ...base.dustClouds.windSpeed },
+      },
+      skyClouds: this.mergeSkyCloudConfig(base.skyClouds),
+      sun: this.mergeSunConfig(base.sun),
+    };
+
+    if (!overrides) {
+      return cloned;
+    }
+
+    const merged: EnvironmentConfig = {
+      ...cloned,
+      ...overrides,
+      aurora: { ...cloned.aurora, ...(overrides.aurora ?? {}) },
+      mapSize: { ...cloned.mapSize, ...(overrides.mapSize ?? {}) },
+      time: { ...cloned.time, ...(overrides.time ?? {}) },
+      weather: {
+        temperature: {
+          ...cloned.weather.temperature,
+          ...(overrides.weather?.temperature ?? {}),
+        },
+        windSpeed: {
+          ...cloned.weather.windSpeed,
+          ...(overrides.weather?.windSpeed ?? {}),
+        },
+        cloudyFactor: overrides.weather?.cloudyFactor ?? cloned.weather.cloudyFactor,
+      },
+      dustClouds: {
+        ...cloned.dustClouds,
         ...(overrides.dustClouds ?? {}),
         size: {
-          ...base.dustClouds.size,
+          ...cloned.dustClouds.size,
           ...(overrides.dustClouds?.size ?? {}),
         },
         height: {
-          ...base.dustClouds.height,
+          ...cloned.dustClouds.height,
           ...(overrides.dustClouds?.height ?? {}),
         },
         windSpeed: {
-          ...base.dustClouds.windSpeed,
+          ...cloned.dustClouds.windSpeed,
           ...(overrides.dustClouds?.windSpeed ?? {}),
         },
       },
-      sun: this.mergeSunConfig(base.sun, overrides.sun),
+      skyClouds: this.mergeSkyCloudConfig(cloned.skyClouds, overrides.skyClouds),
+      sun: this.mergeSunConfig(cloned.sun, overrides.sun),
     };
 
     return merged;
@@ -396,6 +584,47 @@ export class EnvironmentLogic {
         ...base.colors,
         ...(overrides.colors ?? {}),
       },
+    };
+  }
+
+  private mergeSkyCloudConfig(base: SkyCloudConfig, overrides?: Partial<SkyCloudConfig>): SkyCloudConfig {
+    const cloned: SkyCloudConfig = {
+      ...base,
+      parallaxRange: { ...base.parallaxRange },
+      layers: base.layers.map((layer) => this.cloneSkyCloudLayer(layer)),
+    };
+
+    if (!overrides) {
+      return cloned;
+    }
+
+    const merged: SkyCloudConfig = {
+      ...cloned,
+      ...overrides,
+      parallaxRange: {
+        ...cloned.parallaxRange,
+        ...(overrides.parallaxRange ?? {}),
+      },
+    };
+
+    if (overrides.layers) {
+      merged.layers = overrides.layers.map((layer) => this.cloneSkyCloudLayer(layer));
+    }
+
+    return merged;
+  }
+
+  private cloneSkyCloudLayer(layer: SkyCloudLayerConfig): SkyCloudLayerConfig {
+    return {
+      ...layer,
+      sizeRange: { ...layer.sizeRange },
+      aspectRatioRange: { ...layer.aspectRatioRange },
+      opacityRange: { ...layer.opacityRange },
+      speedRange: { ...layer.speedRange },
+      wispinessRange: { ...layer.wispinessRange },
+      softnessRange: { ...layer.softnessRange },
+      noiseScaleRange: { ...layer.noiseScaleRange },
+      noiseStrengthRange: { ...layer.noiseStrengthRange },
     };
   }
 
@@ -456,6 +685,20 @@ export class EnvironmentLogic {
         this.dustClouds.delete(cloudId);
       }
     }
+  }
+
+  private updateCloudyFactor(deltaTimeSeconds: number): void {
+    const diff = this.cloudyTarget - this.cloudyFactor;
+    if (Math.abs(diff) < 0.0001) {
+      this.cloudyFactor = this.cloudyTarget;
+      this.weather.cloudyFactor = this.cloudyFactor;
+      return;
+    }
+
+    const smoothing = Math.max(0.1, this.config.skyClouds.smoothingSeconds);
+    const step = this.clamp(deltaTimeSeconds / smoothing, 0, 1);
+    this.cloudyFactor += diff * step;
+    this.weather.cloudyFactor = this.cloudyFactor;
   }
 
   private cleanupExpiredEffects(now: number): void {
@@ -579,6 +822,346 @@ export class EnvironmentLogic {
     this.dustCloudIdCounter = 0;
   }
 
+  private clearSkyClouds(): void {
+    this.skyCloudInstances.clear();
+    this.skyCloudLayerCounts.clear();
+    this.skyCloudSnapshot = [];
+    this.skyCloudSnapshotDirty = true;
+    this.skyCloudSpawnAccumulator = 0;
+    this.skyCloudIdCounter = 0;
+  }
+
+  private seedSkyClouds(): void {
+    const cfg = this.config.skyClouds;
+    if (!cfg) return;
+
+    this.clearSkyClouds();
+
+    if (this.cloudyFactor <= 0) {
+      return;
+    }
+
+    for (const layer of cfg.layers) {
+      const targetCount = this.calculateLayerTargetCount(layer);
+      for (let i = 0; i < targetCount; i++) {
+        const progress = this.randomBetween(0.0, 0.85);
+        this.spawnSkyCloud(layer, progress);
+      }
+    }
+  }
+
+  private spawnSkyCloudForDemand(): void {
+    const cfg = this.config.skyClouds;
+    if (!cfg || this.cloudyFactor <= 0) return;
+
+    if (this.skyCloudInstances.size >= this.skyCloudTotalCap) {
+      return;
+    }
+
+    const candidates: Array<{ layer: SkyCloudLayerConfig; weight: number }> = [];
+    let weightSum = 0;
+
+    for (const layer of cfg.layers) {
+      const currentCount = this.getLayerCount(layer.id);
+      if (currentCount >= layer.maxCount) {
+        continue;
+      }
+
+      const target = this.calculateLayerTargetCount(layer);
+      const deficit = Math.max(0, target - currentCount);
+      const layerWeight = deficit > 0 ? deficit : this.cloudyFactor * Math.max(0.05, layer.coverageWeight * 0.1);
+      if (layerWeight <= 0) continue;
+
+      weightSum += layerWeight;
+      candidates.push({ layer, weight: layerWeight });
+    }
+
+    if (!candidates.length || weightSum <= 0) {
+      return;
+    }
+
+    let pick = Math.random() * weightSum;
+    for (const candidate of candidates) {
+      pick -= candidate.weight;
+      if (pick <= 0) {
+        this.spawnSkyCloud(candidate.layer, 0);
+        return;
+      }
+    }
+  }
+
+  private spawnSkyCloud(layer: SkyCloudLayerConfig, progressNormalized = 0): boolean {
+    if (this.skyCloudInstances.size >= this.skyCloudTotalCap) {
+      return false;
+    }
+
+    const currentLayerCount = this.getLayerCount(layer.id);
+    if (currentLayerCount >= layer.maxCount) {
+      return false;
+    }
+
+    const cfg = this.config.skyClouds;
+    const mapWidth = this.config.mapSize.width;
+    const mapDepth = this.config.mapSize.depth;
+
+    const cloudId = `sky_cloud_${layer.id}_${++this.skyCloudIdCounter}`;
+    const altitude =
+      layer.altitude + this.randomBetween(-layer.altitudeJitter * 0.5, layer.altitudeJitter * 0.5);
+    const heightOffset = this.randomBetween(-layer.altitudeJitter * 0.25, layer.altitudeJitter * 0.25);
+    const size = this.randomBetween(layer.sizeRange.min, layer.sizeRange.max);
+    const aspect = this.randomBetween(layer.aspectRatioRange.min, layer.aspectRatioRange.max);
+    const opacity = this.randomBetween(layer.opacityRange.min, layer.opacityRange.max);
+    const wispiness = this.randomBetween(layer.wispinessRange.min, layer.wispinessRange.max);
+    const softness = this.randomBetween(layer.softnessRange.min, layer.softnessRange.max);
+    const noiseScale = this.randomBetween(layer.noiseScaleRange.min, layer.noiseScaleRange.max);
+    const noiseStrength = this.randomBetween(layer.noiseStrengthRange.min, layer.noiseStrengthRange.max);
+    const speed = this.randomBetween(layer.speedRange.min, layer.speedRange.max);
+    const directionBase = this.degToRad(cfg.windDirectionDeg);
+    let direction =
+      directionBase + this.degToRad(this.randomBetween(-layer.directionJitterDeg, layer.directionJitterDeg));
+    direction = this.clamp(direction, this.degToRad(5), this.degToRad(85));
+
+    const colorShift = (Math.random() - 0.5) * 2 * layer.colorVariance;
+    const activation = Math.pow(Math.random(), Math.max(0.0001, layer.coverageWeight));
+    const parallax = this.randomBetween(cfg.parallaxRange.min, cfg.parallaxRange.max);
+
+    const spawnSide: 'north' | 'west' = Math.random() < 0.5 ? 'north' : 'west';
+    const halfWidth = mapWidth / 2;
+    const halfDepth = mapDepth / 2;
+    const spawnDistance = altitude * 10 + (spawnSide === 'north' ? mapDepth : mapWidth);
+    const despawnX = halfWidth + spawnDistance;
+    const despawnZ = halfDepth + spawnDistance;
+
+    let startX: number;
+    let startZ: number;
+    if (spawnSide === 'north') {
+      startZ = -halfDepth - spawnDistance;
+      startX = this.randomBetween(-despawnX * 0.7, despawnX * 0.3);
+    } else {
+      startX = -halfWidth - spawnDistance;
+      startZ = this.randomBetween(-despawnZ * 0.7, despawnZ * 0.3);
+    }
+
+    const speedMultiplier = this.getCurrentCloudSpeedMultiplier();
+    const velocityX = Math.cos(direction) * speed * speedMultiplier;
+    const velocityZ = Math.sin(direction) * speed * speedMultiplier;
+
+    const remainingX = despawnX - startX;
+    const remainingZ = despawnZ - startZ;
+    const timeX = velocityX > 0.0001 ? remainingX / velocityX : 0;
+    const timeZ = velocityZ > 0.0001 ? remainingZ / velocityZ : 0;
+    const travelTime = Math.max(timeX, timeZ, 0);
+    const maxAge =
+      travelTime > 0 ? travelTime * this.randomBetween(1.05, 1.25) : this.randomBetween(420, 780);
+
+    const clampedProgress = this.clamp(progressNormalized, 0, 0.95);
+    const progressTime = maxAge * clampedProgress;
+    const positionX = Math.min(startX + velocityX * progressTime, despawnX - 10);
+    const positionZ = Math.min(startZ + velocityZ * progressTime, despawnZ - 10);
+
+    const data: SkyCloudObjectData = {
+      layerId: layer.id,
+      seed: Math.random() * 1000,
+      size,
+      aspectRatio: aspect,
+      opacity,
+      wispiness,
+      softness,
+      noiseScale,
+      noiseStrength,
+      color: layer.color,
+      colorShift,
+      speed,
+      direction,
+      activation,
+      parallax,
+      heightOffset,
+    };
+
+    const cloud: InternalSkyCloud = {
+      id: cloudId,
+      layerId: layer.id,
+      position: { x: positionX, y: altitude, z: positionZ },
+      data,
+      despawnX,
+      despawnZ,
+      age: progressTime,
+      maxAge,
+    };
+
+    this.skyCloudInstances.set(cloudId, cloud);
+    this.skyCloudLayerCounts.set(layer.id, currentLayerCount + 1);
+    this.skyCloudSnapshotDirty = true;
+
+    return true;
+  }
+
+  private removeSkyCloud(id: string): void {
+    const cloud = this.skyCloudInstances.get(id);
+    if (!cloud) return;
+
+    this.skyCloudInstances.delete(id);
+    const current = this.skyCloudLayerCounts.get(cloud.layerId) ?? 0;
+    if (current <= 1) {
+      this.skyCloudLayerCounts.delete(cloud.layerId);
+    } else {
+      this.skyCloudLayerCounts.set(cloud.layerId, current - 1);
+    }
+    this.skyCloudSnapshotDirty = true;
+  }
+
+  private getLayerCount(layerId: string): number {
+    return this.skyCloudLayerCounts.get(layerId) ?? 0;
+  }
+
+  private calculateLayerTargetCount(layer: SkyCloudLayerConfig): number {
+    if (this.cloudyFactor <= 0) {
+      return 0;
+    }
+
+    const exponent = this.clamp(layer.coverageWeight, 0.1, 3);
+    const coverage = Math.pow(this.cloudyFactor, exponent);
+    const desired = Math.round(layer.maxCount * coverage);
+
+    if (this.cloudyFactor < 0.05) {
+      return 0;
+    }
+
+    if (desired === 0 && this.cloudyFactor > 0.25) {
+      return 1;
+    }
+
+    return this.clamp(desired, 0, layer.maxCount);
+  }
+
+  private enforceLayerTargets(): void {
+    const cfg = this.config.skyClouds;
+    if (!cfg) return;
+
+    for (const layer of cfg.layers) {
+      const current = this.getLayerCount(layer.id);
+      const target = this.calculateLayerTargetCount(layer);
+      if (current <= target) {
+        continue;
+      }
+
+      const excess = current - target;
+      if (excess <= 0) continue;
+
+      const candidates = Array.from(this.skyCloudInstances.values())
+        .filter((cloud) => cloud.layerId === layer.id)
+        .sort((a, b) => b.age - a.age);
+
+      for (let i = 0; i < Math.min(excess, candidates.length); i++) {
+        const cloud = candidates[i];
+        cloud.maxAge = Math.min(cloud.maxAge, cloud.age + this.randomBetween(20, 60));
+      }
+    }
+  }
+
+  private updateSkyCloudLifecycle(deltaTimeSeconds: number): void {
+    const cfg = this.config.skyClouds;
+    if (!cfg) return;
+
+    const speedMultiplier = this.getCurrentCloudSpeedMultiplier();
+    let anyMoved = false;
+    const toRemove: string[] = [];
+
+    for (const [id, cloud] of this.skyCloudInstances) {
+      const dirCos = Math.cos(cloud.data.direction);
+      const dirSin = Math.sin(cloud.data.direction);
+      const dx = dirCos * cloud.data.speed * speedMultiplier * deltaTimeSeconds;
+      const dz = dirSin * cloud.data.speed * speedMultiplier * deltaTimeSeconds;
+
+      if (Math.abs(dx) > 0.0001 || Math.abs(dz) > 0.0001) {
+        cloud.position.x += dx;
+        cloud.position.z += dz;
+        anyMoved = true;
+      }
+
+      cloud.age += deltaTimeSeconds;
+
+      if (
+        cloud.age > cloud.maxAge ||
+        cloud.position.x > cloud.despawnX ||
+        cloud.position.z > cloud.despawnZ
+      ) {
+        toRemove.push(id);
+      }
+    }
+
+    if (toRemove.length) {
+      for (const id of toRemove) {
+        this.removeSkyCloud(id);
+      }
+    }
+
+    if (anyMoved && !this.skyCloudSnapshotDirty) {
+      this.skyCloudSnapshotDirty = true;
+    }
+
+    if (this.cloudyFactor <= 0.01) {
+      for (const cloud of this.skyCloudInstances.values()) {
+        cloud.maxAge = Math.min(cloud.maxAge, cloud.age + this.randomBetween(10, 35));
+      }
+    } else {
+      this.enforceLayerTargets();
+    }
+
+    this.skyCloudSpawnAccumulator += deltaTimeSeconds;
+    if (this.skyCloudSpawnAccumulator >= 1) {
+      const attempts = Math.floor(this.skyCloudSpawnAccumulator);
+      this.skyCloudSpawnAccumulator -= attempts;
+
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        if (this.cloudyFactor <= 0) {
+          break;
+        }
+
+        const rolls = Math.max(1, Math.round(this.cloudyFactor * 3));
+        for (let roll = 0; roll < rolls; roll++) {
+          if (Math.random() <= this.cloudyFactor) {
+            this.spawnSkyCloudForDemand();
+          }
+        }
+      }
+    }
+  }
+
+  private updateCloudinessCycle(): void {
+    if (this.time.totalMinutes < this.nextCloudinessUpdateMinute) {
+      return;
+    }
+
+    const base =
+      this.config.weather.cloudyFactor ?? this.config.skyClouds.initialCloudyFactor ?? this.cloudyTarget;
+    const variance = this.config.skyClouds.cloudinessVariance ?? 0.25;
+    const randomOffset = (Math.random() * 2 - 1) * variance;
+    const candidate = this.clamp(base + randomOffset, 0, 1);
+    const blended = this.lerp(this.weather.cloudyTarget, candidate, 0.5);
+    this.setCloudyFactor(blended);
+    this.scheduleNextCloudinessUpdate();
+  }
+
+  private scheduleNextCloudinessUpdate(): void {
+    const interval = this.config.skyClouds.cloudinessUpdateIntervalMinutes ?? 60;
+    const minutes = Math.max(1, interval);
+    this.nextCloudinessUpdateMinute = this.time.totalMinutes + minutes;
+  }
+
+  private getCurrentCloudSpeedMultiplier(): number {
+    const skyConfig = this.config.skyClouds;
+    const windRange = this.config.weather.windSpeed;
+    const windSpan = Math.max(0.0001, windRange.max - windRange.min);
+    const normalizedWind = this.clamp(
+      (this.weather.windSpeed - windRange.min) / windSpan,
+      0,
+      1,
+    );
+
+    return skyConfig.globalSpeedMultiplier * this.lerp(0.6, 1.45, normalizedWind);
+  }
+
   private buildEnvironmentState(): EnvironmentState {
     const minutes = this.time.currentMinutes;
     const hour = Math.floor(minutes / 60);
@@ -597,6 +1180,7 @@ export class EnvironmentLogic {
       },
       temperature: this.weather.temperature,
       windSpeed: this.weather.windSpeed,
+      cloudiness: this.cloudyFactor,
       isNight: this.isNightTime(),
       sun,
     };
@@ -637,7 +1221,11 @@ export class EnvironmentLogic {
     }
 
     intensity = this.clamp(intensity, 0, 1);
-    const ambientIntensity = 0.18 + intensity * 0.35;
+    const coverageExponent = this.config.skyClouds.coverageExponent ?? 1;
+    const cloudiness = Math.pow(this.clamp(this.cloudyFactor, 0, 1), coverageExponent);
+    let ambientIntensity = 0.18 + intensity * 0.35;
+    ambientIntensity *= this.lerp(1, 1.25, cloudiness * 0.7);
+    const directionalIntensity = intensity * this.lerp(1, 0.45, cloudiness);
 
     const dayMinutes = 1440;
     const fullProgress = (this.time.totalMinutes % dayMinutes) / dayMinutes;
@@ -678,6 +1266,9 @@ export class EnvironmentLogic {
       sunColor = this.lerpColor(sunColor, sunsetColor, sunsetWeight);
     }
 
+    const overcastTint = this.hexToRgb(0xe2e6ea);
+    sunColor = this.lerpColor(sunColor, overcastTint, cloudiness * 0.45);
+
     let haloColor = { ...haloBase };
     if (sunriseWeight > 0) {
       haloColor = this.lerpColor(haloColor, sunriseColor, sunriseWeight * 0.6);
@@ -685,9 +1276,11 @@ export class EnvironmentLogic {
     if (sunsetWeight > 0) {
       haloColor = this.lerpColor(haloColor, sunsetColor, sunsetWeight * 0.6);
     }
+    haloColor = this.lerpColor(haloColor, overcastTint, cloudiness * 0.35);
 
     const white = { r: 1, g: 1, b: 1 };
-    const directionalColor = this.lerpColor(sunColor, white, 0.1 + horizonWeight * 0.2);
+    let directionalColor = this.lerpColor(sunColor, white, 0.1 + horizonWeight * 0.2);
+    directionalColor = this.lerpColor(directionalColor, overcastTint, cloudiness * 0.25);
 
     const horizonFadeDeg = Math.max(0, sunCfg.altitudeRangeDeg.min);
     const altitudeAboveHorizon = Math.max(0, altitudeDeg);
@@ -709,7 +1302,7 @@ export class EnvironmentLogic {
 
     const haloShrinkInfluence = Math.max(horizonInfluence, Math.pow(belowRatio, 0.8));
     const haloSizeMultiplier = this.lerp(1, 0.42, haloShrinkInfluence);
-    const haloSize = sunCfg.haloSize * haloSizeMultiplier;
+    const haloSize = sunCfg.haloSize * haloSizeMultiplier * this.lerp(1, 0.7, cloudiness);
 
     const fadeStartBelow = maxVisibleDropDeg + 5; // Почати зникати на 8° нижче горизонту замість 5°
     const fadeEndBelow = fadeStartBelow + Math.max(2, horizonFadeDeg * 0.5);
@@ -723,20 +1316,41 @@ export class EnvironmentLogic {
       }
     }
 
-    const directionalBrightness = this.clamp(intensity, 0, 1);
+    const directionalBrightness = this.clamp(directionalIntensity, 0, 1);
     const glowPresence = Math.max(horizonWeight, Math.pow(belowRatio, 0.75));
     const discBaseLuminance = 0.7 + Math.max(directionalBrightness, glowPresence) * 0.3;
-    const discOpacity = this.clamp(discBaseLuminance * discVisibility, 0, 1);
-    const haloIntensity = 0; // Вимкнено для тесту
+    const discOpacity = this.clamp(
+      discBaseLuminance * discVisibility * this.lerp(1, 0.35, cloudiness),
+      0,
+      1
+    );
+
+    let haloIntensity = this.lerp(
+      sunCfg.haloIntensity.day,
+      sunCfg.haloIntensity.horizon,
+      horizonInfluence
+    );
+    if (this.isNightTime()) {
+      haloIntensity = this.lerp(haloIntensity, sunCfg.haloIntensity.night, 0.85);
+    } else {
+      haloIntensity = this.lerp(
+        haloIntensity,
+        sunCfg.haloIntensity.night,
+        Math.pow(cloudiness, 1.1) * 0.5
+      );
+    }
+    haloIntensity *= this.lerp(1, 0.25, cloudiness);
 
     // Колір фону в залежності від пори доби
     const dayBackgroundColor = this.hexToRgb(0x7a6f2e);   // Денний колір
     const nightBackgroundColor = this.hexToRgb(0x11130e); // Нічний колір
-    const backgroundColor = this.lerpColor(nightBackgroundColor, dayBackgroundColor, intensity);
-    
+    const baseBackground = this.lerpColor(nightBackgroundColor, dayBackgroundColor, intensity);
+    const overcastBackground = this.hexToRgb(0x4a545d);
+    const backgroundColor = this.lerpColor(baseBackground, overcastBackground, cloudiness * 0.45);
+
     return {
       direction: { x, y, z },
-      directionalIntensity: intensity,
+      directionalIntensity,
       ambientIntensity,
       directionalColor,
       sunColor,
@@ -756,6 +1370,10 @@ export class EnvironmentLogic {
 
   private clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
+  }
+
+  private degToRad(value: number): number {
+    return (value * Math.PI) / 180;
   }
 
   private lerp(a: number, b: number, t: number): number {
