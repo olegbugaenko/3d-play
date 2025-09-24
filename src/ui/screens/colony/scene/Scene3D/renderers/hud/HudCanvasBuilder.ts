@@ -288,7 +288,6 @@ export class HudCanvasBuilder {
       ctx.fillStyle = complete ? '#12d06b' : '#ffffff';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      console.log('NameData: ', nameMaxW, nameMin, nameX, gapMedium, barX, availableBetween);
       ctx.fillText(truncate(displayName, nameMaxW, nameFont), nameX, nameY);
 
       const barY = rowCenterY - Math.round(barHeight / 2);

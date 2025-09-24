@@ -30,7 +30,7 @@ export const DebugPanel: React.FC<DebugPanelProps> = ({
   return (
     <div style={{
       position: 'absolute', 
-      top: 10, 
+      top: 40, 
       left: 10, 
       color: 'white', 
       fontFamily: 'monospace',
