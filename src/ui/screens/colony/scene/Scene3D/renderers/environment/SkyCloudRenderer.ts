@@ -235,7 +235,7 @@ export class SkyCloudRenderer extends BaseRenderer {
       vertexShader,
       fragmentShader,
       transparent: true,
-      depthWrite: true,
+      depthWrite: false,
       depthTest: true,
       alphaTest: 0.001,
       side: THREE.DoubleSide,
@@ -314,7 +314,7 @@ export class SkyCloudRenderer extends BaseRenderer {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `SkyCloud:${instance.id}`;
     mesh.matrixAutoUpdate = true;
-    mesh.frustumCulled = true;
+    mesh.frustumCulled = false;
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     mesh.renderOrder = 2000;
@@ -470,8 +470,10 @@ export class SkyCloudRenderer extends BaseRenderer {
       const parallaxStrength = THREE.MathUtils.clamp(parallaxValue - 1, -0.75, 0.75);
       if (Math.abs(parallaxStrength) > 0.0001) {
         const followStrength = 0.25;
-        mesh.position.x += cameraPosition.x * parallaxStrength * followStrength;
-        mesh.position.z += cameraPosition.z * parallaxStrength * followStrength;
+        const offsetX = (cameraPosition.x - basePosition.x) * parallaxStrength * followStrength;
+        const offsetZ = (cameraPosition.z - basePosition.z) * parallaxStrength * followStrength;
+        mesh.position.x = basePosition.x + offsetX;
+        mesh.position.z = basePosition.z + offsetZ;
       }
 
       this.billboardTarget.copy(cameraPosition);

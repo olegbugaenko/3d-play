@@ -25,6 +25,21 @@
 - **Життєвий цикл**: Плавний рух по вітру, видалення після виходу з зони видимості або закінчення часу життя (`updateSkyCloudLifecycle`).
 - **Оптимізація**: Максимальна кількість об'єктів контролюється на шар, хмари кешуються у `skyCloudInstances`, а снімок для UI/рендеру генерується тільки за необхідності (`skyCloudSnapshotDirty`).
 
+### Конфігурація небесних хмар
+- **Глобальні параметри (`SkyCloudConfig`)**
+  - `initialCloudyFactor`, `cloudinessVariance`, `cloudinessUpdateIntervalMinutes` — базова хмарність та частота оновлення цільового значення.
+  - `globalSpeedMultiplier`, `globalWispyMultiplier`, `globalOpacityMultiplier` — множники швидкості руху, «примарності» та щільності, які застосовуються до всіх хмар.
+  - `windDirectionDeg`, `parallaxRange` — напрямок вітру та діапазон паралаксу, що визначають рух і зміщення відносно камери.
+- **Параметри шару (`SkyCloudLayerConfig`)**
+  - `altitude`, `altitudeJitter` — середня висота шару та випадкові вертикальні відхилення для окремих хмар.
+  - `maxCount`, `coverageWeight` — ліміт об'єктів та вплив шару на загальне покриття при різних рівнях хмарності.
+  - `sizeRange`, `aspectRatioRange` — контроль діапазону розмірів і пропорцій силуетів.
+  - `opacityRange`, `wispinessRange`, `softnessRange` — відповідають за густину, прозорість і плавність країв.
+  - `noiseScaleRange`, `noiseStrengthRange`, `detailScale`, `detailContrast` — формують дрібну структуру текстури та контраст деталей.
+  - `speedRange`, `directionJitterDeg` — швидкість переміщення та варіативність напрямку вітру.
+  - `color`, `colorVariance`, `densityOffset`, `warpStrength`, `warpFrequency` — палітра, щільність і додаткове викривлення силуету.
+  - `heightOffset`, `orientation`, `skew`, `parallax` — вертикальні зсуви, орієнтація та нахил, що додають різноманіття силуетам.
+
 #### Пилові хмари та інші ефекти
 - **Пилові шлейфи**: Генеруються поблизу поверхні з власним життєвим циклом (`updateDustClouds`).
 - **Полярні сяйва**: Керування активними ефектами через `activeEffects` з обмеженням кількості одночасних явищ.
