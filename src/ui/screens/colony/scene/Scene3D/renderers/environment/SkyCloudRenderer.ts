@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { BaseRenderer } from '../BaseRenderer';
 import { TSceneObject } from '@logic/systems/scene/scene.types';
 import {
+  SkyCloudInstance,
   SkyCloudObjectData,
   SkyCloudRenderState,
 } from '@logic/systems/environment/environment.types';
 
 interface InternalCloudData {
   data: SkyCloudObjectData;
+
   velocity: THREE.Vector3;
   boundsRadius: number;
   basePosition: THREE.Vector3;
@@ -28,7 +30,7 @@ export class SkyCloudRenderer extends BaseRenderer {
   private static sharedMaterial: THREE.ShaderMaterial | null = null;
 
   private cloudGroup: THREE.Group;
-  private clouds: Set<THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>> = new Set();
+  private clouds: Map<string, THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>> = new Map();
   private clock = new THREE.Clock();
   private billboardTarget = new THREE.Vector3();
   private tmpColor = new THREE.Color();
@@ -244,52 +246,61 @@ export class SkyCloudRenderer extends BaseRenderer {
   }
 
   render(object: TSceneObject<SkyCloudObjectData>): THREE.Object3D {
-    const cloudData: SkyCloudObjectData = {
-      ...object.data,
+
+    const data = object.data as SkyCloudObjectData;
+    const instance: SkyCloudInstance = {
+      id: object.id,
+      layerId: data.layerId,
+      position: {
+        x: object.coordinates.x,
+        y: object.coordinates.y,
+        z: object.coordinates.z,
+      },
+      data: { ...data },
     };
 
+    return this.upsertCloud(instance);
+  }
+
+  private upsertCloud(instance: SkyCloudInstance): THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
+    let mesh = this.clouds.get(instance.id);
+    if (!mesh) {
+      mesh = this.createCloudMesh(instance);
+      this.cloudGroup.add(mesh);
+      this.clouds.set(instance.id, mesh);
+      this.meshes.set(instance.id, mesh);
+    } else {
+      this.updateCloudMesh(mesh, instance);
+    }
+
+    return mesh;
+  }
+
+  private createCloudMesh(
+    instance: SkyCloudInstance,
+  ): THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
     const material = this.getOrCreateMaterial();
     const geometry = new THREE.PlaneGeometry(1, 1, 24, 16);
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = `SkyCloud:${object.id}`;
+    mesh.name = `SkyCloud:${instance.id}`;
     mesh.matrixAutoUpdate = true;
     mesh.frustumCulled = true;
     mesh.castShadow = false;
     mesh.receiveShadow = false;
     mesh.renderOrder = 2000;
 
-    const altitudeOffset = cloudData.heightOffset ?? 0;
-    const basePosition = new THREE.Vector3(
-      object.coordinates.x,
-      object.coordinates.y,
-      object.coordinates.z,
-    );
-    mesh.position.set(
-      basePosition.x,
-      basePosition.y + altitudeOffset,
-      basePosition.z,
-    );
-    mesh.scale.set(cloudData.size * cloudData.aspectRatio, cloudData.size, 1);
-
-    const velocity = new THREE.Vector3(
-      Math.cos(cloudData.direction) * cloudData.speed,
-      0,
-      Math.sin(cloudData.direction) * cloudData.speed,
-    );
-
-    const internal: InternalCloudData = {
-      data: cloudData,
-      velocity,
-      boundsRadius: cloudData.boundsRadius,
-      basePosition,
+    const info: InternalCloudData = {
+      data: { ...instance.data },
+      basePosition: new THREE.Vector3(instance.position.x, instance.position.y, instance.position.z),
     };
 
-    mesh.userData.sky = internal;
+    mesh.userData.sky = info;
+    mesh.scale.set(info.data.size * info.data.aspectRatio, info.data.size, 1);
 
     mesh.onBeforeRender = (_renderer, _scene, camera, _geometry, mat) => {
       const shader = mat as THREE.ShaderMaterial;
-      const info = mesh.userData.sky as InternalCloudData;
-      const data = info.data;
+      const internal = mesh.userData.sky as InternalCloudData;
+      const data = internal.data;
 
       this.tmpColor.setHex(data.color);
       if (data.colorShift > 0) {
@@ -313,7 +324,8 @@ export class SkyCloudRenderer extends BaseRenderer {
       shader.uniforms.uParallax.value = data.parallax;
       shader.uniforms.uAspect.value = data.aspectRatio;
 
-      const basePosition = info.basePosition;
+      const basePosition = internal.basePosition;
+
       const heightOffset = data.heightOffset ?? 0;
       mesh.position.set(
         basePosition.x,
@@ -337,10 +349,43 @@ export class SkyCloudRenderer extends BaseRenderer {
       mesh.rotation.z = 0;
     };
 
-    this.cloudGroup.add(mesh);
-    this.addMesh(object.id, mesh);
-    this.clouds.add(mesh);
+
+    mesh.position.set(
+      info.basePosition.x,
+      info.basePosition.y + (info.data.heightOffset ?? 0),
+      info.basePosition.z,
+    );
+
     return mesh;
+  }
+
+  private updateCloudMesh(
+    mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>,
+    instance: SkyCloudInstance,
+  ): void {
+    const info = mesh.userData.sky as InternalCloudData;
+    Object.assign(info.data, instance.data);
+    info.basePosition.set(instance.position.x, instance.position.y, instance.position.z);
+    mesh.scale.set(info.data.size * info.data.aspectRatio, info.data.size, 1);
+    mesh.position.set(
+      info.basePosition.x,
+      info.basePosition.y + (info.data.heightOffset ?? 0),
+      info.basePosition.z,
+    );
+  }
+
+  syncFromEnvironment(instances: SkyCloudInstance[]): void {
+    const desired = new Set<string>();
+    for (const instance of instances) {
+      desired.add(instance.id);
+      this.upsertCloud(instance);
+    }
+
+    for (const id of Array.from(this.clouds.keys())) {
+      if (!desired.has(id)) {
+        this.remove(id);
+      }
+    }
   }
 
   update(_object: TSceneObject): void {
@@ -351,14 +396,14 @@ export class SkyCloudRenderer extends BaseRenderer {
     const mesh = this.meshes.get(id) as THREE.Mesh | undefined;
     if (mesh) {
       this.cloudGroup.remove(mesh);
-      this.clouds.delete(mesh as THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>);
+      this.clouds.delete(id);
       mesh.geometry.dispose();
     }
     super.remove(id);
   }
 
   dispose(): void {
-    for (const mesh of this.clouds) {
+    for (const mesh of this.clouds.values()) {
       this.cloudGroup.remove(mesh);
       mesh.geometry.dispose();
     }
@@ -374,7 +419,7 @@ export class SkyCloudRenderer extends BaseRenderer {
   }
 
   updateSkyClouds(): void {
-    const delta = this.clock.getDelta();
+    this.clock.getDelta();
     const elapsed = this.clock.elapsedTime;
     const material = SkyCloudRenderer.sharedMaterial;
     if (material) {
@@ -386,31 +431,6 @@ export class SkyCloudRenderer extends BaseRenderer {
       material.uniforms.uSunDir.value.copy(this.globalState.sunDirection).normalize();
       material.uniforms.uSunColor.value.copy(this.globalState.sunColor);
       material.uniforms.uAmbientColor.value.copy(this.globalState.ambientColor);
-    }
-
-    for (const mesh of this.clouds) {
-      const info = mesh.userData.sky as InternalCloudData;
-      info.basePosition.x += info.velocity.x * delta * this.globalState.speedMultiplier;
-      info.basePosition.z += info.velocity.z * delta * this.globalState.speedMultiplier;
-
-      mesh.position.set(
-        info.basePosition.x,
-        info.basePosition.y + (info.data.heightOffset ?? 0),
-        info.basePosition.z,
-      );
-
-      const distance = Math.hypot(info.basePosition.x, info.basePosition.z);
-      if (distance > info.boundsRadius) {
-        const angle = Math.atan2(info.basePosition.z, info.basePosition.x) + Math.PI;
-        const radius = info.boundsRadius * (0.45 + Math.random() * 0.4);
-        info.basePosition.x = Math.cos(angle) * radius;
-        info.basePosition.z = Math.sin(angle) * radius;
-        mesh.position.set(
-          info.basePosition.x,
-          info.basePosition.y + (info.data.heightOffset ?? 0),
-          info.basePosition.z,
-        );
-      }
     }
   }
 

@@ -106,6 +106,8 @@ export interface SkyCloudConfig {
   coverageExponent: number;
   windDirectionDeg: number;
   parallaxRange: { min: number; max: number };
+  cloudinessUpdateIntervalMinutes?: number;
+  cloudinessVariance?: number;
   layers: SkyCloudLayerConfig[];
 }
 
@@ -126,7 +128,6 @@ export interface SkyCloudObjectData {
   activation: number;
   parallax: number;
   heightOffset: number;
-  boundsRadius: number;
 }
 
 export interface SkyCloudRenderState {
@@ -134,6 +135,14 @@ export interface SkyCloudRenderState {
   speedMultiplier: number;
   wispyMultiplier: number;
   opacityMultiplier: number;
+}
+
+
+export interface SkyCloudInstance {
+  id: string;
+  layerId: string;
+  position: Vector3;
+  data: SkyCloudObjectData;
 }
 
 export interface MapSizeConfig {

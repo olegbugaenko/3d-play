@@ -30,7 +30,7 @@ export function useSceneCore() {
   }, []);
 
   const camera = useMemo(() => {
-    const c = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const c = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 6000);
     c.position.set(5, 5, 5);
     return c;
   }, []);
