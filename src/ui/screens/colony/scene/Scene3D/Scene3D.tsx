@@ -11,7 +11,7 @@ import { VerticalMenuWithContext } from '../components/VerticalMenuWithContext';
 import { DragSelection } from '../DragSelection';
 import PathfindingDebug from '../debug/PathfindingDebug';
 import { createUiLogicBridge } from '@ui/logic/UiLogicBridge';
-import { useSceneCore, useScreenRaycaster } from '../hooks/useSceneCore';
+import { useSceneCore, useScreenRaycaster, getPixelRatioForMode } from '../hooks/useSceneCore';
 import { useSceneManagers } from '../hooks/useSceneManagers';
 import { useCameraController, useCameraViewportSync } from '../hooks/useCameraSystems';
 import { ensureAreaSelectionRenderer, useTerrainStreaming } from '../hooks/useTerrainStreaming';
@@ -31,8 +31,9 @@ interface Scene3DProps {
 
 const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic, game }) => {
   const mountRef = useRef<HTMLDivElement>(null);
+  const [graphicsSettingsState, setGraphicsSettingsState] = useState(game.graphicsSettings.getState());
 
-  const { scene, camera, renderer } = useSceneCore();
+  const { scene, camera, renderer } = useSceneCore(graphicsSettingsState.antialiasing);
   const loadingManagerRef = useRef<SceneLoadingManager | null>(null);
   if (!loadingManagerRef.current) {
     loadingManagerRef.current = new SceneLoadingManager();
@@ -40,7 +41,6 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
   const loadingManager = loadingManagerRef.current;
   const loadingSnapshot = useSceneLoadingSnapshot(loadingManager);
   const [isSceneReady, setIsSceneReady] = useState(false);
-  const [graphicsSettingsState, setGraphicsSettingsState] = useState(game.graphicsSettings.getState());
   const manualPending = Math.max(0, loadingSnapshot.manualTotal - loadingSnapshot.manualCompleted);
   const loadingMessage = loadingSnapshot.lastUrl
     ? `Завантаження: ${loadingSnapshot.lastUrl.split('/').pop()}`
@@ -202,6 +202,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
     const onResize = () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
+      renderer.setPixelRatio(getPixelRatioForMode(graphicsSettingsState.antialiasing));
       renderer.setSize(window.innerWidth, window.innerHeight);
       updateViewport();
       ensureTargetOnTerrain();
@@ -222,7 +223,18 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
         mountRef.current.removeChild(renderer.domElement);
       }
     };
-  }, [camera, controller, ensureTargetOnTerrain, renderer, updateViewport]);
+  }, [
+    camera,
+    controller,
+    ensureTargetOnTerrain,
+    renderer,
+    updateViewport,
+    graphicsSettingsState.antialiasing,
+  ]);
+
+  useEffect(() => {
+    renderer.setPixelRatio(getPixelRatioForMode(graphicsSettingsState.antialiasing));
+  }, [graphicsSettingsState.antialiasing, renderer]);
 
   return (
     <div ref={mountRef} style={{ width: '100%', height: '100vh', position: 'relative', overflow: 'hidden' }}>

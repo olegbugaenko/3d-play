@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { Modal } from '@ui/shared/Modal';
-import type { GraphicsSettingsState, ParticleQuality, ShadowQuality } from '@systems/graphics';
+import type {
+  GraphicsSettingsState,
+  ParticleQuality,
+  ShadowQuality,
+  AntialiasingMode,
+} from '@systems/graphics';
 import './GraphicsSettingsModal.css';
 
 interface GraphicsSettingsModalProps {
@@ -15,11 +20,6 @@ const SHADOW_OPTIONS: Array<{ value: ShadowQuality; label: string; description: 
     value: 'detailed',
     label: 'Детальні',
     description: 'Увімкнути динамічні тіні для будівель та біомаси.'
-  },
-  {
-    value: 'pseudo',
-    label: 'Псевдо-тіні',
-    description: 'Спрощені випечені плями без навантаження на тіньову карту.'
   },
   {
     value: 'none',
@@ -38,6 +38,23 @@ const PARTICLE_OPTIONS: Array<{ value: ParticleQuality; label: string; descripti
     value: 'low',
     label: 'Низька якість',
     description: 'Текстури 64×64, удвічі більші спрайти та зменшений спавн.'
+  }
+];
+
+const ANTIALIASING_OPTIONS: Array<{
+  value: AntialiasingMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'msaa',
+    label: 'MSAA',
+    description: 'Згладжування країв напряму в рендері. Витрачає більше ресурсів, але покращує якість.'
+  },
+  {
+    value: 'off',
+    label: 'Вимкнено',
+    description: 'Найвища продуктивність без згладжування країв.'
   }
 ];
 
@@ -64,6 +81,12 @@ export const GraphicsSettingsModal: React.FC<GraphicsSettingsModalProps> = ({
   const handleDustToggle = (value: boolean) => {
     if (value !== settings.droneDustTrails) {
       onChange({ droneDustTrails: value });
+    }
+  };
+
+  const handleAntialiasingChange = (value: AntialiasingMode) => {
+    if (value !== settings.antialiasing) {
+      onChange({ antialiasing: value });
     }
   };
 
@@ -135,6 +158,27 @@ export const GraphicsSettingsModal: React.FC<GraphicsSettingsModalProps> = ({
                     </span>
                   </div>
                 </label>
+              </div>
+            </section>
+
+            <section className="graphics-settings-section">
+              <h3 className="graphics-settings-section-title">Згладжування</h3>
+              <div className="graphics-settings-options">
+                {ANTIALIASING_OPTIONS.map(option => (
+                  <label key={option.value} className="graphics-settings-option">
+                    <input
+                      type="radio"
+                      name="antialiasing-mode"
+                      value={option.value}
+                      checked={settings.antialiasing === option.value}
+                      onChange={() => handleAntialiasingChange(option.value)}
+                    />
+                    <div className="graphics-settings-option-body">
+                      <span className="graphics-settings-option-label">{option.label}</span>
+                      <span className="graphics-settings-option-description">{option.description}</span>
+                    </div>
+                  </label>
+                ))}
               </div>
             </section>
           </div>

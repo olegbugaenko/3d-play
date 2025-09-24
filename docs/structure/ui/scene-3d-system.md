@@ -14,7 +14,7 @@
 - `RockRenderer.ts` — рендерер каменюків та ресурсів
 - `BiomassRenderer.ts` — рендерер біомаси та рослин
 - `SelectionRenderer.ts` — рендерер вибору об'єктів
-- `CloudRenderer.ts` — рендерер хмар та атмосферних ефектів
+- `DustCloudRenderer.ts` — рендерер пилових хмар та атмосферних ефектів
 - `SmokeRenderer.ts` — рендерер диму та частинок
 - `FireRenderer.ts` — рендерер вогню та ефектів
 - `ExplosionRenderer.ts` — рендерер вибухів

@@ -9,7 +9,7 @@ import { ResourceRequest } from '@logic/modules/resources/resource-types';
 import { HudCanvasBuilder, BUILDING_HUD_STYLE } from './hud/HudCanvasBuilder';
 import type { HudCanvasRequest, HudResourceEntry } from './hud/HudCanvasBuilder';
 import { clampScaleByWidth, computeScreenSpaceScale } from './hud/hudMath';
-import { applyBakedShadow, removeBakedShadow } from './utils/bakedShadows';
+import { removeBakedShadow } from './utils/bakedShadows';
 import type { ShadowQuality } from '@systems/graphics';
 
 // ---------- TMP ----------
@@ -18,10 +18,6 @@ const _worldScale = new THREE.Vector3();
 const _worldPos = new THREE.Vector3();
 const _localOffset = new THREE.Vector3();
 const _viewDir = new THREE.Vector3();
-const _shadowSize = new THREE.Vector3();
-const _shadowCenter = new THREE.Vector3();
-const _shadowBox = new THREE.Box3();
-
 // ---------- Screen-space таргети ----------
 // Позиціонування у світі
 const HUD_WORLD_Y_OFFSET_FALLBACK = 0.6;
@@ -47,7 +43,7 @@ export class BuildingRenderer extends BaseRenderer {
 
   private uiLogicBridge: UiLogicBridge | null = null; // Bridge to logic for storage info
 
-  private shadowMode: ShadowQuality = 'pseudo';
+  private shadowMode: ShadowQuality = 'none';
   private shadowSources = new WeakMap<THREE.Object3D, { source: THREE.Object3D; options?: ShadowOptions }>();
 
   constructor(scene: THREE.Scene, renderer?: THREE.WebGLRenderer, loadingManager?: THREE.LoadingManager) {
@@ -66,29 +62,6 @@ export class BuildingRenderer extends BaseRenderer {
 
     this.loader = new GLTFLoader(loadingManager ?? undefined);
     this.hudBuilder = new HudCanvasBuilder(renderer, this.hudStyle);
-  }
-
-  private applyShadowFromSource(
-    container: THREE.Object3D,
-    source: THREE.Object3D,
-    options?: ShadowOptions
-  ): void {
-    source.updateWorldMatrix(true, true);
-    _shadowBox.setFromObject(source);
-    _shadowBox.getSize(_shadowSize);
-    _shadowBox.getCenter(_shadowCenter);
-
-    applyBakedShadow(container, {
-      width: _shadowSize.x,
-      depth: _shadowSize.z,
-      minY: _shadowBox.min.y,
-      centerX: _shadowCenter.x,
-      centerZ: _shadowCenter.z,
-      intensity: options?.intensity,
-      softness: options?.softness,
-      minSize: options?.minSize,
-      offset: options?.offset,
-    });
   }
 
   public setShadowMode(mode: ShadowQuality): void {
@@ -120,10 +93,6 @@ export class BuildingRenderer extends BaseRenderer {
     const enableDynamic = this.shadowMode === 'detailed';
     this.setContainerShadowFlags(container, enableDynamic);
     removeBakedShadow(container);
-
-    if (!enableDynamic && this.shadowMode === 'pseudo') {
-      this.applyShadowFromSource(container, source, options);
-    }
   }
 
   private setContainerShadowFlags(container: THREE.Object3D, enabled: boolean): void {

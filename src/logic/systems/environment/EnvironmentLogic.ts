@@ -66,6 +66,7 @@ const DEFAULT_CONFIG: EnvironmentConfig = {
     particleCount: 200,
     color: 0xd2b46c,
   },
+  skyCloudsEnabled: false,
   skyClouds: {
     initialCloudyFactor: 0.35,
     smoothingSeconds: 25,
@@ -154,6 +155,7 @@ type InternalSkyCloud = {
 export class EnvironmentLogic {
   private readonly scene: SceneLogic;
   private config: EnvironmentConfig;
+  private readonly skyCloudsEnabled: boolean;
 
   private activeEffects: Map<string, IEnvironmentEffect> = new Map();
   private lastUpdateTime = 0;
@@ -199,6 +201,7 @@ export class EnvironmentLogic {
   constructor(scene: SceneLogic, config?: Partial<EnvironmentConfig>) {
     this.scene = scene;
     this.config = this.mergeConfig(DEFAULT_CONFIG, config);
+    this.skyCloudsEnabled = !!this.config.skyCloudsEnabled;
 
     this.gameMinutesPerRealSecond = 24 / this.config.time.dayLengthMinutes;
 
@@ -212,19 +215,24 @@ export class EnvironmentLogic {
     this.weather.nextWindChangeMinute =
       this.time.totalMinutes + windRange.changeIntervalHours * 60;
 
-    const initialCloudiness =
-      this.config.skyClouds.initialCloudyFactor ?? this.config.weather.cloudyFactor ?? 0;
+    const initialCloudiness = this.skyCloudsEnabled
+      ? this.config.skyClouds.initialCloudyFactor ?? this.config.weather.cloudyFactor ?? 0
+      : 0;
     const clampedCloudiness = this.clamp(initialCloudiness, 0, 1);
     this.weather.cloudyFactor = clampedCloudiness;
     this.weather.cloudyTarget = clampedCloudiness;
     this.cloudyFactor = clampedCloudiness;
     this.cloudyTarget = clampedCloudiness;
 
-    this.skyCloudTotalCap = this.config.skyClouds.layers.reduce(
-      (sum, layer) => sum + Math.max(0, layer.maxCount),
-      0,
-    );
-    this.scheduleNextCloudinessUpdate();
+    if (this.skyCloudsEnabled) {
+      this.skyCloudTotalCap = this.config.skyClouds.layers.reduce(
+        (sum, layer) => sum + Math.max(0, layer.maxCount),
+        0,
+      );
+      this.scheduleNextCloudinessUpdate();
+    } else {
+      this.skyCloudTotalCap = 0;
+    }
     this.state = this.buildEnvironmentState();
   }
 
@@ -251,14 +259,20 @@ export class EnvironmentLogic {
       this.time.totalMinutes + windRange.changeIntervalHours * 60;
 
     const startCloudiness =
-      this.config.skyClouds.initialCloudyFactor ?? this.config.weather.cloudyFactor ?? 0;
+      this.skyCloudsEnabled
+        ? this.config.skyClouds.initialCloudyFactor ?? this.config.weather.cloudyFactor ?? 0
+        : 0;
     const clampedCloudiness = this.clamp(startCloudiness, 0, 1);
     this.weather.cloudyFactor = clampedCloudiness;
     this.weather.cloudyTarget = clampedCloudiness;
     this.cloudyFactor = clampedCloudiness;
     this.cloudyTarget = clampedCloudiness;
-    this.scheduleNextCloudinessUpdate();
-    this.seedSkyClouds();
+    if (this.skyCloudsEnabled) {
+      this.scheduleNextCloudinessUpdate();
+      this.seedSkyClouds();
+    } else {
+      this.clearSkyClouds();
+    }
     this.generateInitialDustClouds();
     this.state = this.buildEnvironmentState();
   }
@@ -274,9 +288,16 @@ export class EnvironmentLogic {
     this.advanceTime(deltaTimeSeconds);
     this.updateWeather(deltaTimeSeconds);
     this.updateDustClouds(deltaTimeSeconds);
-    this.updateCloudinessCycle();
-    this.updateCloudyFactor(deltaTimeSeconds);
-    this.updateSkyCloudLifecycle(deltaTimeSeconds);
+    if (this.skyCloudsEnabled) {
+      this.updateCloudinessCycle();
+      this.updateCloudyFactor(deltaTimeSeconds);
+      this.updateSkyCloudLifecycle(deltaTimeSeconds);
+    } else {
+      this.cloudyFactor = 0;
+      this.cloudyTarget = 0;
+      this.weather.cloudyFactor = 0;
+      this.weather.cloudyTarget = 0;
+    }
 
     const now = Date.now();
     if (now - this.lastUpdateTime >= this.config.updateInterval) {
@@ -342,6 +363,14 @@ export class EnvironmentLogic {
    * Параметри для шейдера небесних хмар
    */
   getSkyCloudRenderState(): SkyCloudRenderState {
+    if (!this.skyCloudsEnabled) {
+      return {
+        cloudyFactor: 0,
+        speedMultiplier: 0,
+        wispyMultiplier: 0,
+        opacityMultiplier: 0,
+      };
+    }
     const skyConfig = this.config.skyClouds;
     const speedMultiplier = this.getCurrentCloudSpeedMultiplier();
 
@@ -355,6 +384,9 @@ export class EnvironmentLogic {
 
 
   getSkyCloudInstances(): SkyCloudInstance[] {
+    if (!this.skyCloudsEnabled) {
+      return [];
+    }
     if (this.skyCloudSnapshotDirty) {
       this.skyCloudSnapshot = Array.from(this.skyCloudInstances.values()).map((cloud) => ({
         id: cloud.id,
@@ -380,6 +412,13 @@ export class EnvironmentLogic {
    * Встановити нову цільову хмарність (0..1)
    */
   setCloudyFactor(value: number): void {
+    if (!this.skyCloudsEnabled) {
+      this.cloudyTarget = 0;
+      this.weather.cloudyTarget = 0;
+      this.cloudyFactor = 0;
+      this.weather.cloudyFactor = 0;
+      return;
+    }
     const clamped = this.clamp(value, 0, 1);
     this.cloudyTarget = clamped;
     this.weather.cloudyTarget = clamped;
@@ -439,8 +478,12 @@ export class EnvironmentLogic {
     }
 
     this.weather.temperature = this.calculateTemperature();
-    this.scheduleNextCloudinessUpdate();
-    this.seedSkyClouds();
+    if (this.skyCloudsEnabled) {
+      this.scheduleNextCloudinessUpdate();
+      this.seedSkyClouds();
+    } else {
+      this.clearSkyClouds();
+    }
     this.state = this.buildEnvironmentState();
   }
 
@@ -688,6 +731,11 @@ export class EnvironmentLogic {
   }
 
   private updateCloudyFactor(deltaTimeSeconds: number): void {
+    if (!this.skyCloudsEnabled) {
+      this.cloudyFactor = 0;
+      this.weather.cloudyFactor = 0;
+      return;
+    }
     const diff = this.cloudyTarget - this.cloudyFactor;
     if (Math.abs(diff) < 0.0001) {
       this.cloudyFactor = this.cloudyTarget;
@@ -832,6 +880,10 @@ export class EnvironmentLogic {
   }
 
   private seedSkyClouds(): void {
+    if (!this.skyCloudsEnabled) {
+      this.clearSkyClouds();
+      return;
+    }
     const cfg = this.config.skyClouds;
     if (!cfg) return;
 
@@ -852,6 +904,7 @@ export class EnvironmentLogic {
   }
 
   private spawnSkyCloudForDemand(): void {
+    if (!this.skyCloudsEnabled) return;
     const cfg = this.config.skyClouds;
     if (!cfg || this.cloudyFactor <= 0) return;
 
@@ -892,6 +945,9 @@ export class EnvironmentLogic {
   }
 
   private spawnSkyCloud(layer: SkyCloudLayerConfig, progressNormalized = 0): boolean {
+    if (!this.skyCloudsEnabled) {
+      return false;
+    }
     if (this.skyCloudInstances.size >= this.skyCloudTotalCap) {
       return false;
     }
@@ -1063,6 +1119,9 @@ export class EnvironmentLogic {
   }
 
   private updateSkyCloudLifecycle(deltaTimeSeconds: number): void {
+    if (!this.skyCloudsEnabled) {
+      return;
+    }
     const cfg = this.config.skyClouds;
     if (!cfg) return;
 
@@ -1132,6 +1191,9 @@ export class EnvironmentLogic {
   }
 
   private updateCloudinessCycle(): void {
+    if (!this.skyCloudsEnabled) {
+      return;
+    }
     if (this.time.totalMinutes < this.nextCloudinessUpdateMinute) {
       return;
     }
@@ -1147,12 +1209,19 @@ export class EnvironmentLogic {
   }
 
   private scheduleNextCloudinessUpdate(): void {
+    if (!this.skyCloudsEnabled) {
+      this.nextCloudinessUpdateMinute = Number.POSITIVE_INFINITY;
+      return;
+    }
     const interval = this.config.skyClouds.cloudinessUpdateIntervalMinutes ?? 60;
     const minutes = Math.max(1, interval);
     this.nextCloudinessUpdateMinute = this.time.totalMinutes + minutes;
   }
 
   private getCurrentCloudSpeedMultiplier(): number {
+    if (!this.skyCloudsEnabled) {
+      return 0;
+    }
     const skyConfig = this.config.skyClouds;
     const windRange = this.config.weather.windSpeed;
     const windSpan = Math.max(0.0001, windRange.max - windRange.min);

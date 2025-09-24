@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { BaseRenderer } from './BaseRenderer';
 import { TSceneObject } from '@logic/systems/scene/scene.types';
 
-export interface CloudData {
+export interface DustCloudData {
   color?: number;        // базовий колір хмари
   size?: number;         // "візуальний" розмір частинки (у пікселях, базово ~72)
   density?: number;      // не використовується тут (залишив на майбутнє)
@@ -14,7 +14,7 @@ export interface CloudData {
 const _tmpV2 = new THREE.Vector2(); // для uSizeAtten
 
 
-export class CloudRenderer extends BaseRenderer {
+export class DustCloudRenderer extends BaseRenderer {
   private dustParticles: THREE.Points[] = [];
   private cloudGroup: THREE.Group;
   private clock: THREE.Clock;
@@ -28,12 +28,12 @@ export class CloudRenderer extends BaseRenderer {
     this.cloudGroup.name = 'CloudGroup';
     this.clock = new THREE.Clock();
     this.scene.add(this.cloudGroup);
-            // CloudRenderer створено
+    // DustCloudRenderer створено
   }
 
   // ===== Shared material =====
   private getOrCreateMaterial(): THREE.ShaderMaterial {
-    if (CloudRenderer.sharedMaterial) return CloudRenderer.sharedMaterial;
+    if (DustCloudRenderer.sharedMaterial) return DustCloudRenderer.sharedMaterial;
 
     const vertexShader = `
       precision mediump float;
@@ -109,7 +109,7 @@ export class CloudRenderer extends BaseRenderer {
       }
     `;
 
-    CloudRenderer.sharedMaterial = new THREE.ShaderMaterial({
+    DustCloudRenderer.sharedMaterial = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       blending: THREE.NormalBlending,
@@ -125,14 +125,14 @@ export class CloudRenderer extends BaseRenderer {
         uWind:      { value: new THREE.Vector2(0, 0) },
       }
     });
-    (CloudRenderer.sharedMaterial as any).toneMapped = true;
-    return CloudRenderer.sharedMaterial!;
+    (DustCloudRenderer.sharedMaterial as any).toneMapped = true;
+    return DustCloudRenderer.sharedMaterial!;
   }
 
   // ====== Public API ======
   render(object: TSceneObject): THREE.Object3D {
-    const cloudData: CloudData = object.data || {};
-            // CloudRenderer.render() викликано
+    const cloudData: DustCloudData = object.data || {};
+    // DustCloudRenderer.render() викликано
 
     const dustCloud = this.createCloudPoints(cloudData, object.coordinates);
 
@@ -176,9 +176,9 @@ export class CloudRenderer extends BaseRenderer {
 
     this.scene.remove(this.cloudGroup);
 
-    if (CloudRenderer.sharedMaterial) {
-      CloudRenderer.sharedMaterial.dispose();
-      CloudRenderer.sharedMaterial = null;
+    if (DustCloudRenderer.sharedMaterial) {
+      DustCloudRenderer.sharedMaterial.dispose();
+      DustCloudRenderer.sharedMaterial = null;
     }
 
     super.dispose();
@@ -187,7 +187,7 @@ export class CloudRenderer extends BaseRenderer {
   // Викликати раз за кадр
   updateAllClouds(): void {
     const t = this.clock.getElapsedTime();
-    const mat = CloudRenderer.sharedMaterial;
+    const mat = DustCloudRenderer.sharedMaterial;
     if (!mat) return;
 
     // глобальний час + одна синус/косинус на кадр (дешево)
@@ -221,7 +221,10 @@ export class CloudRenderer extends BaseRenderer {
   }
 
   // ====== Internal ======
-  private createCloudPoints(cloudData: CloudData, coordinates: { x: number; y: number; z: number }): THREE.Points {
+  private createCloudPoints(
+    cloudData: DustCloudData,
+    coordinates: { x: number; y: number; z: number }
+  ): THREE.Points {
     // Оптимізація: зменшуємо кількість частинок за замовчуванням
     const particleCount = cloudData.particleCount ?? 50; // було 100, тепер 50
     const radiusMax = cloudData.size ?? 20;     // радіус "гриба" по XZ

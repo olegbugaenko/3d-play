@@ -7,7 +7,6 @@ import { BiomassRenderer } from './BiomassRenderer'
 import { RoverRenderer } from './RoverRenderer'
 import { BuildingRenderer } from './BuildingRenderer'
 
-import { CloudRenderer } from './CloudRenderer'
 
 import { FireRenderer } from './FireRenderer'
 import { UiLogicBridge } from '@ui/logic/UiLogicBridge'
@@ -16,7 +15,6 @@ import { SmokeRenderer } from './SmokeRenderer'
 import { RoadRenderer } from './RoadRenderer'
 import { AuroraRenderer } from './environment/AuroraRenderer'
 import { SunRenderer } from './environment/SunRenderer'
-import { SkyCloudRenderer } from './environment/SkyCloudRenderer'
 // import { ExplosionRenderer } from './ExplosionRenderer'
 
 import type { GraphicsSettingsManager, ParticleQuality, ShadowQuality } from '@systems/graphics'
@@ -78,7 +76,7 @@ export class RendererManager {
             (buildingRenderer as any).setShadowMode?.(this.shadowMode);
         }
         this.registerRenderer('building', buildingRenderer); // Будівлі
-        // this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Пилові хмари
+        // this.registerRenderer('cloud', new DustCloudRenderer(this.scene)); // Пилові хмари
         // this.registerRenderer('sky-cloud', new SkyCloudRenderer(this.scene)); // Небесні хмари
         const smokeRenderer = new SmokeRenderer(this.scene, this.renderer);
         if (this.particleQuality) {
