@@ -695,7 +695,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     this.generateBuilding(BUILDING_TYPE_IDS.BIO_INCUBATOR, bioIncubatorPos, 1);
     
     // Біо-генератор (споживає біомасу з внутрішнього складу)
-    const bioGeneratorPos = { x: -5 + Math.random() * 4, y: 30, z: -1 + Math.random() * 2 }; // x: -5 to -1, z: -1 to 1
+    const bioGeneratorPos = { x: -8, y: 30, z: 0 }; // x: -5 to -1, z: -1 to 1
     this.generateBuilding(BUILDING_TYPE_IDS.BIO_GENERATOR, bioGeneratorPos, 1);
     
     this.generateRoads(ROAD_TYPE_IDS.BASIC, [

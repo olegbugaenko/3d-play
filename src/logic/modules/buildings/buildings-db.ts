@@ -304,8 +304,9 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
     ui: {
       defaultScale: { x: 1.2, y: 1.2, z: 1.2 },
       rotationOffset: { x: 0, y: 0, z: 0 },
-      modelName: 'models/buildings/bio_generator.glb',
-      color: '#4ECDC4' // Тірквойзовий для біо-генератора
+      modelName: 'models/buildings/small_generator_v2.glb',
+      color: '#4ECDC4',
+      bottomAnchor: -0.25,
     },
     data: {
       obstacleSize: 1.5,
