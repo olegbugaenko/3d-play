@@ -944,8 +944,8 @@ export class EnvironmentLogic {
     }
 
     const speedMultiplier = this.getCurrentCloudSpeedMultiplier();
-    const velocityX = Math.cos(direction) * speed * speedMultiplier;
-    const velocityZ = Math.sin(direction) * speed * speedMultiplier;
+    const velocityX = 5*Math.cos(direction) * speed * speedMultiplier;
+    const velocityZ = 5*Math.sin(direction) * speed * speedMultiplier;
 
     const remainingX = despawnX - startX;
     const remainingZ = despawnZ - startZ;
@@ -989,6 +989,8 @@ export class EnvironmentLogic {
       age: progressTime,
       maxAge,
     };
+
+    console.log('ClooudData: ', data, maxAge, velocityX, velocityZ, cloud, despawnX, despawnZ);
 
     this.skyCloudInstances.set(cloudId, cloud);
     this.skyCloudLayerCounts.set(layer.id, currentLayerCount + 1);
