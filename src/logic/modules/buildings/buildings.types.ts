@@ -39,6 +39,7 @@ export interface RoadTypeData {
   ui: {
     color?: string;      // колір для відображення
     pattern?: string;    // патерн текстури
+    texture?: string;
   };
   tags: string[];
   maxQuantity?: number;  // максимальна кількість (опціонально)

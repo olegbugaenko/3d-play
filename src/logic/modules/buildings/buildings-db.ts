@@ -428,7 +428,8 @@ export const ROADS_DB: Map<RoadTypeId, RoadTypeData> = new Map([
     isSegmented: true, // будується сегментами
     ui: {
       color: '#8B4513', // коричневий
-      pattern: 'basic'
+      pattern: 'basic',
+      texture: 'textures/basic_road.png'
     },
     tags: ['road', 'infrastructure'],
     isConstuctuble: true, // можна будувати через UI
