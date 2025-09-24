@@ -81,6 +81,7 @@ export function useRenderLoop(
       tryCall('explosion', 'updateAllExplosions');
       tryCall('electric-arc', 'updateAllArcs');
       tryCall('aurora', 'updateEnvironmentEffects');
+      tryCall('rover', 'updateDustTrails');
     }
 
     const lights = (scene as THREE.Scene & {

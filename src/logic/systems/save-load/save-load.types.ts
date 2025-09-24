@@ -1,4 +1,5 @@
 import { Vector3 } from '@utils/vector-math';
+import type { DroneDustTrailConfig } from '@drones/drone.types';
 import { EnvironmentSaveData } from '@systems/environment/environment.types';
 import type { GraphicsSettingsState } from '@systems/graphics';
 
@@ -93,6 +94,7 @@ export interface DroneSaveData {
         currentCommandId?: string;
         battery: number;
         inventory: Record<string, number>;
+        dustTrail?: Partial<DroneDustTrailConfig>;
     }>;
 }
 

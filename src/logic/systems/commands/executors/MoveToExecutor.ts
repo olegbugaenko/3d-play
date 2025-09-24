@@ -193,6 +193,26 @@ export class MoveToExecutor extends CommandExecutor {
         const pathfindingSystem = this.context.scene.pathfinder;
         if (pathfindingSystem) {
             const roadSpeedBonus = pathfindingSystem.getSpeedBonusAtWorld(currentPos.x, currentPos.z);
+            if (!object.data) {
+                object.data = {};
+            }
+            const prevBonus = object.data.roadSpeedBonus ?? 1;
+            const prevOnRoad = !!object.data.isOnRoad;
+            const isOnRoad = roadSpeedBonus > 1.05;
+
+            object.data.roadSpeedBonus = roadSpeedBonus;
+            object.data.isOnRoad = isOnRoad;
+
+            if (Math.abs(prevBonus - roadSpeedBonus) > 0.05 || prevOnRoad !== isOnRoad) {
+                if (object._dirtyFlags) {
+                    object._dirtyFlags.data = true;
+                    object._lastUpdate = Date.now();
+                }
+                if (this.context.scene.markObjectDirty) {
+                    this.context.scene.markObjectDirty(object.id);
+                }
+            }
+
             if (roadSpeedBonus > 1.0) {
                 speed *= roadSpeedBonus;
             }

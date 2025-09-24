@@ -1,23 +1,6 @@
-export interface DroneTypeData {
-    id: string;
-    name: string;
-    description: string;
-    baseMovementSpeed: number;
-    baseCollectionSpeed: number;
-    baseInventoryCapacity: number;
-    baseUnloadSpeed: number;
-    baseLoadSpeed: number;        // Швидкість завантаження ресурсів зі складу
-    baseBuildSpeed: number;       // Швидкість будівництва
-    baseBatteryCapacity: number;
-    baseEfficiencyMultiplier: number;
-    ui: {
-        defaultScale: { x: number; y: number; z: number };
-        rotationOffset: number;
-        iconName: string;
-        color: string;
-        modelPath?: string;
-    };
-}
+import type { DroneTypeData } from './drone.types';
+
+export type { DroneDustTrailConfig, DroneTypeData } from './drone.types';
 
 // База даних типів дронів
 export const DRONE_TYPES_DB: Map<string, DroneTypeData> = new Map([
@@ -39,6 +22,14 @@ export const DRONE_TYPES_DB: Map<string, DroneTypeData> = new Map([
             rotationOffset: 0,
             iconName: 'rover-icon.png',
             color: '#4A90E2'
+        },
+        dustTrail: {
+            enabled: true,
+            particleSize: 0.65,
+            emissionRate: 18,
+            lifetime: 1.2,
+            maxParticles: 60,
+            color: '#bca98f'
         }
     }],
     
@@ -59,6 +50,14 @@ export const DRONE_TYPES_DB: Map<string, DroneTypeData> = new Map([
             rotationOffset: 0,
             iconName: 'advanced-rover-icon.png',
             color: '#7B68EE'
+        },
+        dustTrail: {
+            enabled: true,
+            particleSize: 0.5,
+            emissionRate: 22,
+            lifetime: 1.6,
+            maxParticles: 80,
+            color: '#c8b08c'
         }
     }],
     
@@ -79,6 +78,14 @@ export const DRONE_TYPES_DB: Map<string, DroneTypeData> = new Map([
             rotationOffset: 0,
             iconName: 'heavy-rover-icon.png',
             color: '#8B4513'
+        },
+        dustTrail: {
+            enabled: false,
+            particleSize: 0.55,
+            emissionRate: 14,
+            lifetime: 1.8,
+            maxParticles: 70,
+            color: '#978065'
         }
     }]
 ]);
