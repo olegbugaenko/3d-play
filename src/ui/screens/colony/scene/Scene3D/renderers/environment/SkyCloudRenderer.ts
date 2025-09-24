@@ -9,6 +9,9 @@ import {
 
 interface InternalCloudData {
   data: SkyCloudObjectData;
+
+  velocity: THREE.Vector3;
+  boundsRadius: number;
   basePosition: THREE.Vector3;
 }
 
@@ -243,6 +246,7 @@ export class SkyCloudRenderer extends BaseRenderer {
   }
 
   render(object: TSceneObject<SkyCloudObjectData>): THREE.Object3D {
+
     const data = object.data as SkyCloudObjectData;
     const instance: SkyCloudInstance = {
       id: object.id,
@@ -321,6 +325,7 @@ export class SkyCloudRenderer extends BaseRenderer {
       shader.uniforms.uAspect.value = data.aspectRatio;
 
       const basePosition = internal.basePosition;
+
       const heightOffset = data.heightOffset ?? 0;
       mesh.position.set(
         basePosition.x,
@@ -343,6 +348,7 @@ export class SkyCloudRenderer extends BaseRenderer {
       mesh.rotation.x = 0;
       mesh.rotation.z = 0;
     };
+
 
     mesh.position.set(
       info.basePosition.x,

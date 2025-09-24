@@ -124,6 +124,7 @@ export function useRenderLoop(
         | undefined;
       sunRenderer?.updateSunState?.(sunState);
 
+
       const skyRenderer = rendererManagerRef.current?.renderers.get('sky-cloud') as
         | {
             updateGlobalState?: (

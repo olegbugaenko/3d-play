@@ -137,6 +137,7 @@ export interface SkyCloudRenderState {
   opacityMultiplier: number;
 }
 
+
 export interface SkyCloudInstance {
   id: string;
   layerId: string;

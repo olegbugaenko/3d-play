@@ -225,7 +225,6 @@ export class EnvironmentLogic {
       0,
     );
     this.scheduleNextCloudinessUpdate();
-
     this.state = this.buildEnvironmentState();
   }
 
@@ -258,7 +257,6 @@ export class EnvironmentLogic {
     this.weather.cloudyTarget = clampedCloudiness;
     this.cloudyFactor = clampedCloudiness;
     this.cloudyTarget = clampedCloudiness;
-
     this.scheduleNextCloudinessUpdate();
     this.seedSkyClouds();
     this.generateInitialDustClouds();
@@ -355,6 +353,7 @@ export class EnvironmentLogic {
     };
   }
 
+
   getSkyCloudInstances(): SkyCloudInstance[] {
     if (this.skyCloudSnapshotDirty) {
       this.skyCloudSnapshot = Array.from(this.skyCloudInstances.values()).map((cloud) => ({
@@ -368,6 +367,7 @@ export class EnvironmentLogic {
 
     return this.skyCloudSnapshot;
   }
+
 
   /**
    * Поточний рівень хмарності (0..1)
@@ -837,6 +837,7 @@ export class EnvironmentLogic {
 
     this.clearSkyClouds();
 
+
     if (this.cloudyFactor <= 0) {
       return;
     }
@@ -1161,6 +1162,7 @@ export class EnvironmentLogic {
 
     return skyConfig.globalSpeedMultiplier * this.lerp(0.6, 1.45, normalizedWind);
   }
+
 
   private buildEnvironmentState(): EnvironmentState {
     const minutes = this.time.currentMinutes;
