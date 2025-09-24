@@ -68,23 +68,21 @@ export class LoadResourcesExecutor extends CommandExecutor {
         }
 
         const currentTime = performance.now();
-        const deltaTime = (currentTime - this.lastLoadTime) / 1000;
-
-        if (this.lastLoadTime === 0) {
-            this.lastLoadTime = currentTime;
-            return { success: true, message: 'Starting resource loading' };
-        }
+        const previousLoadTime = this.lastLoadTime;
+        const deltaTime = previousLoadTime === 0 ? 0 : (currentTime - previousLoadTime) / 1000;
 
         const loadSpeed = object.data.loadSpeed || 1.0;
         const storage = ensureDroneStorage(object);
+        const requiredResources = this.command.parameters?.resources || {};
         let remainingBySpeed = loadSpeed * deltaTime;
         let remainingCapacity = getDroneFreeCapacity(object);
 
         if (remainingCapacity <= 0) {
+            this.lastLoadTime = currentTime;
+            this.loadProgress = calculateLoadProgress(storage, requiredResources);
             return { success: true, message: 'Inventory full', data: { loaded: 0, progress: this.loadProgress } };
         }
 
-        const requiredResources = this.command.parameters?.resources || {};
         let totalLoaded = 0;
 
         for (const [resourceId, requiredAmount] of Object.entries(requiredResources)) {
@@ -114,14 +112,14 @@ export class LoadResourcesExecutor extends CommandExecutor {
             }
         }
 
+        const unsatisfiedResources = this.getUnsatisfiedResources(target, requiredResources, storage);
         const hasResourcesAvailable = this.targetHasRequiredResources(target, requiredResources, storage);
-        const missingResources = this.getMissingResources(requiredResources, storage);
 
-        if (missingResources.length > 0 && !hasResourcesAvailable) {
+        if (unsatisfiedResources.length > 0) {
             this.lastLoadTime = currentTime;
             this.loadProgress = calculateLoadProgress(storage, requiredResources);
 
-            const missingDescription = missingResources
+            const missingDescription = unsatisfiedResources
                 .map(({ resourceId, missing }) => `${resourceId} (${missing.toFixed(2)})`)
                 .join(', ');
 
@@ -133,18 +131,16 @@ export class LoadResourcesExecutor extends CommandExecutor {
             };
         }
 
-        if (totalLoaded === 0 && !this.hasSomethingLoaded(object, requiredResources)) {
-            if (!hasResourcesAvailable) {
-                this.lastLoadTime = currentTime;
-                this.loadProgress = calculateLoadProgress(storage, requiredResources);
+        if (totalLoaded === 0 && !this.hasSomethingLoaded(object, requiredResources) && !hasResourcesAvailable) {
+            this.lastLoadTime = currentTime;
+            this.loadProgress = calculateLoadProgress(storage, requiredResources);
 
-                return {
-                    success: false,
-                    message: 'No resources available to load and drone has nothing useful',
-                    code: CommandFailureCode.INSUFFICIENT_RESOURCES,
-                    data: { loaded: 0, progress: this.loadProgress }
-                };
-            }
+            return {
+                success: false,
+                message: 'No resources available to load and drone has nothing useful',
+                code: CommandFailureCode.INSUFFICIENT_RESOURCES,
+                data: { loaded: 0, progress: this.loadProgress }
+            };
         }
 
         this.lastLoadTime = currentTime;
@@ -287,11 +283,16 @@ export class LoadResourcesExecutor extends CommandExecutor {
         return false;
     }
 
-    private getMissingResources(
+    private getUnsatisfiedResources(
+        target: any,
         requiredResources: Record<string, number>,
         storage: Record<string, number>
     ): Array<{ resourceId: string; missing: number }> {
-        const missing: Array<{ resourceId: string; missing: number }> = [];
+        if (!target || Object.keys(requiredResources).length === 0) {
+            return [];
+        }
+
+        const unsatisfied: Array<{ resourceId: string; missing: number }> = [];
 
         for (const [resourceId, requiredAmount] of Object.entries(requiredResources)) {
             const required = Number(requiredAmount) || 0;
@@ -299,14 +300,37 @@ export class LoadResourcesExecutor extends CommandExecutor {
                 continue;
             }
 
-            const current = Number(storage[resourceId] || 0);
-            const stillNeeded = required - current;
+            const loaded = Number(storage[resourceId] || 0);
+            const stillNeeded = Math.max(0, required - loaded);
+            if (stillNeeded <= LoadResourcesExecutor.EPSILON) {
+                continue;
+            }
 
-            if (stillNeeded > LoadResourcesExecutor.EPSILON) {
-                missing.push({ resourceId, missing: stillNeeded });
+            const available = this.getAvailableAmountFromTarget(target, resourceId);
+            const missing = stillNeeded - available;
+
+            if (missing > LoadResourcesExecutor.EPSILON) {
+                unsatisfied.push({ resourceId, missing });
             }
         }
 
-        return missing;
+        return unsatisfied;
+    }
+
+    private getAvailableAmountFromTarget(target: any, resourceId: string): number {
+        if (target?.tags?.includes('building') && target.data?.isBuilt && !target?.tags?.includes('storage')) {
+            const bm: any = this.context.mapLogic?.buildingsManager;
+            const inst = bm?.getBuildingInstance?.(target.id);
+            const bucket = inst?.internalStorage?.[resourceId];
+            return Number(bucket?.current || 0);
+        }
+
+        const resourceManager = this.context.mapLogic?.resources;
+        if (!resourceManager || typeof resourceManager.getResourceAmount !== 'function') {
+            return 0;
+        }
+
+        const available = resourceManager.getResourceAmount(resourceId as any);
+        return Number(available || 0);
     }
 }

@@ -88,11 +88,6 @@ export function runLoadResourcesMissingTest(): void {
 
   assert.ok(executor.canExecute(), 'Expected executor to be able to start loading');
 
-  const startResult = executor.execute();
-  assert.ok(startResult.success, 'First execute call should initialise loading');
-
-  (executor as any).lastLoadTime = performance.now() - 1000;
-
   const result = executor.execute();
 
   assert.strictEqual(result.success, false, 'Expected loading to fail when required resource is missing');
@@ -100,9 +95,9 @@ export function runLoadResourcesMissingTest(): void {
   assert.match(result.message, /Missing required resources in storage/, 'Failure message should mention missing resources');
   assert.match(result.message, /stone/, 'Failure message should mention stone');
 
-  assert.strictEqual(droneObject.data.storage.wood, 1, 'Drone should keep successfully loaded resources');
+  assert.strictEqual(droneObject.data.storage.wood || 0, 0, 'Drone should not load other resources when requirements cannot be met');
   assert.strictEqual(droneObject.data.storage.stone || 0, 0, 'Drone should not have any stone loaded');
-  assert.strictEqual(storageResourceState.wood, 4, 'Global storage should spend available wood');
+  assert.strictEqual(storageResourceState.wood, 5, 'Global storage should remain untouched when loading fails immediately');
 
   console.log('✅ load-resources missing resource test passed');
 }
