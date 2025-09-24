@@ -93,10 +93,14 @@ export class BuildExecutor extends CommandExecutor {
         }
 
         const buildSpeed = object.data.buildSpeed || 0.5; // прогрес будівництва в секунду (50% за секунду за замовчуванням)
-        const progressIncrement = buildSpeed * deltaTime;
+        const buildingType = buildingsManager.getBuildingType?.(buildingInstance.typeId);
+        const effort = buildingInstance.constructionEffort ?? buildingType?.constructionEffort ?? 1;
+        const normalizedEffort = effort > 0 ? effort : 1;
+        const progressIncrement = (buildSpeed * deltaTime) / normalizedEffort;
 
         // Оновлюємо прогрес будівництва
-        const newProgress = Math.min(1.0, buildingInstance.constructionProgress + progressIncrement);
+        const currentProgress = buildingInstance.constructionProgress ?? 0;
+        const newProgress = Math.min(1.0, currentProgress + progressIncrement);
         
         // Використовуємо метод BuildingsManager для оновлення прогресу
         buildingsManager.updateConstructionProgress(buildingId, newProgress);

@@ -368,8 +368,39 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     }
   }
 
+  private resolveBuildingConstructionEffort(typeId: BuildingTypeId): number {
+    const type = this.buildingsDB.get(typeId);
+    const effort = type?.constructionEffort ?? 1;
+    return effort > 0 ? effort : 1;
+  }
+
+  private ensureBuildingConstructionEffort(instance: BuildingInstance): void {
+    if (instance.constructionEffort && instance.constructionEffort > 0) {
+      return;
+    }
+    instance.constructionEffort = this.resolveBuildingConstructionEffort(instance.typeId);
+  }
+
+  private resolveRoadSegmentConstructionEffort(length: number, roadType: RoadTypeData): number {
+    const perMeter = roadType.constructionEffortPerMeter ?? 1;
+    const validPerMeter = perMeter > 0 ? perMeter : 1;
+    const validLength = length > 0 ? length : 0.01;
+    return Math.max(0.01, validPerMeter * validLength);
+  }
+
+  private ensureRoadSegmentConstructionEffort(segment: RoadSegmentInstance, roadType: RoadTypeData): void {
+    if (segment.constructionEffort && segment.constructionEffort > 0) {
+      return;
+    }
+    segment.constructionEffort = this.resolveRoadSegmentConstructionEffort(segment.length ?? 1, roadType);
+  }
+
   public getInstance(instanceId: string): BuildingInstance | undefined {
-    return this.buildingInstances.get(instanceId);
+    const inst = this.buildingInstances.get(instanceId);
+    if (inst) {
+      this.ensureBuildingConstructionEffort(inst);
+    }
+    return inst;
   }
 
   private getBonusSourceId(typeId: BuildingTypeId): string {
@@ -413,6 +444,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       built,
       position,
       constructionProgress: 0,
+      constructionEffort: this.resolveBuildingConstructionEffort(typeId),
       resourcesCollected: {},
     };
     this.buildingInstances.set(instanceId, inst);
@@ -460,6 +492,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       built: false,
       position,
       constructionProgress: 0,
+      constructionEffort: this.resolveBuildingConstructionEffort(typeId),
       resourcesCollected: {},
     });
 
@@ -478,6 +511,9 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     }
 
     const existing = this.getInstance(instanceId);
+    if (existing) {
+      this.ensureBuildingConstructionEffort(existing);
+    }
 
     // Create new instance built at level 1
     if (!existing) {
@@ -738,15 +774,18 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
     // Rehydrate instances and their scene projections
     data.buildingInstances.forEach(inst => {
-      this.buildingInstances.set(inst.id, { ...inst });
-      if (inst.position) {
-        this.generateBuilding(inst.typeId, inst.position, inst.level, inst.id);
+      const stored: BuildingInstance = { ...inst } as BuildingInstance;
+      this.ensureBuildingConstructionEffort(stored);
+      this.buildingInstances.set(inst.id, stored);
+      if (stored.position) {
+        this.generateBuilding(stored.typeId, stored.position, stored.level, stored.id);
       }
     });
 
     // Rehydrate roads if present
     if (data.roadInstances) {
       data.roadInstances.forEach(road => {
+        const roadType = this.roadsDB.get(road.typeId);
         // Автоматично маркуємо всі сегменти як збудовані якщо дорога вже збудована (фікс для старих збережень)
         if (road.built && road.segments && road.segments.some((s: any) => s.buildingState !== 'completed')) {
           road.segments = road.segments.map((s: any) => ({
@@ -758,7 +797,6 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
         // МІГРАЦІЯ: якщо це незбудована/запланована дорога та відсутні сегменти — відновлюємо сегменти як planned
         if (!road.built && (!road.segments || road.segments.length === 0) && Array.isArray(road.path) && road.path.length >= 2) {
-          const roadType = this.roadsDB.get(road.typeId);
           const perMeter = roadType?.cost ? roadType.cost(1) : {};
           const segs: any[] = [];
           for (let i = 1; i < road.path.length; i++) {
@@ -777,12 +815,17 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
               constructionProgress: 0.0,
               requiredResources: required,
               deliveredResources: {},
-              length
+              length,
+              constructionEffort: roadType ? this.resolveRoadSegmentConstructionEffort(length, roadType) : length
             });
           }
           (road as any).segments = segs;
           (road as any).plannedOnly = true;
           (road as any).resourcesDelivered = (road as any).resourcesDelivered || {};
+        }
+
+        if (roadType && road.segments) {
+          road.segments.forEach((segment: any) => this.ensureRoadSegmentConstructionEffort(segment, roadType));
         }
 
         this.roadInstances.set(road.id, { ...road });
@@ -1017,7 +1060,8 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
           constructionProgress: 0.0,
           requiredResources: required,
           deliveredResources: {},
-          length
+          length,
+          constructionEffort: roadType ? this.resolveRoadSegmentConstructionEffort(length, roadType) : length
         });
       }
       (roadInstance as any).segments = segs;
@@ -1324,7 +1368,7 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       return;
     }
 
-    inst.constructionProgress = progress;
+    inst.constructionProgress = Math.min(1, Math.max(0, progress));
     
     // Тільки якщо передано - оновлюємо ресурси
     if (resourcesCollected !== undefined) {
@@ -1553,7 +1597,8 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
         constructionProgress: 1.0,
         requiredResources: required,
         deliveredResources: delivered,
-        length
+        length,
+        constructionEffort: this.resolveRoadSegmentConstructionEffort(length, roadType)
       });
     }
 

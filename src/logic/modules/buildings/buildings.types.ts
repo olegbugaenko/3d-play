@@ -35,6 +35,7 @@ export interface RoadTypeData {
   width: number;         // ширина дороги в метрах
   speedBonus: number;    // множник швидкості (1.5 = +50%)
   cost: CostFormula;     // вартість за метр
+  constructionEffortPerMeter: number; // зусилля будівництва на метр
   isSegmented: boolean;  // чи будується сегментами (дороги, ЛЕПи, тощо)
   ui: {
     color?: string;      // колір для відображення
@@ -57,6 +58,7 @@ export interface RoadSegmentInstance {
   endPoint: Vector3;             // кінцева точка сегмента
   buildingState: RoadSegmentState; // стан будівництва
   constructionProgress: number;   // прогрес будівництва (0-1)
+  constructionEffort?: number;    // загальний ефорт необхідний для сегмента
   requiredResources: Record<string, number>; // потрібні ресурси
   deliveredResources: Record<string, number>; // доставлені ресурси
   length: number;                // довжина сегмента в метрах
@@ -104,6 +106,7 @@ export interface BuildingTypeData {
   requirements?: Requirement[]; // Реквайрменти для будівництва
   ui: BuildingUI;
   cost: CostFormula;
+  constructionEffort: number; // загальний ефорт для будівництва (в секундах при base speed 1)
   maxLevel: number;
   name: string;
   description: string;
@@ -123,6 +126,7 @@ export interface BuildingInstance {
   position?: Vector3;
   // Нові поля для планування будівництва
   constructionProgress?: number; // Прогрес будівництва (0-1)
+  constructionEffort?: number;   // Загальний ефорт будівництва (для перерахунку швидкості)
   resourcesCollected?: Record<string, number>; // Зібрані ресурси для будівництва
   
   // НОВЕ: Внутрішні склади будівель

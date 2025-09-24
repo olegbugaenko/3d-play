@@ -44,6 +44,7 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
       modelName: 'models/buildings/spaceship_v0.glb',
       hudOffsetY: 1,
     },
+    constructionEffort: 120,
     cost: storageCostFormula
   }],
 
@@ -89,6 +90,7 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
         chargeRate: 0.5,
         obstacleSize: 1.5,
     },
+    constructionEffort: 35,
     cost: chargingStationCostFormula
   }],
 
@@ -139,6 +141,7 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
       modelName: 'models/buildings/minimal_storage.glb',
       hudOffsetY: 1,
     },
+    constructionEffort: 20,
     cost: storageCostFormula
   }],
   
@@ -189,6 +192,7 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
       modelName: 'models/buildings/simple_storage.glb',
       hudOffsetY: 1,
     },
+    constructionEffort: 45,
     cost: storageCostFormula
   }],
   
@@ -233,6 +237,7 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
         chargeRate: 0.5,
         obstacleSize: 1.5,
     },
+    constructionEffort: 45,
     cost: chargingStationCostFormula
   }],
 
@@ -266,6 +271,7 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
     data: {
         obstacleSize: 1.5,
     },
+    constructionEffort: 25,
     cost: (level: number) => ({
       stone: 20 + (level - 1) * 50,
       ore: 10 + (level - 1) * 30,
@@ -325,6 +331,7 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
       }
     },
     isConstuctuble: true,
+    constructionEffort: 55,
     cost: bioGeneratorCostFormula
   }],
 
@@ -380,6 +387,7 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
       }
     },
     isConstuctuble: true,
+    constructionEffort: 60,
     cost: bioIncubatorCostFormula
   }]
 ]);
@@ -425,6 +433,7 @@ export const ROADS_DB: Map<RoadTypeId, RoadTypeData> = new Map([
     width: 1.0,
     speedBonus: 1.5,
     cost: basicRoadCostFormula,
+    constructionEffortPerMeter: 6,
     isSegmented: true, // будується сегментами
     ui: {
       color: '#8B4513', // коричневий
@@ -443,6 +452,7 @@ export const ROADS_DB: Map<RoadTypeId, RoadTypeData> = new Map([
     width: 1.5,
     speedBonus: 2.0,
     cost: reinforcedRoadCostFormula,
+    constructionEffortPerMeter: 9,
     isSegmented: true, // будується сегментами
     ui: {
       color: '#696969', // темно-сірий
