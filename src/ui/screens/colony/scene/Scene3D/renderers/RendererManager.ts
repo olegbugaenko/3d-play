@@ -29,6 +29,7 @@ export class RendererManager {
     private graphicsSettingsUnsubscribe: (() => void) | null = null;
     private shadowMode: ShadowQuality | null = null;
     private particleQuality: ParticleQuality | null = null;
+    private dustTrailsEnabled: boolean = true;
 
     constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, bridge?: UiLogicBridge, loadingManager?: THREE.LoadingManager) {
         this.scene = scene;
@@ -62,7 +63,12 @@ export class RendererManager {
             usePaletteBuckets: true
         })); // Каменюки типу rock з звичайним рендерингом
         this.registerRenderer('biomass', new BiomassRenderer(this.scene)); // Біомаса
-        this.registerRenderer('rover', new RoverRenderer(this.scene)); // Rover об'єкти
+        const roverRenderer = new RoverRenderer(this.scene);
+        if (this.particleQuality) {
+            roverRenderer.setParticleQuality(this.particleQuality);
+        }
+        roverRenderer.setDustTrailsEnabled(this.dustTrailsEnabled);
+        this.registerRenderer('rover', roverRenderer); // Rover об'єкти
         const buildingRenderer = new BuildingRenderer(this.scene, this.renderer, this.loadingManager || undefined);
         if (this.bridge && (buildingRenderer as any).setUiLogicBridge) {
             (buildingRenderer as any).setUiLogicBridge(this.bridge);
@@ -171,6 +177,7 @@ export class RendererManager {
         this.graphicsSettingsUnsubscribe = manager.subscribe((state) => {
             this.setShadowMode(state.shadows);
             this.setParticleQuality(state.particles);
+            this.setDustTrailsEnabled(state.droneDustTrails);
         });
     }
 
@@ -188,5 +195,13 @@ export class RendererManager {
         smokeRenderer?.setQuality?.(quality);
         const fireRenderer = this.renderers.get('fire') as any;
         fireRenderer?.setQuality?.(quality);
+        const roverRenderer = this.renderers.get('rover') as any;
+        roverRenderer?.setParticleQuality?.(quality);
+    }
+
+    public setDustTrailsEnabled(enabled: boolean): void {
+        this.dustTrailsEnabled = enabled;
+        const roverRenderer = this.renderers.get('rover') as any;
+        roverRenderer?.setDustTrailsEnabled?.(enabled);
     }
 }
