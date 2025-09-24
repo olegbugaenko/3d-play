@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import type { AntialiasingMode } from '@systems/graphics';
 
-export function useSceneCore() {
+export function getPixelRatioForMode(mode: AntialiasingMode) {
+  const deviceRatio = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  if (mode === 'msaa') {
+    return Math.min(1.5, deviceRatio);
+  }
+  return Math.min(1, deviceRatio);
+}
+
+export function useSceneCore(antialiasing: AntialiasingMode) {
   const scene = useMemo(() => {
     const s = new THREE.Scene();
     s.background = new THREE.Color('#5a4f2e'); // Початковий колір, буде оновлений динамічно
@@ -36,12 +45,16 @@ export function useSceneCore() {
   }, []);
 
   const renderer = useMemo(() => {
-    const r = new THREE.WebGLRenderer({ antialias: true });
+    const r = new THREE.WebGLRenderer({
+      antialias: antialiasing === 'msaa',
+      powerPreference: 'high-performance',
+    });
+    r.setPixelRatio(getPixelRatioForMode(antialiasing));
     r.setSize(window.innerWidth, window.innerHeight);
     r.shadowMap.enabled = false;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     return r;
-  }, []);
+  }, [antialiasing]);
 
   useEffect(() => {
     return () => {

@@ -26,7 +26,7 @@ export class TerrainRenderer {
   // Кеш списку текстур для блендів (щоб не перевизначати атрибути щоразу)
   private cachedTextureNames: string[] = [];
 
-  private shadowMode: ShadowQuality = 'pseudo';
+  private shadowMode: ShadowQuality = 'none';
 
   constructor(scene: THREE.Scene, terrainManager: TerrainManager, loadingManager?: THREE.LoadingManager) {
     this.scene = scene;

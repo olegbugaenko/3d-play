@@ -246,6 +246,7 @@ export interface EnvironmentConfig {
   dustClouds: DustCloudConfig;
 
   // Небесні хмари
+  skyCloudsEnabled?: boolean;
   skyClouds: SkyCloudConfig;
 
   // Параметри вигляду сонця

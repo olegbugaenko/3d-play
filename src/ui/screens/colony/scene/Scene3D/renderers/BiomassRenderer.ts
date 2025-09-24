@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { BaseRenderer } from './BaseRenderer'
 import { TSceneObject } from '@logic/systems/scene/scene.types'
 import { MapLogic } from '@logic/systems/map/map-logic'
-import { applyBakedShadow, removeBakedShadow } from './utils/bakedShadows'
+import { removeBakedShadow } from './utils/bakedShadows'
 import type { ShadowQuality } from '@systems/graphics'
 
 interface BiomassData {
@@ -41,7 +41,7 @@ export class BiomassRenderer extends BaseRenderer {
   private readonly shadowSize = new THREE.Vector3();
   private readonly shadowCenter = new THREE.Vector3();
 
-  private shadowMode: ShadowQuality = 'pseudo';
+  private shadowMode: ShadowQuality = 'none';
   private shadowConfigs = new Map<string, ShadowOptions>();
 
   private computeShadowFootprint(source: THREE.Object3D) {
@@ -63,28 +63,15 @@ export class BiomassRenderer extends BaseRenderer {
   private applyShadow(
     instanceId: string,
     target: THREE.Object3D,
-    footprint: { width: number; depth: number; minY: number; centerX: number; centerZ: number },
+    _footprint: { width: number; depth: number; minY: number; centerX: number; centerZ: number },
     options?: ShadowOptions
   ) {
+    void _footprint;
     this.shadowConfigs.set(instanceId, options ?? {});
 
     const enableDynamic = this.shadowMode === 'detailed';
     this.setShadowFlags(target, enableDynamic);
     removeBakedShadow(target);
-
-    if (!enableDynamic && this.shadowMode === 'pseudo') {
-      applyBakedShadow(target, {
-        width: footprint.width,
-        depth: footprint.depth,
-        minY: footprint.minY,
-        centerX: footprint.centerX,
-        centerZ: footprint.centerZ,
-        intensity: options?.intensity ?? 0.4,
-        softness: options?.softness ?? 1.3,
-        minSize: options?.minSize ?? 0.35,
-        offset: options?.offset,
-      });
-    }
   }
 
   private setShadowFlags(target: THREE.Object3D, enabled: boolean) {

@@ -1,18 +1,21 @@
 import type { SaveLoadManager } from '@save-load/save-load.types';
 
-export type ShadowQuality = 'detailed' | 'pseudo' | 'none';
+export type ShadowQuality = 'detailed' | 'none';
 export type ParticleQuality = 'high' | 'low';
+export type AntialiasingMode = 'msaa' | 'off';
 
 export interface GraphicsSettingsState {
   shadows: ShadowQuality;
   particles: ParticleQuality;
   droneDustTrails: boolean;
+  antialiasing: AntialiasingMode;
 }
 
 const DEFAULT_SETTINGS: GraphicsSettingsState = {
-  shadows: 'pseudo',
+  shadows: 'none',
   particles: 'high',
   droneDustTrails: true,
+  antialiasing: 'msaa',
 };
 
 type Listener = (state: GraphicsSettingsState) => void;
@@ -37,12 +40,19 @@ export class GraphicsSettingsManager implements SaveLoadManager {
     this.emit();
   }
 
+  public setAntialiasing(mode: AntialiasingMode): void {
+    if (this.state.antialiasing === mode) return;
+    this.state = { ...this.state, antialiasing: mode };
+    this.emit();
+  }
+
   public update(partial: Partial<GraphicsSettingsState>): void {
     const next: GraphicsSettingsState = { ...this.state, ...partial };
     if (
       next.shadows === this.state.shadows &&
       next.particles === this.state.particles &&
-      next.droneDustTrails === this.state.droneDustTrails
+      next.droneDustTrails === this.state.droneDustTrails &&
+      next.antialiasing === this.state.antialiasing
     ) {
       return;
     }
@@ -79,6 +89,7 @@ export class GraphicsSettingsManager implements SaveLoadManager {
       shadows: this.parseShadowQuality((data as GraphicsSettingsState).shadows),
       particles: this.parseParticleQuality((data as GraphicsSettingsState).particles),
       droneDustTrails: this.parseDroneDustTrails((data as GraphicsSettingsState).droneDustTrails),
+      antialiasing: this.parseAntialiasing((data as GraphicsSettingsState).antialiasing),
     };
 
     this.state = next;
@@ -91,7 +102,7 @@ export class GraphicsSettingsManager implements SaveLoadManager {
   }
 
   private parseShadowQuality(value: unknown): ShadowQuality {
-    if (value === 'detailed' || value === 'pseudo' || value === 'none') {
+    if (value === 'detailed' || value === 'none') {
       return value;
     }
     return DEFAULT_SETTINGS.shadows;
@@ -115,5 +126,12 @@ export class GraphicsSettingsManager implements SaveLoadManager {
       return value;
     }
     return DEFAULT_SETTINGS.droneDustTrails;
+  }
+
+  private parseAntialiasing(value: unknown): AntialiasingMode {
+    if (value === 'msaa' || value === 'off') {
+      return value;
+    }
+    return DEFAULT_SETTINGS.antialiasing;
   }
 }
