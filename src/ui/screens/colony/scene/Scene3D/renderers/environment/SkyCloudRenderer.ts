@@ -10,6 +10,8 @@ import {
 interface InternalCloudData {
   data: SkyCloudObjectData;
   basePosition: THREE.Vector3;
+  parallaxOffset: THREE.Vector3;
+  maxOffset: number;
 }
 
 type SkyCloudGlobalState = SkyCloudRenderState & {
@@ -34,6 +36,7 @@ export class SkyCloudRenderer extends BaseRenderer {
   private tmpQuatFlat = new THREE.Quaternion();
   private tmpQuatFull = new THREE.Quaternion();
   private tmpMatrix = new THREE.Matrix4();
+  private tmpOffset = new THREE.Vector3();
 
   private globalState: SkyCloudGlobalState = {
     cloudyFactor: 0.35,
@@ -396,7 +399,11 @@ export class SkyCloudRenderer extends BaseRenderer {
     const info: InternalCloudData = {
       data: { ...instance.data },
       basePosition: new THREE.Vector3(instance.position.x, instance.position.y, instance.position.z),
+      parallaxOffset: new THREE.Vector3(),
+      maxOffset: 0,
     };
+
+    info.maxOffset = this.computeMaxOffset(info.data);
 
     mesh.userData.sky = info;
     mesh.scale.set(info.data.size * info.data.aspectRatio, info.data.size, 1);
@@ -471,6 +478,10 @@ export class SkyCloudRenderer extends BaseRenderer {
     const info = mesh.userData.sky as InternalCloudData;
     Object.assign(info.data, instance.data);
     info.basePosition.set(instance.position.x, instance.position.y, instance.position.z);
+    if (!info.parallaxOffset) {
+      info.parallaxOffset = new THREE.Vector3();
+    }
+    info.maxOffset = this.computeMaxOffset(info.data);
     mesh.scale.set(info.data.size * info.data.aspectRatio, info.data.size, 1);
     if (mesh.geometry.boundingSphere) {
       const maxExtent = Math.max(info.data.size * info.data.aspectRatio, info.data.size);
@@ -552,20 +563,43 @@ export class SkyCloudRenderer extends BaseRenderer {
       const internal = mesh.userData.sky as InternalCloudData | undefined;
       if (!internal) continue;
       const data = internal.data;
+      if (!internal.parallaxOffset) {
+        internal.parallaxOffset = new THREE.Vector3();
+      }
+      if (!internal.maxOffset) {
+        internal.maxOffset = this.computeMaxOffset(data);
+      }
       const basePosition = internal.basePosition;
       const heightOffset = data.heightOffset ?? 0;
 
       mesh.position.set(basePosition.x, basePosition.y + heightOffset, basePosition.z);
 
       const parallaxValue = THREE.MathUtils.clamp(data.parallax ?? 1, 0.3, 2.0);
-      const parallaxStrength = THREE.MathUtils.clamp(parallaxValue - 1, -0.75, 0.75);
+      const parallaxStrength = THREE.MathUtils.clamp(parallaxValue - 1, -0.6, 0.6);
       if (Math.abs(parallaxStrength) > 0.0001) {
-        const followStrength = 0.25;
-        const offsetX = (cameraPosition.x - basePosition.x) * parallaxStrength * followStrength;
-        const offsetZ = (cameraPosition.z - basePosition.z) * parallaxStrength * followStrength;
-        mesh.position.x = basePosition.x + offsetX;
-        mesh.position.z = basePosition.z + offsetZ;
+        const followStrength = 0.18;
+        const desiredOffsetX = THREE.MathUtils.clamp(
+          (cameraPosition.x - basePosition.x) * parallaxStrength * followStrength,
+          -internal.maxOffset,
+          internal.maxOffset,
+        );
+        const desiredOffsetZ = THREE.MathUtils.clamp(
+          (cameraPosition.z - basePosition.z) * parallaxStrength * followStrength,
+          -internal.maxOffset,
+          internal.maxOffset,
+        );
+
+        this.tmpOffset.set(desiredOffsetX, 0, desiredOffsetZ);
+        internal.parallaxOffset.lerp(this.tmpOffset, 0.08);
+      } else if (internal.parallaxOffset.lengthSq() > 1e-6) {
+        internal.parallaxOffset.multiplyScalar(0.92);
+        if (internal.parallaxOffset.lengthSq() < 1e-6) {
+          internal.parallaxOffset.set(0, 0, 0);
+        }
       }
+
+      mesh.position.x = basePosition.x + internal.parallaxOffset.x;
+      mesh.position.z = basePosition.z + internal.parallaxOffset.z;
 
       const altitudeDelta = Math.abs(cameraPosition.y - mesh.position.y);
       const altitudeFactor = THREE.MathUtils.clamp(altitudeDelta / 220, 0.15, 0.75);
@@ -609,5 +643,10 @@ export class SkyCloudRenderer extends BaseRenderer {
       material.uniforms.uSunColor.value.copy(this.globalState.sunColor);
       material.uniforms.uAmbientColor.value.copy(this.globalState.ambientColor);
     }
+  }
+
+  private computeMaxOffset(data: SkyCloudObjectData): number {
+    const maxExtent = Math.max(data.size * data.aspectRatio, data.size);
+    return Math.max(maxExtent * 0.45, 120);
   }
 }
