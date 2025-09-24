@@ -145,7 +145,8 @@ const Scene3D: React.FC<Scene3DProps> = ({ onShowMainMenu, mapLogic: appMapLogic
   useEffect(() => {
     if (!managersReady) return;
     rendererManagerRef.current?.setParticleQuality(graphicsSettingsState.particles);
-  }, [graphicsSettingsState.particles, rendererManagerRef, managersReady]);
+    rendererManagerRef.current?.setDustTrailsEnabled(graphicsSettingsState.droneDustTrails);
+  }, [graphicsSettingsState.particles, graphicsSettingsState.droneDustTrails, rendererManagerRef, managersReady]);
 
   useEffect(() => {
     const map = mapLogicRef.current;

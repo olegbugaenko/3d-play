@@ -1,22 +1,18 @@
 import { TSceneObject } from '@scene/scene.types';
 import { Vector3 } from '@utils/vector-math';
 import { SaveLoadManager, DroneSaveData } from '@save-load/save-load.types';
-import { DRONE_TYPES_DB, DroneTypeData } from './drone-db';
+import { DRONE_TYPES_DB } from './drone-db';
+import type { DroneTypeData, DroneDustTrailConfig } from './drone.types';
 import { IDroneManager, IBonusSystem, ISceneLogic } from '@interfaces/index';
 
-export interface Drone {
-    id: string;
-    position: Vector3;
-    status: 'idle' | 'busy' | 'charging';
-    currentCommandId?: string;
-    battery: number;
-    maxBattery: number;
-    inventory: Record<string, number>;
-    maxInventory: number;
-    efficiency: number;
-    speed: number;
-    maxSpeed: number;
-}
+const DEFAULT_DUST_TRAIL: DroneDustTrailConfig = {
+    enabled: false,
+    particleSize: 0.45,
+    emissionRate: 16,
+    lifetime: 1.4,
+    maxParticles: 60,
+    color: '#bca98f'
+};
 
 export class DroneManager implements SaveLoadManager, IDroneManager {
     private scene: ISceneLogic;
@@ -68,8 +64,11 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
                 modelPath: droneDBData.ui.modelPath || '/models/playtest-rover.glb',
                 scale: 0.4,
                 rotatable: true,
-                rotationOffset: droneDBData.ui.rotationOffset,                
+                rotationOffset: droneDBData.ui.rotationOffset,
                 status: 'idle',
+                dustTrail: droneDBData.dustTrail
+                    ? { ...droneDBData.dustTrail }
+                    : { ...DEFAULT_DUST_TRAIL, enabled: false },
             } as any,
             tags: ['on-ground', 'dynamic', 'rover', 'controlled'],
             bottomAnchor: -0.1,
@@ -102,6 +101,8 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
         drone.data.maxPower = droneDBData.baseBatteryCapacity * this.bonusSystem.getEffectValue('drone_max_battery');
         drone.data.unloadSpeed = droneDBData.baseUnloadSpeed;
         drone.data.efficiencyMultiplier = droneDBData.baseEfficiencyMultiplier;
+
+        this.applyDustTrailDefaults(drone, droneDBData.dustTrail);
 
         if(!drone.data.isReady && setInitials) {
             // Перша ініціалізація
@@ -358,12 +359,13 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
             status: drone.data.status || 'idle',
             currentCommandId: drone.data.currentCommandId,
             battery: drone.data.power || 0,
-            inventory: { ...drone.data.storage }
+            inventory: { ...drone.data.storage },
+            dustTrail: drone.data.dustTrail ? { ...drone.data.dustTrail } : undefined
         }));
-        
+
         return { drones };
     }
-    
+
     load(data: DroneSaveData): void {
         if (data.drones) {
             // Спочатку видаляємо всіх існуючих дронів
@@ -383,10 +385,11 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
                     drone.data.currentCommandId = droneData.currentCommandId;
                     drone.data.power = droneData.battery;
                     drone.data.storage = droneData.inventory;
-                    
-                    // 🚀 Позначаємо як dirty після завантаження даних
-                    // (createDrone вже позначає як dirty, але тут ми оновлюємо додаткові дані)
-                    this.markDroneDirty(droneData.id);
+                    if (droneData.dustTrail) {
+                        drone.data.dustTrail = { ...droneData.dustTrail } as any;
+                    }
+
+                    this.updateDroneData(droneData.id);
                 }
             });
         }
@@ -414,6 +417,35 @@ export class DroneManager implements SaveLoadManager, IDroneManager {
 
         // Також можна викликати метод SceneLogic для маркування
         // this.scene.markObjectDirty(id); // Якщо SceneLogic має публічний метод
+    }
+
+    private applyDustTrailDefaults(drone: TSceneObject, defaults?: DroneDustTrailConfig): void {
+        const data: any = drone.data ?? {};
+        const target: Partial<DroneDustTrailConfig> = data.dustTrail || {};
+        const base: DroneDustTrailConfig = defaults
+            ? { ...defaults }
+            : { ...DEFAULT_DUST_TRAIL, enabled: false };
+
+        if (target.enabled === undefined) {
+            target.enabled = base.enabled;
+        }
+        if (target.particleSize === undefined) {
+            target.particleSize = base.particleSize;
+        }
+        if (target.emissionRate === undefined) {
+            target.emissionRate = base.emissionRate;
+        }
+        if (target.lifetime === undefined) {
+            target.lifetime = base.lifetime;
+        }
+        if (target.maxParticles === undefined && base.maxParticles !== undefined) {
+            target.maxParticles = base.maxParticles;
+        }
+        if (target.color === undefined && base.color !== undefined) {
+            target.color = base.color;
+        }
+
+        data.dustTrail = target;
     }
 
     /**
