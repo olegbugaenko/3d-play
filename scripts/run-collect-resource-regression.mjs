@@ -14,6 +14,11 @@ const tests = [
     entry: 'parameter-resolvers.test.ts',
     exportName: 'runParameterResolversTests',
     output: 'parameter-resolvers-test.mjs'
+  },
+  {
+    entry: 'load-resources-missing.test.ts',
+    exportName: 'runLoadResourcesMissingTest',
+    output: 'load-resources-missing-test.mjs'
   }
 ];
 

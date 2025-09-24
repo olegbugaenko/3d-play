@@ -13,6 +13,7 @@ import {
 export class LoadResourcesExecutor extends CommandExecutor {
     private loadProgress: number = 0;
     private lastLoadTime: number = 0;
+    private static readonly EPSILON = 1e-6;
 
     getEnergyUpkeep() {
         const object = this.context.scene.getObjectById(this.context.objectId);
@@ -113,9 +114,29 @@ export class LoadResourcesExecutor extends CommandExecutor {
             }
         }
 
+        const hasResourcesAvailable = this.targetHasRequiredResources(target, requiredResources, storage);
+        const missingResources = this.getMissingResources(requiredResources, storage);
+
+        if (missingResources.length > 0 && !hasResourcesAvailable) {
+            this.lastLoadTime = currentTime;
+            this.loadProgress = calculateLoadProgress(storage, requiredResources);
+
+            const missingDescription = missingResources
+                .map(({ resourceId, missing }) => `${resourceId} (${missing.toFixed(2)})`)
+                .join(', ');
+
+            return {
+                success: false,
+                message: `Missing required resources in storage: ${missingDescription}`,
+                data: { loaded: totalLoaded, progress: this.loadProgress }
+            };
+        }
+
         if (totalLoaded === 0 && !this.hasSomethingLoaded(object, requiredResources)) {
-            const hasResourcesAvailable = this.targetHasRequiredResources(target, requiredResources, storage);
             if (!hasResourcesAvailable) {
+                this.lastLoadTime = currentTime;
+                this.loadProgress = calculateLoadProgress(storage, requiredResources);
+
                 return {
                     success: false,
                     message: 'No resources available to load and drone has nothing useful',
@@ -262,5 +283,28 @@ export class LoadResourcesExecutor extends CommandExecutor {
         }
 
         return false;
+    }
+
+    private getMissingResources(
+        requiredResources: Record<string, number>,
+        storage: Record<string, number>
+    ): Array<{ resourceId: string; missing: number }> {
+        const missing: Array<{ resourceId: string; missing: number }> = [];
+
+        for (const [resourceId, requiredAmount] of Object.entries(requiredResources)) {
+            const required = Number(requiredAmount) || 0;
+            if (required <= LoadResourcesExecutor.EPSILON) {
+                continue;
+            }
+
+            const current = Number(storage[resourceId] || 0);
+            const stillNeeded = required - current;
+
+            if (stillNeeded > LoadResourcesExecutor.EPSILON) {
+                missing.push({ resourceId, missing: stillNeeded });
+            }
+        }
+
+        return missing;
     }
 }
