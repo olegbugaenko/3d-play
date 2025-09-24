@@ -1,5 +1,5 @@
 import { CommandExecutor } from '../CommandExecutor';
-import { CommandResult } from '../command.types';
+import { CommandResult, CommandFailureCode } from '../command.types';
 import {
     ensureDroneStorage,
     getDroneFreeCapacity,
@@ -128,6 +128,7 @@ export class LoadResourcesExecutor extends CommandExecutor {
             return {
                 success: false,
                 message: `Missing required resources in storage: ${missingDescription}`,
+                code: CommandFailureCode.INSUFFICIENT_RESOURCES,
                 data: { loaded: totalLoaded, progress: this.loadProgress }
             };
         }
@@ -140,6 +141,7 @@ export class LoadResourcesExecutor extends CommandExecutor {
                 return {
                     success: false,
                     message: 'No resources available to load and drone has nothing useful',
+                    code: CommandFailureCode.INSUFFICIENT_RESOURCES,
                     data: { loaded: 0, progress: this.loadProgress }
                 };
             }

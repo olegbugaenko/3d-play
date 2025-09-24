@@ -2,6 +2,7 @@
 import { strict as assert } from 'node:assert';
 import { pathToFileURL } from 'node:url';
 import { LoadResourcesExecutor } from '../executors/LoadResourcesExecutor';
+import { CommandFailureCode } from '../command.types';
 
 function createTestContext() {
   const droneObject = {
@@ -95,6 +96,7 @@ export function runLoadResourcesMissingTest(): void {
   const result = executor.execute();
 
   assert.strictEqual(result.success, false, 'Expected loading to fail when required resource is missing');
+  assert.strictEqual(result.code, CommandFailureCode.INSUFFICIENT_RESOURCES, 'Failure should include insufficient resources code');
   assert.match(result.message, /Missing required resources in storage/, 'Failure message should mention missing resources');
   assert.match(result.message, /stone/, 'Failure message should mention stone');
 
