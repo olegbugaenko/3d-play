@@ -78,8 +78,8 @@ export class RendererManager {
             (buildingRenderer as any).setShadowMode?.(this.shadowMode);
         }
         this.registerRenderer('building', buildingRenderer); // Будівлі
-        this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Пилові хмари
-        this.registerRenderer('sky-cloud', new SkyCloudRenderer(this.scene)); // Небесні хмари
+        // this.registerRenderer('cloud', new CloudRenderer(this.scene)); // Пилові хмари
+        // this.registerRenderer('sky-cloud', new SkyCloudRenderer(this.scene)); // Небесні хмари
         const smokeRenderer = new SmokeRenderer(this.scene, this.renderer);
         if (this.particleQuality) {
             smokeRenderer.setQuality(this.particleQuality);

@@ -102,8 +102,8 @@ export function useRenderLoop(
       }
     }
 
-    callRendererMethod('sky-cloud', 'updateSkyClouds');
-    callRendererMethod('cloud', 'updateAllClouds');
+    // callRendererMethod('sky-cloud', 'updateSkyClouds');
+    // callRendererMethod('cloud', 'updateAllClouds');
     callRendererMethod('smoke', 'updateAllSmoke');
     callRendererMethod('fire', 'updateAllFire');
     callRendererMethod('explosion', 'updateAllExplosions');
