@@ -62,6 +62,7 @@ export interface WindSpeedConfig {
 export interface WeatherConfig {
   temperature: TemperatureRangeConfig;
   windSpeed: WindSpeedConfig;
+  cloudyFactor: number;
 }
 
 export interface DustCloudConfig {
@@ -74,6 +75,65 @@ export interface DustCloudConfig {
   windSpeed: { min: number; max: number };
   particleCount: number;
   color: number;
+}
+
+export interface SkyCloudLayerConfig {
+  id: string;
+  altitude: number;
+  altitudeJitter: number;
+  maxCount: number;
+  areaMultiplier: number;
+  sizeRange: { min: number; max: number };
+  aspectRatioRange: { min: number; max: number };
+  opacityRange: { min: number; max: number };
+  speedRange: { min: number; max: number };
+  directionJitterDeg: number;
+  wispinessRange: { min: number; max: number };
+  softnessRange: { min: number; max: number };
+  noiseScaleRange: { min: number; max: number };
+  noiseStrengthRange: { min: number; max: number };
+  color: number;
+  colorVariance: number;
+  coverageWeight: number;
+}
+
+export interface SkyCloudConfig {
+  initialCloudyFactor: number;
+  smoothingSeconds: number;
+  globalSpeedMultiplier: number;
+  globalWispyMultiplier: number;
+  globalOpacityMultiplier: number;
+  coverageExponent: number;
+  windDirectionDeg: number;
+  parallaxRange: { min: number; max: number };
+  layers: SkyCloudLayerConfig[];
+}
+
+export interface SkyCloudObjectData {
+  layerId: string;
+  seed: number;
+  size: number;
+  aspectRatio: number;
+  opacity: number;
+  wispiness: number;
+  softness: number;
+  noiseScale: number;
+  noiseStrength: number;
+  color: number;
+  colorShift: number;
+  speed: number;
+  direction: number;
+  activation: number;
+  parallax: number;
+  heightOffset: number;
+  boundsRadius: number;
+}
+
+export interface SkyCloudRenderState {
+  cloudyFactor: number;
+  speedMultiplier: number;
+  wispyMultiplier: number;
+  opacityMultiplier: number;
 }
 
 export interface MapSizeConfig {
@@ -111,6 +171,7 @@ export interface EnvironmentState {
   };
   temperature: number;
   windSpeed: number;
+  cloudiness: number;
   isNight: boolean;
   sun: SunLightState;
 }
@@ -141,6 +202,7 @@ export interface EnvironmentSaveData {
     windSpeed: number;
     windTarget: number;
     nextWindChangeMinute: number;
+    cloudyFactor?: number;
   };
 }
 
@@ -173,6 +235,9 @@ export interface EnvironmentConfig {
 
   // Параметри хмар з пилу
   dustClouds: DustCloudConfig;
+
+  // Небесні хмари
+  skyClouds: SkyCloudConfig;
 
   // Параметри вигляду сонця
   sun: SunVisualConfig;
