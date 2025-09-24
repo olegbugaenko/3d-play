@@ -25,8 +25,8 @@ export const DRONE_TYPES_DB: Map<string, DroneTypeData> = new Map([
         },
         dustTrail: {
             enabled: true,
-            particleSize: 0.45,
-            emissionRate: 18,
+            particleSize: 0.75,
+            emissionRate: 24,
             lifetime: 1.4,
             maxParticles: 60,
             color: '#bca98f'
