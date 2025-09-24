@@ -143,6 +143,10 @@ export interface SkyCloudObjectData {
   bottomFeather: number;
   erosionScale: number;
   erosionStrength: number;
+  profileExponent: number;
+  billowStrength: number;
+  capBreakup: number;
+  edgeNoiseMix: number;
 }
 
 export interface SkyCloudRenderState {

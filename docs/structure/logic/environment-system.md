@@ -21,7 +21,7 @@
 
 #### Небесні хмари
 - **Багатошарова генерація**: Конфігурація шарів (`SkyCloudLayerConfig`) визначає висоту, розмір, швидкість та вагу покриття.
-- **Процедурна морфологія**: Для кожної хмари зберігаються параметри форми (`orientation`, `skew`, `detailScale`, `detailContrast`, `densityOffset`, `warpStrength`, `warpFrequency`, `domainScale`, `domainStrength`, `streakStrength`, `streakFrequency`, `topFeather`, `bottomFeather`, `erosionScale`, `erosionStrength`), що дозволяє значно різноманітити силуети та контролювати вертикальне розмивання.
+- **Процедурна морфологія**: Для кожної хмари зберігаються параметри форми (`orientation`, `skew`, `detailScale`, `detailContrast`, `densityOffset`, `warpStrength`, `warpFrequency`, `domainScale`, `domainStrength`, `streakStrength`, `streakFrequency`, `topFeather`, `bottomFeather`, `erosionScale`, `erosionStrength`, `profileExponent`, `billowStrength`, `capBreakup`, `edgeNoiseMix`), що дозволяє значно різноманітити силуети, контролювати вертикальне розмивання та шумові виступи країв.
 - **Життєвий цикл**: Плавний рух по вітру, видалення після виходу з зони видимості або закінчення часу життя (`updateSkyCloudLifecycle`).
 - **Оптимізація**: Максимальна кількість об'єктів контролюється на шар, хмари кешуються у `skyCloudInstances`, а снімок для UI/рендеру генерується тільки за необхідності (`skyCloudSnapshotDirty`).
 
@@ -59,7 +59,7 @@
 
 ### Життєвий цикл SkyCloudRenderer
 1. **Синхронізація**: UI викликає `getSkyCloudInstances`, після чого `SkyCloudRenderer.syncFromEnvironment` створює/оновлює меші.
-2. **Оновлення перед рендером**: На кожному тіку `updateSkyClouds(camera)` виставляє позицію з урахуванням паралаксу до камери.
+2. **Оновлення перед рендером**: На кожному тіку `updateSkyClouds(camera)` виставляє позицію з урахуванням паралаксу до камери та плавно змішує «плоский» і «повний» білбординг, щоб уникнути зникнення силуетів при нахилі камери.
 3. **Шейдерні параметри**: У `onBeforeRender` підставляються персоналізовані уніформи — це дозволяє використовувати спільний матеріал для десятків хмар без створення окремих матеріалів.
 
 ### Збереження

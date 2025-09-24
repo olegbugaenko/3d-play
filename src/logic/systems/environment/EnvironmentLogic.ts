@@ -946,45 +946,59 @@ export class EnvironmentLogic {
       isHighAltitude ? 0.25 : 0.18,
     );
     const warpStrength = this.randomBetween(
-      isHighAltitude ? 0.12 : 0.05,
-      isHighAltitude ? 0.35 : 0.22,
+      isHighAltitude ? 0.18 : 0.06,
+      isHighAltitude ? 0.45 : 0.3,
     );
     const warpFrequency = this.randomBetween(
-      isHighAltitude ? 1.3 : 0.9,
-      isHighAltitude ? 2.35 : 1.6,
+      isHighAltitude ? 1.2 : 0.8,
+      isHighAltitude ? 2.6 : 1.8,
     );
     const domainScale = this.randomBetween(
-      isHighAltitude ? 1.15 : 0.75,
-      isHighAltitude ? 2.3 : 1.45,
+      isHighAltitude ? 1.05 : 0.7,
+      isHighAltitude ? 2.55 : 1.65,
     );
     const domainStrength = this.randomBetween(
-      isHighAltitude ? 0.45 : 0.22,
-      isHighAltitude ? 0.9 : 0.55,
+      isHighAltitude ? 0.5 : 0.2,
+      isHighAltitude ? 1.15 : 0.75,
     );
     const streakStrength = this.randomBetween(
-      isHighAltitude ? 0.32 : 0.1,
-      isHighAltitude ? 0.75 : 0.3,
+      isHighAltitude ? 0.4 : 0.08,
+      isHighAltitude ? 1.05 : 0.45,
     );
     const streakFrequency = this.randomBetween(
-      isHighAltitude ? 0.9 : 0.55,
-      isHighAltitude ? 1.65 : 1.15,
+      isHighAltitude ? 0.85 : 0.45,
+      isHighAltitude ? 1.85 : 1.25,
     );
     const topFeather = this.randomBetween(
-      isHighAltitude ? 0.45 : 0.32,
-      isHighAltitude ? 1.05 : 0.78,
+      isHighAltitude ? 0.38 : 0.24,
+      isHighAltitude ? 1.2 : 0.95,
     );
     const bottomFeather = this.randomBetween(
-      isHighAltitude ? 0.25 : 0.42,
-      isHighAltitude ? 0.6 : 0.9,
+      isHighAltitude ? 0.22 : 0.38,
+      isHighAltitude ? 0.75 : 1.05,
     );
     const erosionScale = this.randomBetween(
-      isHighAltitude ? 1.35 : 1.0,
-      isHighAltitude ? 2.6 : 2.1,
+      isHighAltitude ? 1.3 : 0.9,
+      isHighAltitude ? 2.8 : 2.2,
     );
     const erosionStrength = this.randomBetween(
-      isHighAltitude ? 0.35 : 0.22,
-      isHighAltitude ? 0.75 : 0.5,
+      isHighAltitude ? 0.45 : 0.2,
+      isHighAltitude ? 1.05 : 0.68,
     );
+
+    const profileExponent = this.randomBetween(
+      isHighAltitude ? 0.85 : 0.6,
+      isHighAltitude ? 1.6 : 1.3,
+    );
+    const billowStrength = this.randomBetween(
+      isHighAltitude ? 0.4 : 0.55,
+      isHighAltitude ? 1.05 : 1.3,
+    );
+    const capBreakup = this.randomBetween(
+      isHighAltitude ? 0.55 : 0.35,
+      isHighAltitude ? 1.2 : 0.95,
+    );
+    const edgeNoiseMix = this.randomBetween(0.25, 0.85);
 
     const spawnSide: 'north' | 'west' = Math.random() < 0.5 ? 'north' : 'west';
     const halfWidth = mapWidth / 2;
@@ -1052,6 +1066,10 @@ export class EnvironmentLogic {
       bottomFeather,
       erosionScale,
       erosionStrength,
+      profileExponent,
+      billowStrength,
+      capBreakup,
+      edgeNoiseMix,
     };
 
     const cloud: InternalSkyCloud = {

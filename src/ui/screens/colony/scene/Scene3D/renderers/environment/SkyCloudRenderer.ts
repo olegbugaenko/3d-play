@@ -31,6 +31,9 @@ export class SkyCloudRenderer extends BaseRenderer {
   private clock = new THREE.Clock();
   private billboardTarget = new THREE.Vector3();
   private tmpColor = new THREE.Color();
+  private tmpQuatFlat = new THREE.Quaternion();
+  private tmpQuatFull = new THREE.Quaternion();
+  private tmpMatrix = new THREE.Matrix4();
 
   private globalState: SkyCloudGlobalState = {
     cloudyFactor: 0.35,
@@ -152,6 +155,10 @@ export class SkyCloudRenderer extends BaseRenderer {
       uniform float uBottomFeather;
       uniform float uErosionScale;
       uniform float uErosionStrength;
+      uniform float uProfileExponent;
+      uniform float uBillowStrength;
+      uniform float uCapBreakup;
+      uniform float uEdgeNoiseMix;
 
       varying vec2 vUv;
       varying vec2 vSampleCoord;
@@ -207,10 +214,16 @@ export class SkyCloudRenderer extends BaseRenderer {
         );
         domain += (domainNoise - vec2(0.5)) * (domainStrength * 1.6);
 
-        float ellipse = 1.0 - dot(domain, domain);
+        float radial = max(0.0, 1.0 - dot(domain, domain));
+        float baseProfile = pow(radial, max(0.35, uProfileExponent));
 
         float detail = fbm(vSampleCoord * max(0.35, uDetailScale));
         detail = pow(clamp(detail, 0.0, 1.0), max(0.25, uDetailContrast));
+
+        float lobeA = fbm((domain + vec2(uSeed * 0.53, -uSeed * 0.71)) * (0.9 + uDomainScale * 0.4));
+        float lobeB = fbm((domain.yx + vec2(-uSeed * 1.37, uSeed * 0.97)) * (1.1 + uDomainScale * 0.45));
+        float structureNoise = mix(lobeA, lobeB, clamp(uEdgeNoiseMix, 0.0, 1.0));
+        float billowContribution = (structureNoise - 0.5) * (0.7 + uBillowStrength * 0.6);
 
         float warpFreq = max(0.5, uWarpFrequency);
         float warp = sin(domain.x * (1.4 + warpFreq * 0.6) + uSeed * 0.73);
@@ -227,16 +240,28 @@ export class SkyCloudRenderer extends BaseRenderer {
         erosion = pow(clamp(erosion, 0.0, 1.0), 1.2);
         float erosionContribution = (erosion - 0.5) * uErosionStrength;
 
-        float topFactor = 1.0 - smoothstep(-0.2, 0.9, domain.y * (1.0 + uTopFeather * 1.35));
-        float bottomFactor = 1.0 - smoothstep(-0.2, 0.9, -domain.y * (1.0 + uBottomFeather * 1.35));
-        float verticalProfile = clamp(topFactor * bottomFactor, 0.0, 1.0);
+        float heightContribution = (vHeightNoise - 0.5) * (0.35 + uNoiseStrength * 0.3);
+        float maskBase = baseProfile + billowContribution + heightContribution;
+        maskBase += (detail - 0.5) * (0.45 + uNoiseStrength * 0.45);
+        maskBase += warpContribution + streakContribution + erosionContribution;
+
+        float verticalNoise = fbm(
+          vec2(domain.y * (1.4 + uTopFeather * 0.7), domain.x * (1.6 + uBottomFeather * 0.6)) +
+            vec2(uSeed * 1.11, -uSeed * 0.93)
+        );
+        verticalNoise = mix(verticalNoise, structureNoise, 0.45);
+        float capJitter = (verticalNoise - 0.5) * (1.1 * uCapBreakup);
+
+        float topCut = smoothstep(-0.45, 0.95, domain.y * (1.0 + uTopFeather * 1.1) + capJitter);
+        float bottomCut = smoothstep(-0.45, 0.95, -domain.y * (1.0 + uBottomFeather * 1.1) - capJitter);
+        float verticalProfile = clamp((1.0 - topCut) * (1.0 - bottomCut), 0.0, 1.0);
+        maskBase += (verticalProfile - 0.5) * (0.65 + uDensityOffset * 0.35);
 
         float wispy = mix(uWispy, uWispy * uWispyMultiplier, 0.5);
         float softness = max(0.05, uSoftness);
-        float maskBase = ellipse + warpContribution + (detail - 0.5) * uNoiseStrength + streakContribution + erosionContribution;
-        maskBase += (verticalProfile - 0.5) * 0.35;
         float mask = smoothstep(wispy - softness, wispy + softness, maskBase);
-        mask *= mix(1.0, verticalProfile, 0.85);
+        float featherProfile = pow(clamp(verticalProfile, 0.0, 1.0), 0.65 + uBillowStrength * 0.2);
+        mask *= mix(1.0, featherProfile, 0.75);
 
         float densityFactor = clamp(1.0 + uDensityOffset, 0.2, 1.75);
         float activation = smoothstep(uActivation - 0.12, uActivation + 0.02, uGlobalCloudiness);
@@ -311,6 +336,10 @@ export class SkyCloudRenderer extends BaseRenderer {
         uBottomFeather: { value: 0.5 },
         uErosionScale: { value: 1 },
         uErosionStrength: { value: 0 },
+        uProfileExponent: { value: 1 },
+        uBillowStrength: { value: 0.8 },
+        uCapBreakup: { value: 0.5 },
+        uEdgeNoiseMix: { value: 0.5 },
       },
     });
 
@@ -371,7 +400,8 @@ export class SkyCloudRenderer extends BaseRenderer {
     mesh.scale.set(info.data.size * info.data.aspectRatio, info.data.size, 1);
     geometry.computeBoundingSphere();
     if (geometry.boundingSphere) {
-      geometry.boundingSphere.radius = Math.max(geometry.boundingSphere.radius, 1.15);
+      const maxExtent = Math.max(info.data.size * info.data.aspectRatio, info.data.size);
+      geometry.boundingSphere.radius = Math.max(geometry.boundingSphere.radius, maxExtent * 0.75);
       geometry.boundingSphere.center.set(0, 0, 0);
     }
 
@@ -416,6 +446,10 @@ export class SkyCloudRenderer extends BaseRenderer {
       shader.uniforms.uBottomFeather.value = Math.max(0.0, data.bottomFeather ?? 0.5);
       shader.uniforms.uErosionScale.value = Math.max(0.2, data.erosionScale ?? 1);
       shader.uniforms.uErosionStrength.value = data.erosionStrength ?? 0;
+      shader.uniforms.uProfileExponent.value = Math.max(0.35, data.profileExponent ?? 1);
+      shader.uniforms.uBillowStrength.value = Math.max(0, data.billowStrength ?? 0.8);
+      shader.uniforms.uCapBreakup.value = Math.max(0, data.capBreakup ?? 0.5);
+      shader.uniforms.uEdgeNoiseMix.value = THREE.MathUtils.clamp(data.edgeNoiseMix ?? 0.5, 0, 1);
     };
 
 
@@ -436,6 +470,10 @@ export class SkyCloudRenderer extends BaseRenderer {
     Object.assign(info.data, instance.data);
     info.basePosition.set(instance.position.x, instance.position.y, instance.position.z);
     mesh.scale.set(info.data.size * info.data.aspectRatio, info.data.size, 1);
+    if (mesh.geometry.boundingSphere) {
+      const maxExtent = Math.max(info.data.size * info.data.aspectRatio, info.data.size);
+      mesh.geometry.boundingSphere.radius = Math.max(mesh.geometry.boundingSphere.radius, maxExtent * 0.75);
+    }
     mesh.position.set(
       info.basePosition.x,
       info.basePosition.y + (info.data.heightOffset ?? 0),
@@ -527,11 +565,20 @@ export class SkyCloudRenderer extends BaseRenderer {
         mesh.position.z = basePosition.z + offsetZ;
       }
 
-      this.billboardTarget.copy(cameraPosition);
-      this.billboardTarget.y = mesh.position.y;
-      mesh.lookAt(this.billboardTarget);
-      mesh.rotation.x = 0;
-      mesh.rotation.z = 0;
+      const altitudeDelta = Math.abs(cameraPosition.y - mesh.position.y);
+      const altitudeFactor = THREE.MathUtils.clamp(altitudeDelta / 220, 0.15, 0.75);
+      const profileFactor = THREE.MathUtils.clamp((data.profileExponent ?? 1) * 0.1, 0.05, 0.25);
+      const verticalFollow = THREE.MathUtils.clamp(altitudeFactor + profileFactor, 0.2, 0.85);
+
+      this.billboardTarget.set(cameraPosition.x, mesh.position.y, cameraPosition.z);
+      this.tmpMatrix.lookAt(mesh.position, this.billboardTarget, THREE.Object3D.DEFAULT_UP);
+      this.tmpQuatFlat.setFromRotationMatrix(this.tmpMatrix);
+
+      this.tmpMatrix.lookAt(mesh.position, cameraPosition, THREE.Object3D.DEFAULT_UP);
+      this.tmpQuatFull.setFromRotationMatrix(this.tmpMatrix);
+
+      mesh.quaternion.copy(this.tmpQuatFlat);
+      mesh.quaternion.slerp(this.tmpQuatFull, verticalFollow);
     }
   }
 
