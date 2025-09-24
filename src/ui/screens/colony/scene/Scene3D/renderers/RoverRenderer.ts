@@ -264,9 +264,9 @@ class DustTrailEmitter {
     this.positions[base + 1] = spawnPos.y;
     this.positions[base + 2] = spawnPos.z;
 
-    const baseSpeed = Math.min(this.state.speed * 0.55 + Math.random() * 0.6, 4.5);
+    const baseSpeed = Math.min(this.state.speed * 0.15 + Math.random() * 0.3, 0.5);
     this.velocities[base] = -dir.x * baseSpeed + (Math.random() - 0.5) * 0.4;
-    this.velocities[base + 1] = 0.8 + Math.random() * 0.6;
+    this.velocities[base + 1] = 0.3 + Math.random() * 0.2;
     this.velocities[base + 2] = -dir.z * baseSpeed + (Math.random() - 0.5) * 0.4;
   }
 
