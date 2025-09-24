@@ -360,7 +360,7 @@ export const BUILDINGS_DB: Map<BuildingTypeId, BuildingTypeData> = new Map([
     ui: {
       defaultScale: { x: 1.0, y: 1.0, z: 1.0 },
       rotationOffset: { x: 0, y: 0, z: 0 },
-      modelName: 'models/buildings/bio_incubator.glb',
+      modelName: 'models/buildings/biomass_plant_small.glb',
       color: '#90EE90' // Світло-зелений для біо-інкубатора
     },
     data: {
