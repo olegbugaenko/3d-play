@@ -21,7 +21,7 @@
 
 #### Небесні хмари
 - **Багатошарова генерація**: Конфігурація шарів (`SkyCloudLayerConfig`) визначає висоту, розмір, швидкість та вагу покриття.
-- **Процедурна морфологія**: Для кожної хмари зберігаються параметри форми (`orientation`, `skew`, `detailScale`, `detailContrast`, `densityOffset`, `warpStrength`, `warpFrequency`, `domainScale`, `domainStrength`, `streakStrength`, `streakFrequency`, `topFeather`, `bottomFeather`, `erosionScale`, `erosionStrength`, `profileExponent`, `billowStrength`, `capBreakup`, `edgeNoiseMix`), що дозволяє значно різноманітити силуети, контролювати вертикальне розмивання та шумові виступи країв.
+- **Процедурна морфологія**: Для кожної хмари зберігаються параметри форми (`orientation`, `skew`, `detailScale`, `detailContrast`, `densityOffset`, `warpStrength`, `warpFrequency`, `domainScale`, `domainStrength`, `streakStrength`, `streakFrequency`, `topFeather`, `bottomFeather`, `erosionScale`, `erosionStrength`, `profileExponent`, `billowStrength`, `capBreakup`, `edgeNoiseMix`, `anvilStrength`, `anvilHeight`, `anvilFalloff`, `curlStrength`, `curlFrequency`, `frayStrength`, `frayScale`), що дозволяє значно різноманітити силуети, контролювати вертикальне розмивання, шумові виступи та виділяти верхні «ковадла» і завихрення країв.
 - **Життєвий цикл**: Плавний рух по вітру, видалення після виходу з зони видимості або закінчення часу життя (`updateSkyCloudLifecycle`).
 - **Оптимізація**: Максимальна кількість об'єктів контролюється на шар, хмари кешуються у `skyCloudInstances`, а снімок для UI/рендеру генерується тільки за необхідності (`skyCloudSnapshotDirty`).
 
@@ -39,6 +39,12 @@
   - `speedRange`, `directionJitterDeg` — швидкість переміщення та варіативність напрямку вітру.
   - `color`, `colorVariance`, `densityOffset`, `warpStrength`, `warpFrequency` — палітра, щільність і додаткове викривлення силуету.
   - `heightOffset`, `orientation`, `skew`, `parallax` — вертикальні зсуви, орієнтація та нахил, що додають різноманіття силуетам.
+  - `anvilStrength`, `anvilHeight`, `anvilFalloff`, `curlStrength`, `curlFrequency`, `frayStrength`, `frayScale` — контролюють форму верхніх «ковадел», силу завихрень і ступінь «лохматості» країв.
+
+#### Парне слідкування за камерою та продуктивність
+- **Стабільний паралакс**: `SkyCloudRenderer` накопичує зміщення відносно попередньої позиції камери та згладжує його через `MathUtils.damp`, тому навіть при різких розворотах білборди не вискакують з кадру й не зникають.
+- **Обмеження відхилення**: Максимальний паралакс обчислюється з урахуванням фактичного розміру хмари та її коефіцієнта `parallax`, що утримує меші в межах видимого купола.
+- **Спільна геометрія**: усі білборди використовують одну `PlaneGeometry`, що зменшує кількість алокацій та оновлень bounding sphere при створенні/видаленні хмар.
 
 #### Пилові хмари та інші ефекти
 - **Пилові шлейфи**: Генеруються поблизу поверхні з власним життєвим циклом (`updateDustClouds`).

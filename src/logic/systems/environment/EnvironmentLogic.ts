@@ -999,6 +999,34 @@ export class EnvironmentLogic {
       isHighAltitude ? 1.2 : 0.95,
     );
     const edgeNoiseMix = this.randomBetween(0.25, 0.85);
+    const anvilStrength = this.randomBetween(
+      isHighAltitude ? 0.25 : 0.08,
+      isHighAltitude ? 0.85 : 0.45,
+    );
+    const anvilHeight = this.randomBetween(
+      isHighAltitude ? -0.05 : -0.25,
+      isHighAltitude ? 0.45 : 0.2,
+    );
+    const anvilFalloff = this.randomBetween(
+      isHighAltitude ? 0.22 : 0.35,
+      isHighAltitude ? 0.55 : 0.75,
+    );
+    const curlStrength = this.randomBetween(
+      isHighAltitude ? -0.35 : -0.2,
+      isHighAltitude ? 0.55 : 0.35,
+    );
+    const curlFrequency = this.randomBetween(
+      isHighAltitude ? 1.2 : 0.7,
+      isHighAltitude ? 2.7 : 1.8,
+    );
+    const frayStrength = this.randomBetween(
+      isHighAltitude ? 0.28 : 0.14,
+      isHighAltitude ? 0.7 : 0.48,
+    );
+    const frayScale = this.randomBetween(
+      isHighAltitude ? 2.1 : 1.2,
+      isHighAltitude ? 3.9 : 2.6,
+    );
 
     const spawnSide: 'north' | 'west' = Math.random() < 0.5 ? 'north' : 'west';
     const halfWidth = mapWidth / 2;
@@ -1070,6 +1098,13 @@ export class EnvironmentLogic {
       billowStrength,
       capBreakup,
       edgeNoiseMix,
+      anvilStrength,
+      anvilHeight,
+      anvilFalloff,
+      curlStrength,
+      curlFrequency,
+      frayStrength,
+      frayScale,
     };
 
     const cloud: InternalSkyCloud = {

@@ -147,6 +147,13 @@ export interface SkyCloudObjectData {
   billowStrength: number;
   capBreakup: number;
   edgeNoiseMix: number;
+  anvilStrength: number;
+  anvilHeight: number;
+  anvilFalloff: number;
+  curlStrength: number;
+  curlFrequency: number;
+  frayStrength: number;
+  frayScale: number;
 }
 
 export interface SkyCloudRenderState {

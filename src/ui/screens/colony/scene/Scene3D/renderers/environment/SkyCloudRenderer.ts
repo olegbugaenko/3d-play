@@ -27,6 +27,7 @@ const DEFAULT_AMBIENT = new THREE.Color(0.58, 0.61, 0.66);
 
 export class SkyCloudRenderer extends BaseRenderer {
   private static sharedMaterial: THREE.ShaderMaterial | null = null;
+  private static sharedGeometry: THREE.PlaneGeometry | null = null;
 
   private cloudGroup: THREE.Group;
   private clouds: Map<string, THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>> = new Map();
@@ -36,7 +37,10 @@ export class SkyCloudRenderer extends BaseRenderer {
   private tmpQuatFlat = new THREE.Quaternion();
   private tmpQuatFull = new THREE.Quaternion();
   private tmpMatrix = new THREE.Matrix4();
-  private tmpOffset = new THREE.Vector3();
+  private tmpCameraDelta = new THREE.Vector3();
+
+  private lastCameraPosition = new THREE.Vector3();
+  private cameraInitialized = false;
 
   private globalState: SkyCloudGlobalState = {
     cloudyFactor: 0.35,
@@ -54,6 +58,20 @@ export class SkyCloudRenderer extends BaseRenderer {
     this.cloudGroup.name = 'SkyCloudLayer';
     this.cloudGroup.frustumCulled = false;
     this.scene.add(this.cloudGroup);
+  }
+
+  private getSharedGeometry(): THREE.PlaneGeometry {
+    if (!SkyCloudRenderer.sharedGeometry) {
+      const geometry = new THREE.PlaneGeometry(1, 1, 24, 16);
+      geometry.computeBoundingSphere();
+      if (geometry.boundingSphere) {
+        geometry.boundingSphere.radius = Math.max(geometry.boundingSphere.radius, 1.6);
+        geometry.boundingSphere.center.set(0, 0, 0);
+      }
+      SkyCloudRenderer.sharedGeometry = geometry;
+    }
+
+    return SkyCloudRenderer.sharedGeometry;
   }
 
   private getOrCreateMaterial(): THREE.ShaderMaterial {
@@ -162,6 +180,13 @@ export class SkyCloudRenderer extends BaseRenderer {
       uniform float uBillowStrength;
       uniform float uCapBreakup;
       uniform float uEdgeNoiseMix;
+      uniform float uAnvilStrength;
+      uniform float uAnvilHeight;
+      uniform float uAnvilFalloff;
+      uniform float uCurlStrength;
+      uniform float uCurlFrequency;
+      uniform float uFrayStrength;
+      uniform float uFrayScale;
 
       varying vec2 vUv;
       varying vec2 vSampleCoord;
@@ -257,9 +282,36 @@ export class SkyCloudRenderer extends BaseRenderer {
         verticalNoise = mix(verticalNoise, structureNoise, 0.45);
         float capJitter = (verticalNoise - 0.5) * (1.1 * uCapBreakup);
 
+        float anvilMask = 1.0;
+        if (uAnvilStrength > 0.001) {
+          float falloff = max(0.05, uAnvilFalloff);
+          float anvilShape = smoothstep(
+            uAnvilHeight - falloff,
+            uAnvilHeight + falloff,
+            domain.y + capJitter
+          );
+          anvilMask = mix(1.0, 1.0 - anvilShape, clamp(uAnvilStrength, 0.0, 1.0));
+          maskBase += (anvilMask - 0.5) * (uAnvilStrength * 0.6);
+        }
+
+        float curlContribution = 0.0;
+        if (abs(uCurlStrength) > 0.001) {
+          float curlFreq = 1.3 + abs(uCurlFrequency) * 0.9;
+          float curl = sin((domain.x + domain.y * 0.35) * curlFreq + uSeed * 2.71);
+          curl *= cos((domain.y - domain.x * 0.5) * (1.1 + curlFreq * 0.6) - uSeed * 1.93);
+          curlContribution = curl * uCurlStrength;
+          maskBase += curlContribution;
+        }
+
+        if (uFrayStrength > 0.001) {
+          float fray = fbm(domain * (1.5 + max(0.0, uFrayScale)) + vec2(uSeed * 4.11, -uSeed * 2.37));
+          maskBase += (fray - 0.5) * uFrayStrength;
+        }
+
         float topCut = smoothstep(-0.45, 0.95, domain.y * (1.0 + uTopFeather * 1.1) + capJitter);
         float bottomCut = smoothstep(-0.45, 0.95, -domain.y * (1.0 + uBottomFeather * 1.1) - capJitter);
         float verticalProfile = clamp((1.0 - topCut) * (1.0 - bottomCut), 0.0, 1.0);
+        verticalProfile *= anvilMask;
         maskBase += (verticalProfile - 0.5) * (0.65 + uDensityOffset * 0.35);
 
         float wispy = mix(uWispy, uWispy * uWispyMultiplier, 0.5);
@@ -287,6 +339,8 @@ export class SkyCloudRenderer extends BaseRenderer {
 
         vec3 color = mix(uAmbientColor, base, 0.65 + edge * 0.2);
         color += (detail - 0.5) * (0.08 + uDensityOffset * 0.05);
+        color += curlContribution * uCurlStrength * 0.05;
+        color += (verticalNoise - 0.5) * uFrayStrength * 0.04;
         color = mix(color, uSunColor, sunFactor * 0.25);
 
         gl_FragColor = vec4(color, alpha);
@@ -345,6 +399,13 @@ export class SkyCloudRenderer extends BaseRenderer {
         uBillowStrength: { value: 0.8 },
         uCapBreakup: { value: 0.5 },
         uEdgeNoiseMix: { value: 0.5 },
+        uAnvilStrength: { value: 0 },
+        uAnvilHeight: { value: 0.4 },
+        uAnvilFalloff: { value: 0.35 },
+        uCurlStrength: { value: 0 },
+        uCurlFrequency: { value: 1 },
+        uFrayStrength: { value: 0 },
+        uFrayScale: { value: 1.5 },
       },
     });
 
@@ -387,7 +448,7 @@ export class SkyCloudRenderer extends BaseRenderer {
     instance: SkyCloudInstance,
   ): THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> {
     const material = this.getOrCreateMaterial();
-    const geometry = new THREE.PlaneGeometry(1, 1, 24, 16);
+    const geometry = this.getSharedGeometry();
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = `SkyCloud:${instance.id}`;
     mesh.matrixAutoUpdate = true;
@@ -407,13 +468,6 @@ export class SkyCloudRenderer extends BaseRenderer {
 
     mesh.userData.sky = info;
     mesh.scale.set(info.data.size * info.data.aspectRatio, info.data.size, 1);
-    geometry.computeBoundingSphere();
-    if (geometry.boundingSphere) {
-      const maxExtent = Math.max(info.data.size * info.data.aspectRatio, info.data.size);
-      geometry.boundingSphere.radius = Math.max(geometry.boundingSphere.radius, maxExtent * 0.75);
-      geometry.boundingSphere.center.set(0, 0, 0);
-    }
-
     mesh.onBeforeRender = (_renderer, _scene, _camera, _geometry, mat) => {
       const shader = mat as THREE.ShaderMaterial;
       const internal = mesh.userData.sky as InternalCloudData;
@@ -459,6 +513,13 @@ export class SkyCloudRenderer extends BaseRenderer {
       shader.uniforms.uBillowStrength.value = Math.max(0, data.billowStrength ?? 0.8);
       shader.uniforms.uCapBreakup.value = Math.max(0, data.capBreakup ?? 0.5);
       shader.uniforms.uEdgeNoiseMix.value = THREE.MathUtils.clamp(data.edgeNoiseMix ?? 0.5, 0, 1);
+      shader.uniforms.uAnvilStrength.value = THREE.MathUtils.clamp(data.anvilStrength ?? 0, 0, 1.5);
+      shader.uniforms.uAnvilHeight.value = THREE.MathUtils.clamp(data.anvilHeight ?? 0.2, -1.2, 1.2);
+      shader.uniforms.uAnvilFalloff.value = THREE.MathUtils.clamp(data.anvilFalloff ?? 0.4, 0.05, 1.25);
+      shader.uniforms.uCurlStrength.value = THREE.MathUtils.clamp(data.curlStrength ?? 0, -1.5, 1.5);
+      shader.uniforms.uCurlFrequency.value = Math.max(0.1, data.curlFrequency ?? 1);
+      shader.uniforms.uFrayStrength.value = THREE.MathUtils.clamp(data.frayStrength ?? 0, 0, 1.5);
+      shader.uniforms.uFrayScale.value = Math.max(0.2, data.frayScale ?? 1.5);
     };
 
 
@@ -483,10 +544,6 @@ export class SkyCloudRenderer extends BaseRenderer {
     }
     info.maxOffset = this.computeMaxOffset(info.data);
     mesh.scale.set(info.data.size * info.data.aspectRatio, info.data.size, 1);
-    if (mesh.geometry.boundingSphere) {
-      const maxExtent = Math.max(info.data.size * info.data.aspectRatio, info.data.size);
-      mesh.geometry.boundingSphere.radius = Math.max(mesh.geometry.boundingSphere.radius, maxExtent * 0.75);
-    }
     mesh.position.set(
       info.basePosition.x,
       info.basePosition.y + (info.data.heightOffset ?? 0),
@@ -517,7 +574,9 @@ export class SkyCloudRenderer extends BaseRenderer {
     if (mesh) {
       this.cloudGroup.remove(mesh);
       this.clouds.delete(id);
-      mesh.geometry.dispose();
+      if (mesh.geometry && mesh.geometry !== SkyCloudRenderer.sharedGeometry) {
+        mesh.geometry.dispose();
+      }
     }
     super.remove(id);
   }
@@ -525,7 +584,9 @@ export class SkyCloudRenderer extends BaseRenderer {
   dispose(): void {
     for (const mesh of this.clouds.values()) {
       this.cloudGroup.remove(mesh);
-      mesh.geometry.dispose();
+      if (mesh.geometry && mesh.geometry !== SkyCloudRenderer.sharedGeometry) {
+        mesh.geometry.dispose();
+      }
     }
     this.clouds.clear();
     this.scene.remove(this.cloudGroup);
@@ -535,11 +596,16 @@ export class SkyCloudRenderer extends BaseRenderer {
       SkyCloudRenderer.sharedMaterial = null;
     }
 
+    if (SkyCloudRenderer.sharedGeometry) {
+      SkyCloudRenderer.sharedGeometry.dispose();
+      SkyCloudRenderer.sharedGeometry = null;
+    }
+
     super.dispose();
   }
 
   updateSkyClouds(camera?: THREE.Camera): void {
-    this.clock.getDelta();
+    const delta = this.clock.getDelta();
     const elapsed = this.clock.elapsedTime;
     const material = SkyCloudRenderer.sharedMaterial;
     if (material) {
@@ -553,11 +619,27 @@ export class SkyCloudRenderer extends BaseRenderer {
       material.uniforms.uAmbientColor.value.copy(this.globalState.ambientColor);
     }
 
-    if (!camera || this.clouds.size === 0) {
+    if (!camera) {
       return;
     }
 
     const cameraPosition = (camera as THREE.Camera).position as THREE.Vector3;
+
+    if (!this.cameraInitialized) {
+      this.lastCameraPosition.copy(cameraPosition);
+      this.cameraInitialized = true;
+    }
+
+    if (this.clouds.size === 0) {
+      this.lastCameraPosition.copy(cameraPosition);
+      return;
+    }
+
+    const lateralDeltaX = cameraPosition.x - this.lastCameraPosition.x;
+    const lateralDeltaZ = cameraPosition.z - this.lastCameraPosition.z;
+    this.tmpCameraDelta.set(lateralDeltaX, 0, lateralDeltaZ);
+    const lateralMagnitudeSq = lateralDeltaX * lateralDeltaX + lateralDeltaZ * lateralDeltaZ;
+    const deltaTime = delta > 0 ? delta : 0.016;
 
     for (const mesh of this.clouds.values()) {
       const internal = mesh.userData.sky as InternalCloudData | undefined;
@@ -575,36 +657,35 @@ export class SkyCloudRenderer extends BaseRenderer {
       mesh.position.set(basePosition.x, basePosition.y + heightOffset, basePosition.z);
 
       const parallaxValue = THREE.MathUtils.clamp(data.parallax ?? 1, 0.3, 2.0);
-      const parallaxStrength = THREE.MathUtils.clamp(parallaxValue - 1, -0.6, 0.6);
-      if (Math.abs(parallaxStrength) > 0.0001) {
-        const followStrength = 0.18;
-        const desiredOffsetX = THREE.MathUtils.clamp(
-          (cameraPosition.x - basePosition.x) * parallaxStrength * followStrength,
-          -internal.maxOffset,
-          internal.maxOffset,
-        );
-        const desiredOffsetZ = THREE.MathUtils.clamp(
-          (cameraPosition.z - basePosition.z) * parallaxStrength * followStrength,
-          -internal.maxOffset,
-          internal.maxOffset,
-        );
+      const parallaxStrength = THREE.MathUtils.clamp(parallaxValue - 1, -0.45, 0.45);
+      const maxOffset = internal.maxOffset ?? this.computeMaxOffset(data);
+      internal.maxOffset = maxOffset;
 
-        this.tmpOffset.set(desiredOffsetX, 0, desiredOffsetZ);
-        internal.parallaxOffset.lerp(this.tmpOffset, 0.08);
-      } else if (internal.parallaxOffset.lengthSq() > 1e-6) {
-        internal.parallaxOffset.multiplyScalar(0.92);
-        if (internal.parallaxOffset.lengthSq() < 1e-6) {
-          internal.parallaxOffset.set(0, 0, 0);
-        }
+      let targetOffsetX = 0;
+      let targetOffsetZ = 0;
+
+      if (Math.abs(parallaxStrength) > 0.0001 && lateralMagnitudeSq > 1e-8) {
+        const followStrength = THREE.MathUtils.lerp(0.08, 0.18, Math.min(1, Math.abs(parallaxStrength) * 1.35));
+        const scaledX = lateralDeltaX * parallaxStrength * followStrength;
+        const scaledZ = lateralDeltaZ * parallaxStrength * followStrength;
+        targetOffsetX = THREE.MathUtils.clamp(internal.parallaxOffset.x + scaledX, -maxOffset, maxOffset);
+        targetOffsetZ = THREE.MathUtils.clamp(internal.parallaxOffset.z + scaledZ, -maxOffset, maxOffset);
       }
 
-      mesh.position.x = basePosition.x + internal.parallaxOffset.x;
-      mesh.position.z = basePosition.z + internal.parallaxOffset.z;
+      internal.parallaxOffset.x = THREE.MathUtils.damp(internal.parallaxOffset.x, targetOffsetX, 6.5, deltaTime);
+      internal.parallaxOffset.z = THREE.MathUtils.damp(internal.parallaxOffset.z, targetOffsetZ, 6.5, deltaTime);
+
+      if (Math.abs(internal.parallaxOffset.x) < 0.0005) internal.parallaxOffset.x = 0;
+      if (Math.abs(internal.parallaxOffset.z) < 0.0005) internal.parallaxOffset.z = 0;
+
+      mesh.position.x = basePosition.x + THREE.MathUtils.clamp(internal.parallaxOffset.x, -maxOffset, maxOffset);
+      mesh.position.z = basePosition.z + THREE.MathUtils.clamp(internal.parallaxOffset.z, -maxOffset, maxOffset);
 
       const altitudeDelta = Math.abs(cameraPosition.y - mesh.position.y);
-      const altitudeFactor = THREE.MathUtils.clamp(altitudeDelta / 220, 0.15, 0.75);
-      const profileFactor = THREE.MathUtils.clamp((data.profileExponent ?? 1) * 0.1, 0.05, 0.25);
-      const verticalFollow = THREE.MathUtils.clamp(altitudeFactor + profileFactor, 0.2, 0.85);
+      const altitudeFactor = THREE.MathUtils.clamp(altitudeDelta / 240, 0.12, 0.55);
+      const profileFactor = THREE.MathUtils.clamp((data.profileExponent ?? 1) * 0.08, 0.04, 0.18);
+      const anvilFactor = THREE.MathUtils.clamp((data.anvilStrength ?? 0) * 0.12, 0, 0.12);
+      const verticalFollow = THREE.MathUtils.clamp(altitudeFactor + profileFactor - anvilFactor, 0.18, 0.65);
 
       this.billboardTarget.set(cameraPosition.x, mesh.position.y, cameraPosition.z);
       this.tmpMatrix.lookAt(mesh.position, this.billboardTarget, THREE.Object3D.DEFAULT_UP);
@@ -616,6 +697,8 @@ export class SkyCloudRenderer extends BaseRenderer {
       mesh.quaternion.copy(this.tmpQuatFlat);
       mesh.quaternion.slerp(this.tmpQuatFull, verticalFollow);
     }
+
+    this.lastCameraPosition.copy(cameraPosition);
   }
 
   updateGlobalState(
@@ -647,6 +730,10 @@ export class SkyCloudRenderer extends BaseRenderer {
 
   private computeMaxOffset(data: SkyCloudObjectData): number {
     const maxExtent = Math.max(data.size * data.aspectRatio, data.size);
-    return Math.max(maxExtent * 0.45, 120);
+    const parallaxWeight = Math.abs((data.parallax ?? 1) - 1);
+    const extentScale = 0.14 + parallaxWeight * 0.18;
+    const base = maxExtent * extentScale;
+    const minimum = 45 + parallaxWeight * 35;
+    return Math.max(base, minimum);
   }
 }
