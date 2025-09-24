@@ -61,6 +61,12 @@ export const GraphicsSettingsModal: React.FC<GraphicsSettingsModalProps> = ({
     }
   };
 
+  const handleDustToggle = (value: boolean) => {
+    if (value !== settings.droneDustTrails) {
+      onChange({ droneDustTrails: value });
+    }
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Налаштування" size="medium">
       <div className="graphics-settings-modal">
@@ -115,6 +121,20 @@ export const GraphicsSettingsModal: React.FC<GraphicsSettingsModalProps> = ({
                     </div>
                   </label>
                 ))}
+                <label className="graphics-settings-option">
+                  <input
+                    type="checkbox"
+                    name="drone-dust-trails"
+                    checked={settings.droneDustTrails}
+                    onChange={(event) => handleDustToggle(event.target.checked)}
+                  />
+                  <div className="graphics-settings-option-body">
+                    <span className="graphics-settings-option-label">Сліди пилюки дронів</span>
+                    <span className="graphics-settings-option-description">
+                      Увімкнути ефект пилу позаду дронів під час руху поза дорогами.
+                    </span>
+                  </div>
+                </label>
               </div>
             </section>
           </div>

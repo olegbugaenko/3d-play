@@ -6,11 +6,13 @@ export type ParticleQuality = 'high' | 'low';
 export interface GraphicsSettingsState {
   shadows: ShadowQuality;
   particles: ParticleQuality;
+  droneDustTrails: boolean;
 }
 
 const DEFAULT_SETTINGS: GraphicsSettingsState = {
   shadows: 'pseudo',
   particles: 'high',
+  droneDustTrails: true,
 };
 
 type Listener = (state: GraphicsSettingsState) => void;
@@ -37,7 +39,11 @@ export class GraphicsSettingsManager implements SaveLoadManager {
 
   public update(partial: Partial<GraphicsSettingsState>): void {
     const next: GraphicsSettingsState = { ...this.state, ...partial };
-    if (next.shadows === this.state.shadows && next.particles === this.state.particles) {
+    if (
+      next.shadows === this.state.shadows &&
+      next.particles === this.state.particles &&
+      next.droneDustTrails === this.state.droneDustTrails
+    ) {
       return;
     }
     this.state = next;
@@ -72,6 +78,7 @@ export class GraphicsSettingsManager implements SaveLoadManager {
     const next: GraphicsSettingsState = {
       shadows: this.parseShadowQuality((data as GraphicsSettingsState).shadows),
       particles: this.parseParticleQuality((data as GraphicsSettingsState).particles),
+      droneDustTrails: this.parseDroneDustTrails((data as GraphicsSettingsState).droneDustTrails),
     };
 
     this.state = next;
@@ -95,5 +102,18 @@ export class GraphicsSettingsManager implements SaveLoadManager {
       return value;
     }
     return DEFAULT_SETTINGS.particles;
+  }
+
+  public setDroneDustTrails(enabled: boolean): void {
+    if (this.state.droneDustTrails === enabled) return;
+    this.state = { ...this.state, droneDustTrails: enabled };
+    this.emit();
+  }
+
+  private parseDroneDustTrails(value: unknown): boolean {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    return DEFAULT_SETTINGS.droneDustTrails;
   }
 }
