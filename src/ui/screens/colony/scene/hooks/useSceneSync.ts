@@ -11,11 +11,17 @@ export function useSceneObjectSync(
   selectionRendererRef: MutableRefObject<SelectionRenderer | null>
 ) {
   const prevObjectsRef = useRef<Map<string, TSceneObject>>(new Map());
+  const lastRendererRef = useRef<RendererManager | null>(null);
 
   return useCallback(() => {
     const rm = rendererManagerRef.current;
     const map = mapLogicRef.current;
     if (!rm || !map) return;
+
+    if (rm !== lastRendererRef.current) {
+      prevObjectsRef.current.clear();
+      lastRendererRef.current = rm;
+    }
 
     const current = map.scene.getVisibleObjectsOptimized().map<TSceneObject>((obj) => ({
       tags: obj.tags,
