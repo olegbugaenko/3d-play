@@ -230,7 +230,8 @@ export class BuildingRenderer extends BaseRenderer {
     const constructionProgress = THREE.MathUtils.clamp(data?.constructionProgress ?? 0, 0, 1);
 
     // Fallback
-    const fallback = this.createFallbackMesh();
+    const fallbackColor = config?.ui?.color;
+    const fallback = this.createFallbackMesh(fallbackColor);
     fallback.name = 'fallback';
     container.add(fallback);
     this.applyShadowPreset(container, fallback, { intensity: 0.25, softness: 1.15, minSize: 0.6 });
@@ -286,18 +287,6 @@ export class BuildingRenderer extends BaseRenderer {
           child.receiveShadow = false;
         }
       });
-
-      // колір з конфіга (НЕ тінтити, якщо є map)
-      const color = config?.ui?.color;
-      if (color) {
-        const hex = parseInt(color.replace('#', ''), 16);
-        model.traverse((child: any) => {
-          if (child.isMesh && child.material) {
-            const tint = (m: any) => { if (!m.map && m.color?.setHex) m.color.setHex(hex); };
-            Array.isArray(child.material) ? child.material.forEach(tint) : tint(child.material);
-          }
-        });
-      }
 
       // Санітизуємо PBR
       model.traverse((child: any) => {
@@ -640,8 +629,12 @@ export class BuildingRenderer extends BaseRenderer {
     }
   }
 
-  private createFallbackMesh(): THREE.Mesh {
+  private createFallbackMesh(color?: string): THREE.Mesh {
     const material = this.material.clone();
+    if (color && material.color) {
+      const value = color.startsWith('#') ? color : `#${color}`;
+      material.color.set(value);
+    }
     const mesh = new THREE.Mesh(this.geometry, material);
     mesh.position.set(0, 0, 0);
     mesh.castShadow = false;
