@@ -21,7 +21,7 @@
 
 #### Небесні хмари
 - **Багатошарова генерація**: Конфігурація шарів (`SkyCloudLayerConfig`) визначає висоту, розмір, швидкість та вагу покриття.
-- **Процедурна морфологія**: Для кожної хмари зберігаються параметри форми (`orientation`, `skew`, `detailScale`, `detailContrast`, `densityOffset`, `warpStrength`, `warpFrequency`), що дозволяє значно різноманітити силуети.
+- **Процедурна морфологія**: Для кожної хмари зберігаються параметри форми (`orientation`, `skew`, `detailScale`, `detailContrast`, `densityOffset`, `warpStrength`, `warpFrequency`, `domainScale`, `domainStrength`, `streakStrength`, `streakFrequency`, `topFeather`, `bottomFeather`, `erosionScale`, `erosionStrength`), що дозволяє значно різноманітити силуети та контролювати вертикальне розмивання.
 - **Життєвий цикл**: Плавний рух по вітру, видалення після виходу з зони видимості або закінчення часу життя (`updateSkyCloudLifecycle`).
 - **Оптимізація**: Максимальна кількість об'єктів контролюється на шар, хмари кешуються у `skyCloudInstances`, а снімок для UI/рендеру генерується тільки за необхідності (`skyCloudSnapshotDirty`).
 

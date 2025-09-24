@@ -135,6 +135,14 @@ export interface SkyCloudObjectData {
   densityOffset: number;
   warpStrength: number;
   warpFrequency: number;
+  domainScale: number;
+  domainStrength: number;
+  streakStrength: number;
+  streakFrequency: number;
+  topFeather: number;
+  bottomFeather: number;
+  erosionScale: number;
+  erosionStrength: number;
 }
 
 export interface SkyCloudRenderState {

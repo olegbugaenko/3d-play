@@ -46,6 +46,7 @@ export class SkyCloudRenderer extends BaseRenderer {
     super(scene);
     this.cloudGroup = new THREE.Group();
     this.cloudGroup.name = 'SkyCloudLayer';
+    this.cloudGroup.frustumCulled = false;
     this.scene.add(this.cloudGroup);
   }
 
@@ -143,6 +144,14 @@ export class SkyCloudRenderer extends BaseRenderer {
       uniform float uWarpStrength;
       uniform float uWarpFrequency;
       uniform float uSeed;
+      uniform float uDomainScale;
+      uniform float uDomainStrength;
+      uniform float uStreakStrength;
+      uniform float uStreakFrequency;
+      uniform float uTopFeather;
+      uniform float uBottomFeather;
+      uniform float uErosionScale;
+      uniform float uErosionStrength;
 
       varying vec2 vUv;
       varying vec2 vSampleCoord;
@@ -188,20 +197,46 @@ export class SkyCloudRenderer extends BaseRenderer {
         );
         rotated.x += rotated.y * uSkew;
 
-        float ellipse = 1.0 - dot(rotated, rotated);
+        vec2 domain = rotated;
+        float domainScale = max(0.2, uDomainScale);
+        float domainStrength = uDomainStrength;
+
+        vec2 domainNoise = vec2(
+          fbm((vSampleCoord + vec2(uSeed * 0.17, uSeed * 1.73)) * domainScale),
+          fbm((vSampleCoord.yx + vec2(-uSeed * 1.11, uSeed * 2.31)) * (domainScale * 0.82 + 0.35))
+        );
+        domain += (domainNoise - vec2(0.5)) * (domainStrength * 1.6);
+
+        float ellipse = 1.0 - dot(domain, domain);
 
         float detail = fbm(vSampleCoord * max(0.35, uDetailScale));
         detail = pow(clamp(detail, 0.0, 1.0), max(0.25, uDetailContrast));
 
         float warpFreq = max(0.5, uWarpFrequency);
-        float warp = sin(rotated.x * (1.4 + warpFreq * 0.6) + uSeed * 0.73);
-        warp *= cos(rotated.y * (1.1 + warpFreq * 0.45) - uSeed * 1.27);
+        float warp = sin(domain.x * (1.4 + warpFreq * 0.6) + uSeed * 0.73);
+        warp *= cos(domain.y * (1.1 + warpFreq * 0.45) - uSeed * 1.27);
         float warpContribution = warp * uWarpStrength;
+
+        float streakFreq = 2.2 + uStreakFrequency * 3.1;
+        float streak = sin(domain.x * streakFreq + uSeed * 1.9);
+        streak *= cos(domain.y * (1.6 + uStreakFrequency * 2.4) - uSeed * 0.8);
+        float streakContribution = streak * uStreakStrength;
+
+        float erosionScale = max(0.2, uErosionScale);
+        float erosion = fbm(domain * (1.2 + erosionScale) + vec2(uSeed * 2.37, -uSeed * 1.61));
+        erosion = pow(clamp(erosion, 0.0, 1.0), 1.2);
+        float erosionContribution = (erosion - 0.5) * uErosionStrength;
+
+        float topFactor = 1.0 - smoothstep(-0.2, 0.9, domain.y * (1.0 + uTopFeather * 1.35));
+        float bottomFactor = 1.0 - smoothstep(-0.2, 0.9, -domain.y * (1.0 + uBottomFeather * 1.35));
+        float verticalProfile = clamp(topFactor * bottomFactor, 0.0, 1.0);
 
         float wispy = mix(uWispy, uWispy * uWispyMultiplier, 0.5);
         float softness = max(0.05, uSoftness);
-        float maskBase = ellipse + warpContribution + (detail - 0.5) * uNoiseStrength;
+        float maskBase = ellipse + warpContribution + (detail - 0.5) * uNoiseStrength + streakContribution + erosionContribution;
+        maskBase += (verticalProfile - 0.5) * 0.35;
         float mask = smoothstep(wispy - softness, wispy + softness, maskBase);
+        mask *= mix(1.0, verticalProfile, 0.85);
 
         float densityFactor = clamp(1.0 + uDensityOffset, 0.2, 1.75);
         float activation = smoothstep(uActivation - 0.12, uActivation + 0.02, uGlobalCloudiness);
@@ -268,6 +303,14 @@ export class SkyCloudRenderer extends BaseRenderer {
         uDensityOffset: { value: 0 },
         uWarpStrength: { value: 0 },
         uWarpFrequency: { value: 1 },
+        uDomainScale: { value: 1 },
+        uDomainStrength: { value: 0 },
+        uStreakStrength: { value: 0 },
+        uStreakFrequency: { value: 1 },
+        uTopFeather: { value: 0.5 },
+        uBottomFeather: { value: 0.5 },
+        uErosionScale: { value: 1 },
+        uErosionStrength: { value: 0 },
       },
     });
 
@@ -365,6 +408,14 @@ export class SkyCloudRenderer extends BaseRenderer {
       shader.uniforms.uDensityOffset.value = data.densityOffset ?? 0;
       shader.uniforms.uWarpStrength.value = data.warpStrength ?? 0;
       shader.uniforms.uWarpFrequency.value = Math.max(0.5, data.warpFrequency ?? 1);
+      shader.uniforms.uDomainScale.value = Math.max(0.2, data.domainScale ?? 1);
+      shader.uniforms.uDomainStrength.value = data.domainStrength ?? 0;
+      shader.uniforms.uStreakStrength.value = data.streakStrength ?? 0;
+      shader.uniforms.uStreakFrequency.value = Math.max(0.1, data.streakFrequency ?? 1);
+      shader.uniforms.uTopFeather.value = Math.max(0.0, data.topFeather ?? 0.5);
+      shader.uniforms.uBottomFeather.value = Math.max(0.0, data.bottomFeather ?? 0.5);
+      shader.uniforms.uErosionScale.value = Math.max(0.2, data.erosionScale ?? 1);
+      shader.uniforms.uErosionStrength.value = data.erosionStrength ?? 0;
     };
 
 
