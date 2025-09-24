@@ -128,6 +128,13 @@ export interface SkyCloudObjectData {
   activation: number;
   parallax: number;
   heightOffset: number;
+  orientation: number;
+  skew: number;
+  detailScale: number;
+  detailContrast: number;
+  densityOffset: number;
+  warpStrength: number;
+  warpFrequency: number;
 }
 
 export interface SkyCloudRenderState {

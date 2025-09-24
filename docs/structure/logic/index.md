@@ -27,6 +27,7 @@
 - **BonusSystem** — система бонусів та модифікаторів
 - **RequirementsSystem** — система перевірки вимог
 - **SceneLogic** — логіка 3D сцени
+- **EnvironmentLogic** — система середовища та атмосферних ефектів
 - **SaveLoadManager** — система збереження/завантаження
 
 ### [Система команд](./commands-system.md)

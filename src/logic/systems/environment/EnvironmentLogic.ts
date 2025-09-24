@@ -926,6 +926,34 @@ export class EnvironmentLogic {
     const activation = Math.pow(Math.random(), Math.max(0.0001, layer.coverageWeight));
     const parallax = this.randomBetween(cfg.parallaxRange.min, cfg.parallaxRange.max);
 
+    const isHighAltitude = layer.altitude >= 150 || layer.id.toLowerCase().includes('cirrus');
+    const orientationRange = isHighAltitude ? Math.PI / 2.6 : Math.PI / 4.2;
+    const orientation = this.randomBetween(-orientationRange, orientationRange);
+    const skew = this.randomBetween(
+      isHighAltitude ? -0.35 : -0.22,
+      isHighAltitude ? 0.35 : 0.22,
+    );
+    const detailScale = this.randomBetween(
+      isHighAltitude ? 1.15 : 0.8,
+      isHighAltitude ? 2.05 : 1.35,
+    );
+    const detailContrast = this.randomBetween(
+      isHighAltitude ? 1.05 : 0.7,
+      isHighAltitude ? 1.75 : 1.35,
+    );
+    const densityOffset = this.randomBetween(
+      isHighAltitude ? -0.25 : -0.12,
+      isHighAltitude ? 0.25 : 0.18,
+    );
+    const warpStrength = this.randomBetween(
+      isHighAltitude ? 0.12 : 0.05,
+      isHighAltitude ? 0.35 : 0.22,
+    );
+    const warpFrequency = this.randomBetween(
+      isHighAltitude ? 1.3 : 0.9,
+      isHighAltitude ? 2.35 : 1.6,
+    );
+
     const spawnSide: 'north' | 'west' = Math.random() < 0.5 ? 'north' : 'west';
     const halfWidth = mapWidth / 2;
     const halfDepth = mapDepth / 2;
@@ -977,6 +1005,13 @@ export class EnvironmentLogic {
       activation,
       parallax,
       heightOffset,
+      orientation,
+      skew,
+      detailScale,
+      detailContrast,
+      densityOffset,
+      warpStrength,
+      warpFrequency,
     };
 
     const cloud: InternalSkyCloud = {
@@ -989,8 +1024,6 @@ export class EnvironmentLogic {
       age: progressTime,
       maxAge,
     };
-
-    console.log('ClooudData: ', data, maxAge, velocityX, velocityZ, cloud, despawnX, despawnZ);
 
     this.skyCloudInstances.set(cloudId, cloud);
     this.skyCloudLayerCounts.set(layer.id, currentLayerCount + 1);

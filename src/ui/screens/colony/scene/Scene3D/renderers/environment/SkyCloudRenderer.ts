@@ -9,9 +9,6 @@ import {
 
 interface InternalCloudData {
   data: SkyCloudObjectData;
-
-  velocity: THREE.Vector3;
-  boundsRadius: number;
   basePosition: THREE.Vector3;
 }
 
@@ -138,6 +135,14 @@ export class SkyCloudRenderer extends BaseRenderer {
       uniform vec3 uSunDir;
       uniform vec3 uSunColor;
       uniform vec3 uAmbientColor;
+      uniform float uOrientation;
+      uniform float uSkew;
+      uniform float uDetailScale;
+      uniform float uDetailContrast;
+      uniform float uDensityOffset;
+      uniform float uWarpStrength;
+      uniform float uWarpFrequency;
+      uniform float uSeed;
 
       varying vec2 vUv;
       varying vec2 vSampleCoord;
@@ -174,15 +179,33 @@ export class SkyCloudRenderer extends BaseRenderer {
       void main() {
         vec2 centered = vUv - 0.5;
         vec2 ellipseCoord = centered * vec2(uAspect, 1.0);
-        float ellipse = 1.0 - dot(ellipseCoord, ellipseCoord);
 
-        float detail = fbm(vSampleCoord);
+        float cosO = cos(uOrientation);
+        float sinO = sin(uOrientation);
+        vec2 rotated = vec2(
+          ellipseCoord.x * cosO - ellipseCoord.y * sinO,
+          ellipseCoord.x * sinO + ellipseCoord.y * cosO
+        );
+        rotated.x += rotated.y * uSkew;
+
+        float ellipse = 1.0 - dot(rotated, rotated);
+
+        float detail = fbm(vSampleCoord * max(0.35, uDetailScale));
+        detail = pow(clamp(detail, 0.0, 1.0), max(0.25, uDetailContrast));
+
+        float warpFreq = max(0.5, uWarpFrequency);
+        float warp = sin(rotated.x * (1.4 + warpFreq * 0.6) + uSeed * 0.73);
+        warp *= cos(rotated.y * (1.1 + warpFreq * 0.45) - uSeed * 1.27);
+        float warpContribution = warp * uWarpStrength;
+
         float wispy = mix(uWispy, uWispy * uWispyMultiplier, 0.5);
         float softness = max(0.05, uSoftness);
-        float mask = smoothstep(wispy - softness, wispy + softness, ellipse + (detail - 0.5) * uNoiseStrength);
+        float maskBase = ellipse + warpContribution + (detail - 0.5) * uNoiseStrength;
+        float mask = smoothstep(wispy - softness, wispy + softness, maskBase);
 
+        float densityFactor = clamp(1.0 + uDensityOffset, 0.2, 1.75);
         float activation = smoothstep(uActivation - 0.12, uActivation + 0.02, uGlobalCloudiness);
-        float alpha = clamp(mask * activation * uOpacity * uOpacityMultiplier, 0.0, 1.0);
+        float alpha = clamp(mask * activation * uOpacity * uOpacityMultiplier * densityFactor, 0.0, 1.0);
 
         if (alpha <= 0.01) discard;
 
@@ -198,7 +221,7 @@ export class SkyCloudRenderer extends BaseRenderer {
         float edge = smoothstep(0.0, 0.7, ellipse);
 
         vec3 color = mix(uAmbientColor, base, 0.65 + edge * 0.2);
-        color += (detail - 0.5) * 0.08;
+        color += (detail - 0.5) * (0.08 + uDensityOffset * 0.05);
         color = mix(color, uSunColor, sunFactor * 0.25);
 
         gl_FragColor = vec4(color, alpha);
@@ -238,6 +261,13 @@ export class SkyCloudRenderer extends BaseRenderer {
         uActivation: { value: 0.5 },
         uParallax: { value: 1 },
         uAspect: { value: 1 },
+        uOrientation: { value: 0 },
+        uSkew: { value: 0 },
+        uDetailScale: { value: 1 },
+        uDetailContrast: { value: 1 },
+        uDensityOffset: { value: 0 },
+        uWarpStrength: { value: 0 },
+        uWarpFrequency: { value: 1 },
       },
     });
 
@@ -296,8 +326,13 @@ export class SkyCloudRenderer extends BaseRenderer {
 
     mesh.userData.sky = info;
     mesh.scale.set(info.data.size * info.data.aspectRatio, info.data.size, 1);
+    geometry.computeBoundingSphere();
+    if (geometry.boundingSphere) {
+      geometry.boundingSphere.radius = Math.max(geometry.boundingSphere.radius, 1.15);
+      geometry.boundingSphere.center.set(0, 0, 0);
+    }
 
-    mesh.onBeforeRender = (_renderer, _scene, camera, _geometry, mat) => {
+    mesh.onBeforeRender = (_renderer, _scene, _camera, _geometry, mat) => {
       const shader = mat as THREE.ShaderMaterial;
       const internal = mesh.userData.sky as InternalCloudData;
       const data = internal.data;
@@ -323,30 +358,13 @@ export class SkyCloudRenderer extends BaseRenderer {
       shader.uniforms.uActivation.value = data.activation;
       shader.uniforms.uParallax.value = data.parallax;
       shader.uniforms.uAspect.value = data.aspectRatio;
-
-      const basePosition = internal.basePosition;
-
-      const heightOffset = data.heightOffset ?? 0;
-      mesh.position.set(
-        basePosition.x,
-        basePosition.y + heightOffset,
-        basePosition.z,
-      );
-
-      const cameraPosition = (camera as THREE.Camera).position as THREE.Vector3;
-      const parallaxValue = THREE.MathUtils.clamp(data.parallax ?? 1, 0.3, 2.0);
-      const parallaxStrength = THREE.MathUtils.clamp(parallaxValue - 1, -0.75, 0.75);
-      if (Math.abs(parallaxStrength) > 0.0001) {
-        const followStrength = 0.25;
-        mesh.position.x += cameraPosition.x * parallaxStrength * followStrength;
-        mesh.position.z += cameraPosition.z * parallaxStrength * followStrength;
-      }
-
-      this.billboardTarget.copy(cameraPosition);
-      this.billboardTarget.y = mesh.position.y;
-      mesh.lookAt(this.billboardTarget);
-      mesh.rotation.x = 0;
-      mesh.rotation.z = 0;
+      shader.uniforms.uOrientation.value = data.orientation ?? 0;
+      shader.uniforms.uSkew.value = data.skew ?? 0;
+      shader.uniforms.uDetailScale.value = Math.max(0.35, data.detailScale ?? 1);
+      shader.uniforms.uDetailContrast.value = Math.max(0.25, data.detailContrast ?? 1);
+      shader.uniforms.uDensityOffset.value = data.densityOffset ?? 0;
+      shader.uniforms.uWarpStrength.value = data.warpStrength ?? 0;
+      shader.uniforms.uWarpFrequency.value = Math.max(0.5, data.warpFrequency ?? 1);
     };
 
 
@@ -418,7 +436,7 @@ export class SkyCloudRenderer extends BaseRenderer {
     super.dispose();
   }
 
-  updateSkyClouds(): void {
+  updateSkyClouds(camera?: THREE.Camera): void {
     this.clock.getDelta();
     const elapsed = this.clock.elapsedTime;
     const material = SkyCloudRenderer.sharedMaterial;
@@ -431,6 +449,36 @@ export class SkyCloudRenderer extends BaseRenderer {
       material.uniforms.uSunDir.value.copy(this.globalState.sunDirection).normalize();
       material.uniforms.uSunColor.value.copy(this.globalState.sunColor);
       material.uniforms.uAmbientColor.value.copy(this.globalState.ambientColor);
+    }
+
+    if (!camera || this.clouds.size === 0) {
+      return;
+    }
+
+    const cameraPosition = (camera as THREE.Camera).position as THREE.Vector3;
+
+    for (const mesh of this.clouds.values()) {
+      const internal = mesh.userData.sky as InternalCloudData | undefined;
+      if (!internal) continue;
+      const data = internal.data;
+      const basePosition = internal.basePosition;
+      const heightOffset = data.heightOffset ?? 0;
+
+      mesh.position.set(basePosition.x, basePosition.y + heightOffset, basePosition.z);
+
+      const parallaxValue = THREE.MathUtils.clamp(data.parallax ?? 1, 0.3, 2.0);
+      const parallaxStrength = THREE.MathUtils.clamp(parallaxValue - 1, -0.75, 0.75);
+      if (Math.abs(parallaxStrength) > 0.0001) {
+        const followStrength = 0.25;
+        mesh.position.x += cameraPosition.x * parallaxStrength * followStrength;
+        mesh.position.z += cameraPosition.z * parallaxStrength * followStrength;
+      }
+
+      this.billboardTarget.copy(cameraPosition);
+      this.billboardTarget.y = mesh.position.y;
+      mesh.lookAt(this.billboardTarget);
+      mesh.rotation.x = 0;
+      mesh.rotation.z = 0;
     }
   }
 
