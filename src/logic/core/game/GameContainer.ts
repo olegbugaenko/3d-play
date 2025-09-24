@@ -35,10 +35,10 @@ export interface ServiceTypeMap {
 }
 
 export class GameContainer {
-  private static instance: GameContainer;
+  private static instance: GameContainer | null = null;
   private factories = new Map<ServiceKey, () => any>();
   private instances = new Map<ServiceKey, any>();
-  
+
   static getInstance(): GameContainer {
     if (!GameContainer.instance) {
       GameContainer.instance = new GameContainer();
@@ -101,6 +101,24 @@ export class GameContainer {
    */
   clear(): void {
     this.instances.clear();
+  }
+
+  /**
+   * Повністю скидає контейнер сервісів (для HMR/тестів)
+   */
+  private dispose(): void {
+    this.instances.clear();
+    this.factories.clear();
+  }
+
+  /**
+   * Скидає singleton інстанс контейнера
+   */
+  static resetInstance(): void {
+    if (GameContainer.instance) {
+      GameContainer.instance.dispose();
+      GameContainer.instance = null;
+    }
   }
   
   /**
