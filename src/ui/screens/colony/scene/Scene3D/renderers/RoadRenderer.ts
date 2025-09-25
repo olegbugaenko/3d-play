@@ -754,18 +754,31 @@ export class RoadRenderer extends BaseRenderer {
       }
     }
 
+    const hasSegmentStates = segmentStates.length > 0;
+    const hasRequiredFromStates = Object.keys(requiredTotals).length > 0;
+    const hasDeliveredFromStates = Object.keys(deliveredTotals).length > 0;
+
     if (aggregates) {
-      segmentsTotal = Math.max(segmentsTotal, aggregates.totalSegments ?? 0);
-      segmentsBuiltFromStates = Math.max(segmentsBuiltFromStates, aggregates.builtSegments ?? 0);
+      if (!hasSegmentStates && (aggregates.totalSegments ?? 0) > 0) {
+        segmentsTotal = Math.max(segmentsTotal, aggregates.totalSegments ?? 0);
+      }
+
+      if (!hasSegmentStates && (aggregates.builtSegments ?? 0) > 0) {
+        segmentsBuiltFromStates = aggregates.builtSegments ?? 0;
+      }
 
       for (const [resource, amount] of Object.entries(aggregates.totalRequired ?? {})) {
         const reqVal = Math.max(0, Number(amount) || 0);
-        requiredTotals[resource] = Math.max(requiredTotals[resource] ?? 0, reqVal);
+        if (!hasRequiredFromStates || !(resource in requiredTotals)) {
+          requiredTotals[resource] = reqVal;
+        }
       }
 
       for (const [resource, amount] of Object.entries(aggregates.totalDelivered ?? {})) {
         const deliveredVal = Math.max(0, Number(amount) || 0);
-        deliveredTotals[resource] = Math.max(deliveredTotals[resource] ?? 0, deliveredVal);
+        if (!hasDeliveredFromStates || !(resource in deliveredTotals)) {
+          deliveredTotals[resource] = deliveredVal;
+        }
       }
     }
 
