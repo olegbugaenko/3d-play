@@ -769,7 +769,9 @@ export class RoadRenderer extends BaseRenderer {
       }
     }
 
-    segmentsTotal = Math.max(segmentsTotal, fallbackSegmentsTotal);
+    if (segmentsTotal === 0 && fallbackSegmentsTotal > 0) {
+      segmentsTotal = fallbackSegmentsTotal;
+    }
 
     if (segmentsTotal === 0) {
       return null;

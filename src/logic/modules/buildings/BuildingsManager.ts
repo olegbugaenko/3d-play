@@ -228,6 +228,14 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       return aggregatedFromSegments;
     }
 
+    if (segments.length > 0) {
+      const perMeterCost = roadType.cost ? roadType.cost(1) : {};
+      const fromLengths = this.calculateRequiredResourcesFromSegments(segments, perMeterCost);
+      if (Object.keys(fromLengths).length > 0) {
+        return fromLengths;
+      }
+    }
+
     const length = this.calculatePathLength(road.path || []);
     return this.calculateRequiredResourcesFromLength(roadType.cost(1), length);
   }
@@ -863,7 +871,9 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       (hydrated as any).resourcesDelivered = { ...(rawRoad as any).resourcesDelivered };
     }
 
-    let segmentsSource: any[] = Array.isArray(rawRoad.segments) ? rawRoad.segments : [];
+    let segmentsSource: any[] = Array.isArray(rawRoad.segments)
+      ? rawRoad.segments
+      : this.normalizeSavedSegments(rawRoad.segments);
 
     if (!hydrated.built && segmentsSource.length === 0 && path.length >= 2) {
       segmentsSource = this.createSegmentsForPlannedRoadFromSave(rawRoad.id, path, roadType);
@@ -940,6 +950,32 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     };
 
     return segment;
+  }
+
+  private normalizeSavedSegments(rawSegments: any): any[] {
+    if (!rawSegments) {
+      return [];
+    }
+
+    if (Array.isArray(rawSegments)) {
+      return rawSegments;
+    }
+
+    if (typeof rawSegments === 'object') {
+      const entries = Object.entries(rawSegments);
+      return entries
+        .sort(([aKey], [bKey]) => {
+          const aNum = Number(aKey);
+          const bNum = Number(bKey);
+          if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+            return aNum - bNum;
+          }
+          return String(aKey).localeCompare(String(bKey));
+        })
+        .map(([, value]) => value);
+    }
+
+    return [];
   }
 
   private createSegmentsForPlannedRoadFromSave(roadId: string, path: Vec3[], roadType: RoadTypeData): RoadSegmentInstance[] {
@@ -1300,6 +1336,42 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
           continue;
         }
         totals[resource] = (totals[resource] ?? 0) + numericAmount;
+      }
+    }
+
+    return totals;
+  }
+
+  private calculateRequiredResourcesFromSegments(
+    segments: RoadSegmentInstance[],
+    perMeter: Record<string, number>
+  ): Record<string, number> {
+    const totals: Record<string, number> = {};
+    if (!Array.isArray(segments) || segments.length === 0) {
+      return totals;
+    }
+
+    const hasPositiveCost = Object.values(perMeter || {}).some(value => typeof value === 'number' && value > 0);
+    if (!hasPositiveCost) {
+      return totals;
+    }
+
+    for (const segment of segments) {
+      if (!segment) continue;
+      const length = Number(segment.length);
+      if (!Number.isFinite(length) || length <= 0) {
+        continue;
+      }
+
+      for (const [resource, perUnit] of Object.entries(perMeter || {})) {
+        if (typeof perUnit !== 'number' || perUnit <= 0) {
+          continue;
+        }
+        const total = Math.ceil(perUnit * length);
+        if (total <= 0) {
+          continue;
+        }
+        totals[resource] = (totals[resource] ?? 0) + total;
       }
     }
 
