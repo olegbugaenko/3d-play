@@ -203,33 +203,33 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     const roadType = this.roadsDB.get(road.typeId);
     if (!roadType || !roadType.cost) return {};
 
-    const perMeter = roadType.cost(1);
-    let length: number;
+    const segments = Array.isArray(road.segments) ? road.segments : [];
 
     if (segmentIndex !== undefined) {
-      // Рахуємо для конкретного сегмента
-      if (!road.segments || !road.segments[segmentIndex]) return {};
-      
-      const segment = road.segments[segmentIndex];
-      // Якщо в сегменті вже є requiredResources - використовуємо їх
+      const segment = segments[segmentIndex];
+      if (!segment) return {};
+
       if (segment.requiredResources && Object.keys(segment.requiredResources).length > 0) {
-        return segment.requiredResources;
+        return { ...segment.requiredResources };
       }
-      
-      length = segment.length || 1;
-    } else {
-      // Рахуємо для всієї дороги
-      length = this.calculatePathLength(road.path || []);
+
+      const length = segment.length > 0
+        ? segment.length
+        : Math.hypot(
+            (segment.endPoint?.x ?? 0) - (segment.startPoint?.x ?? 0),
+            (segment.endPoint?.z ?? 0) - (segment.startPoint?.z ?? 0)
+          );
+
+      return this.calculateRequiredResourcesFromLength(roadType.cost(1), length || 1);
     }
 
-    const requiredResources: Record<string, number> = {};
-    for (const [res, perM] of Object.entries(perMeter)) {
-      if (typeof perM === 'number' && perM > 0) {
-        requiredResources[res] = Math.max(0, Math.ceil(perM * length));
-      }
+    const aggregatedFromSegments = this.aggregateSegmentResourceTotals(segments, 'requiredResources');
+    if (Object.keys(aggregatedFromSegments).length > 0) {
+      return aggregatedFromSegments;
     }
 
-    return requiredResources;
+    const length = this.calculatePathLength(road.path || []);
+    return this.calculateRequiredResourcesFromLength(roadType.cost(1), length);
   }
 
   public getRoadAggregates(roadId: string): {
@@ -244,8 +244,14 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     const roadType = this.roadsDB.get(road.typeId);
     if (!roadType) return null;
 
-    const totalSegments = Math.max(0, (road.path?.length || 0) - 1);
-    let builtSegments = Math.max(0, (road.segments || []).filter((s: any) => s?.buildingState === 'completed' || s?.built === true).length);
+    const segments = Array.isArray(road.segments) ? road.segments : [];
+
+    let totalSegments = segments.length;
+    if (totalSegments === 0) {
+      totalSegments = Math.max(0, (road.path?.length || 0) - 1);
+    }
+
+    let builtSegments = Math.max(0, segments.filter((s: any) => s?.buildingState === 'completed' || s?.built === true).length);
     if (road.built) {
       builtSegments = totalSegments;
     }
@@ -255,11 +261,24 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
     // Delivered can be optionally pre-aggregated on instance; fallback to zeroes
     const totalDelivered: Record<string, number> = {};
-    const delivered = (road as any).resourcesDelivered as Record<string, number> | undefined;
-    for (const res of Object.keys(totalRequired)) {
-      const val = delivered?.[res] || 0;
-      totalDelivered[res] = Math.max(0, Math.round(road.built ? totalRequired[res] : val));
-    }
+    const deliveredFromSegments = this.aggregateSegmentResourceTotals(segments, 'deliveredResources');
+    const deliveredAggregate = (road as any).resourcesDelivered as Record<string, number> | undefined;
+
+    const deliveredSource = Object.keys(deliveredFromSegments).length > 0
+      ? deliveredFromSegments
+      : { ...(deliveredAggregate ?? {}) };
+
+    const allResources = new Set([
+      ...Object.keys(totalRequired),
+      ...Object.keys(deliveredSource)
+    ]);
+
+    allResources.forEach(resource => {
+      const requiredVal = totalRequired[resource] ?? 0;
+      const deliveredVal = deliveredSource[resource] ?? 0;
+      const baseDelivered = road.built ? Math.max(deliveredVal, requiredVal) : deliveredVal;
+      totalDelivered[resource] = Math.max(0, Math.round(baseDelivered));
+    });
 
     return { builtSegments, totalSegments, totalRequired, totalDelivered };
   }
@@ -1259,6 +1278,50 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       totalLength += Math.sqrt(dx * dx + dz * dz);
     }
     return totalLength;
+  }
+
+  private aggregateSegmentResourceTotals(
+    segments: RoadSegmentInstance[] | undefined,
+    field: 'requiredResources' | 'deliveredResources'
+  ): Record<string, number> {
+    const totals: Record<string, number> = {};
+    if (!Array.isArray(segments) || segments.length === 0) {
+      return totals;
+    }
+
+    for (const segment of segments) {
+      if (!segment) continue;
+      const resources = segment[field];
+      if (!resources) continue;
+
+      for (const [resource, amount] of Object.entries(resources)) {
+        const numericAmount = Number(amount);
+        if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+          continue;
+        }
+        totals[resource] = (totals[resource] ?? 0) + numericAmount;
+      }
+    }
+
+    return totals;
+  }
+
+  private calculateRequiredResourcesFromLength(
+    perMeter: Record<string, number>,
+    length: number
+  ): Record<string, number> {
+    const requiredResources: Record<string, number> = {};
+    const safeLength = Number.isFinite(length) && length > 0 ? length : 0;
+
+    for (const [resource, perUnit] of Object.entries(perMeter || {})) {
+      if (typeof perUnit !== 'number' || perUnit <= 0) continue;
+      const total = Math.ceil(perUnit * safeLength);
+      if (total > 0) {
+        requiredResources[resource] = total;
+      }
+    }
+
+    return requiredResources;
   }
 
   /**
