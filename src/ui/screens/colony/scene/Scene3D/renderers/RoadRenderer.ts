@@ -156,7 +156,7 @@ export class RoadRenderer extends BaseRenderer {
       }
       hudAnchor.position.copy(head);
       const title = `Segments: ${info.segmentsBuilt}/${info.segmentsTotal}`;
-      const signature = this.createHudSignature(info);
+      const signature = this.createHudSignature(info, object.id);
       this.hudSignatures.set(object.id, signature);
       this.attachOrUpdateCombinedHUD(object.id, hudAnchor, info.progress, info, 0.6, 1, { title });
     } else {
@@ -439,7 +439,7 @@ export class RoadRenderer extends BaseRenderer {
     }
     hudAnchor.position.copy(head);
 
-    const signature = this.createHudSignature(info);
+    const signature = this.createHudSignature(info, object.id);
     const prevSignature = this.hudSignatures.get(object.id);
     const hasHud = Boolean((hudAnchor as any).userData?.combinedHUD);
 
@@ -574,7 +574,7 @@ export class RoadRenderer extends BaseRenderer {
     });
 
     const { texture, aspect, contentHeightWorld, cropX } = this.hudBuilder.build(request, {
-      disableCache: options?.disableCache,
+      disableCache: true, // Завжди оновлюємо canvas для кожної дороги окремо
     });
 
     const planeH = contentHeightWorld;
@@ -845,13 +845,14 @@ export class RoadRenderer extends BaseRenderer {
     };
   }
 
-  private createHudSignature(info: RoadHudInfo): string {
+  private createHudSignature(info: RoadHudInfo, objectId: string): string {
     const resources = Object.keys(info.required).sort();
     const resourcePart = resources
       .map((resource) => `${resource}:${info.required[resource]}:${info.collected[resource] ?? 0}`)
       .join(',');
 
     return [
+      `id:${objectId}`, // Додаємо ID об'єкта для унікальності
       `p:${info.progress.toFixed(4)}`,
       `seg:${info.segmentsBuilt}/${info.segmentsTotal}`,
       `res:${resourcePart}`
