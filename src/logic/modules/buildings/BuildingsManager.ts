@@ -203,33 +203,41 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     const roadType = this.roadsDB.get(road.typeId);
     if (!roadType || !roadType.cost) return {};
 
-    const perMeter = roadType.cost(1);
-    let length: number;
+    const segments = Array.isArray(road.segments) ? road.segments : [];
 
     if (segmentIndex !== undefined) {
-      // Рахуємо для конкретного сегмента
-      if (!road.segments || !road.segments[segmentIndex]) return {};
-      
-      const segment = road.segments[segmentIndex];
-      // Якщо в сегменті вже є requiredResources - використовуємо їх
+      const segment = segments[segmentIndex];
+      if (!segment) return {};
+
       if (segment.requiredResources && Object.keys(segment.requiredResources).length > 0) {
-        return segment.requiredResources;
+        return { ...segment.requiredResources };
       }
-      
-      length = segment.length || 1;
-    } else {
-      // Рахуємо для всієї дороги
-      length = this.calculatePathLength(road.path || []);
+
+      const length = segment.length > 0
+        ? segment.length
+        : Math.hypot(
+            (segment.endPoint?.x ?? 0) - (segment.startPoint?.x ?? 0),
+            (segment.endPoint?.z ?? 0) - (segment.startPoint?.z ?? 0)
+          );
+
+      return this.calculateRequiredResourcesFromLength(roadType.cost(1), length || 1);
     }
 
-    const requiredResources: Record<string, number> = {};
-    for (const [res, perM] of Object.entries(perMeter)) {
-      if (typeof perM === 'number' && perM > 0) {
-        requiredResources[res] = Math.max(0, Math.ceil(perM * length));
+    const aggregatedFromSegments = this.aggregateSegmentResourceTotals(segments, 'requiredResources');
+    if (Object.keys(aggregatedFromSegments).length > 0) {
+      return aggregatedFromSegments;
+    }
+
+    if (segments.length > 0) {
+      const perMeterCost = roadType.cost ? roadType.cost(1) : {};
+      const fromLengths = this.calculateRequiredResourcesFromSegments(segments, perMeterCost);
+      if (Object.keys(fromLengths).length > 0) {
+        return fromLengths;
       }
     }
 
-    return requiredResources;
+    const length = this.calculatePathLength(road.path || []);
+    return this.calculateRequiredResourcesFromLength(roadType.cost(1), length);
   }
 
   public getRoadAggregates(roadId: string): {
@@ -244,8 +252,14 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
     const roadType = this.roadsDB.get(road.typeId);
     if (!roadType) return null;
 
-    const totalSegments = Math.max(0, (road.path?.length || 0) - 1);
-    let builtSegments = Math.max(0, (road.segments || []).filter((s: any) => s?.buildingState === 'completed' || s?.built === true).length);
+    const segments = Array.isArray(road.segments) ? road.segments : [];
+
+    let totalSegments = segments.length;
+    if (totalSegments === 0) {
+      totalSegments = Math.max(0, (road.path?.length || 0) - 1);
+    }
+
+    let builtSegments = Math.max(0, segments.filter((s: any) => s?.buildingState === 'completed' || s?.built === true).length);
     if (road.built) {
       builtSegments = totalSegments;
     }
@@ -255,11 +269,24 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
     // Delivered can be optionally pre-aggregated on instance; fallback to zeroes
     const totalDelivered: Record<string, number> = {};
-    const delivered = (road as any).resourcesDelivered as Record<string, number> | undefined;
-    for (const res of Object.keys(totalRequired)) {
-      const val = delivered?.[res] || 0;
-      totalDelivered[res] = Math.max(0, Math.round(road.built ? totalRequired[res] : val));
-    }
+    const deliveredFromSegments = this.aggregateSegmentResourceTotals(segments, 'deliveredResources');
+    const deliveredAggregate = (road as any).resourcesDelivered as Record<string, number> | undefined;
+
+    const deliveredSource = Object.keys(deliveredFromSegments).length > 0
+      ? deliveredFromSegments
+      : { ...(deliveredAggregate ?? {}) };
+
+    const allResources = new Set([
+      ...Object.keys(totalRequired),
+      ...Object.keys(deliveredSource)
+    ]);
+
+    allResources.forEach(resource => {
+      const requiredVal = totalRequired[resource] ?? 0;
+      const deliveredVal = deliveredSource[resource] ?? 0;
+      const baseDelivered = road.built ? Math.max(deliveredVal, requiredVal) : deliveredVal;
+      totalDelivered[resource] = Math.max(0, Math.round(baseDelivered));
+    });
 
     return { builtSegments, totalSegments, totalRequired, totalDelivered };
   }
@@ -769,7 +796,8 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
   public load(data: BuildingsManagerSaveData): void {
     this.buildingInstances.clear();
-    this.roadInstances.clear();
+    this.clearAllRoads();
+    this.busyEdges.clear();
     this.buildingBindings.clear();
 
     // Rehydrate instances and their scene projections
@@ -784,59 +812,25 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
     // Rehydrate roads if present
     if (data.roadInstances) {
-      data.roadInstances.forEach(road => {
-        const roadType = this.roadsDB.get(road.typeId);
-        // Автоматично маркуємо всі сегменти як збудовані якщо дорога вже збудована (фікс для старих збережень)
-        if (road.built && road.segments && road.segments.some((s: any) => s.buildingState !== 'completed')) {
-          road.segments = road.segments.map((s: any) => ({
-            ...s,
-            buildingState: 'completed',
-            constructionProgress: 1.0
-          }));
+      data.roadInstances.forEach(rawRoad => {
+        const roadType = this.roadsDB.get(rawRoad.typeId);
+        if (!roadType) {
+          console.warn(`[BuildingsManager] Road type ${rawRoad.typeId} not found while loading road ${rawRoad.id}`);
+          return;
         }
 
-        // МІГРАЦІЯ: якщо це незбудована/запланована дорога та відсутні сегменти — відновлюємо сегменти як planned
-        if (!road.built && (!road.segments || road.segments.length === 0) && Array.isArray(road.path) && road.path.length >= 2) {
-          const perMeter = roadType?.cost ? roadType.cost(1) : {};
-          const segs: any[] = [];
-          for (let i = 1; i < road.path.length; i++) {
-            const start = road.path[i - 1] as any;
-            const end = road.path[i] as any;
-            const length = Math.hypot((end.x ?? 0) - (start.x ?? 0), (end.z ?? 0) - (start.z ?? 0));
-            const required: Record<string, number> = {};
-            Object.entries(perMeter || {}).forEach(([res, perM]) => {
-              if (typeof perM === 'number' && perM > 0) required[res] = Math.ceil(perM * length);
-            });
-            segs.push({
-              id: `${road.id}_segment_${i}`,
-              startPoint: start,
-              endPoint: end,
-              buildingState: 'planned',
-              constructionProgress: 0.0,
-              requiredResources: required,
-              deliveredResources: {},
-              length,
-              constructionEffort: roadType ? this.resolveRoadSegmentConstructionEffort(length, roadType) : length
-            });
-          }
-          (road as any).segments = segs;
-          (road as any).plannedOnly = true;
-          (road as any).resourcesDelivered = (road as any).resourcesDelivered || {};
-        }
+        const hydratedRoad = this.hydrateRoadInstanceFromSave(rawRoad, roadType);
+        this.roadInstances.set(hydratedRoad.id, hydratedRoad);
 
-        if (roadType && road.segments) {
-          road.segments.forEach((segment: any) => this.ensureRoadSegmentConstructionEffort(segment, roadType));
-        }
-
-        this.roadInstances.set(road.id, { ...road });
-        if (road.built) {
-          this.addRoadToPathfinding(road);
+        if (hydratedRoad.built) {
+          this.addRoadToPathfinding(hydratedRoad);
         } else {
           // ВИПРАВЛЕНО: додаємо ВСІ дороги до сцени (включно з запланованими)
-          this.addRoadToScene(road);
+          this.addRoadToScene(hydratedRoad);
         }
+
         // Маркуємо внутрішні ребра як зайняті для всіх доріг
-        this.markInternalRoadEdgesAsBusy(road.id);
+        this.markInternalRoadEdgesAsBusy(hydratedRoad.id);
       });
     }
 
@@ -847,6 +841,209 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
 
     this.syncAllBuildingsIsBuiltStatus();
 
+  }
+
+  private hydrateRoadInstanceFromSave(rawRoad: RoadInstance, roadType: RoadTypeData): RoadInstance {
+    const path = Array.isArray(rawRoad.path)
+      ? rawRoad.path.map(point => this.cloneVec3(point) ?? { x: 0, y: 0, z: 0 })
+      : [];
+
+    const hydrated: RoadInstance = {
+      id: rawRoad.id,
+      typeId: rawRoad.typeId,
+      path,
+      built: !!rawRoad.built,
+      totalLength:
+        typeof rawRoad.totalLength === 'number' && rawRoad.totalLength > 0
+          ? rawRoad.totalLength
+          : this.calculatePathLength(path),
+      constructionProgress: this.clamp01(
+        typeof rawRoad.constructionProgress === 'number'
+          ? rawRoad.constructionProgress
+          : rawRoad.built ? 1 : 0
+      ),
+      segments: [],
+      plannedOnly: (rawRoad as any).plannedOnly ?? false,
+      snapData: this.cloneSnapData(rawRoad.snapData)
+    };
+
+    if ((rawRoad as any).resourcesDelivered) {
+      (hydrated as any).resourcesDelivered = { ...(rawRoad as any).resourcesDelivered };
+    }
+
+    let segmentsSource: any[] = Array.isArray(rawRoad.segments)
+      ? rawRoad.segments
+      : this.normalizeSavedSegments(rawRoad.segments);
+
+    if (!hydrated.built && segmentsSource.length === 0 && path.length >= 2) {
+      segmentsSource = this.createSegmentsForPlannedRoadFromSave(rawRoad.id, path, roadType);
+      hydrated.plannedOnly = true;
+      (hydrated as any).resourcesDelivered = (hydrated as any).resourcesDelivered || {};
+    }
+
+    if (hydrated.built && segmentsSource.some(segment => segment?.buildingState !== 'completed')) {
+      segmentsSource = segmentsSource.map(segment => ({
+        ...segment,
+        buildingState: 'completed',
+        constructionProgress: 1
+      }));
+    }
+
+    hydrated.segments = segmentsSource.map((segment, idx) =>
+      this.hydrateRoadSegmentFromSave(
+        hydrated.id,
+        segment,
+        idx + 1,
+        roadType,
+        path[idx] ?? path[idx - 1],
+        path[idx + 1] ?? path[idx]
+      )
+    );
+
+    if (hydrated.segments.length === 0 && path.length >= 2) {
+      hydrated.segments = this.createSegmentsForPlannedRoadFromSave(hydrated.id, path, roadType).map(segment => ({
+        ...segment,
+        buildingState: hydrated.built ? 'completed' : segment.buildingState,
+        constructionProgress: hydrated.built ? 1 : segment.constructionProgress
+      }));
+    }
+
+    hydrated.totalLength = hydrated.totalLength || this.calculatePathLength(path);
+
+    return hydrated;
+  }
+
+  private hydrateRoadSegmentFromSave(
+    roadId: string,
+    rawSegment: any,
+    index: number,
+    roadType: RoadTypeData,
+    fallbackStart?: Vec3,
+    fallbackEnd?: Vec3
+  ): RoadSegmentInstance {
+    const startPoint = this.cloneVec3(rawSegment?.startPoint) ?? this.cloneVec3(fallbackStart) ?? { x: 0, y: 0, z: 0 };
+    const endPoint = this.cloneVec3(rawSegment?.endPoint) ?? this.cloneVec3(fallbackEnd) ?? { x: 0, y: 0, z: 0 };
+
+    const length = typeof rawSegment?.length === 'number' && rawSegment.length > 0
+      ? rawSegment.length
+      : Math.hypot(endPoint.x - startPoint.x, endPoint.z - startPoint.z);
+
+    const segment: RoadSegmentInstance = {
+      id: rawSegment?.id ?? `${roadId}_segment_${index}`,
+      startPoint,
+      endPoint,
+      buildingState: rawSegment?.buildingState ?? (rawSegment?.built ? 'completed' : 'planned'),
+      constructionProgress: this.clamp01(
+        typeof rawSegment?.constructionProgress === 'number'
+          ? rawSegment.constructionProgress
+          : rawSegment?.buildingState === 'completed' || rawSegment?.built === true
+            ? 1
+            : 0
+      ),
+      requiredResources: { ...(rawSegment?.requiredResources ?? {}) },
+      deliveredResources: { ...(rawSegment?.deliveredResources ?? {}) },
+      length,
+      constructionEffort:
+        typeof rawSegment?.constructionEffort === 'number' && rawSegment.constructionEffort > 0
+          ? rawSegment.constructionEffort
+          : this.resolveRoadSegmentConstructionEffort(length, roadType)
+    };
+
+    return segment;
+  }
+
+  private normalizeSavedSegments(rawSegments: any): any[] {
+    if (!rawSegments) {
+      return [];
+    }
+
+    if (Array.isArray(rawSegments)) {
+      return rawSegments;
+    }
+
+    if (typeof rawSegments === 'object') {
+      const entries = Object.entries(rawSegments);
+      return entries
+        .sort(([aKey], [bKey]) => {
+          const aNum = Number(aKey);
+          const bNum = Number(bKey);
+          if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+            return aNum - bNum;
+          }
+          return String(aKey).localeCompare(String(bKey));
+        })
+        .map(([, value]) => value);
+    }
+
+    return [];
+  }
+
+  private createSegmentsForPlannedRoadFromSave(roadId: string, path: Vec3[], roadType: RoadTypeData): RoadSegmentInstance[] {
+    if (path.length < 2) return [];
+
+    const perMeter = roadType?.cost ? roadType.cost(1) : {};
+    const segments: RoadSegmentInstance[] = [];
+
+    for (let i = 1; i < path.length; i++) {
+      const start = path[i - 1];
+      const end = path[i];
+      const length = Math.hypot((end.x ?? 0) - (start.x ?? 0), (end.z ?? 0) - (start.z ?? 0));
+      const required: Record<string, number> = {};
+      Object.entries(perMeter || {}).forEach(([res, perM]) => {
+        if (typeof perM === 'number' && perM > 0) {
+          required[res] = Math.ceil(perM * length);
+        }
+      });
+
+      segments.push({
+        id: `${roadId}_segment_${i}`,
+        startPoint: this.cloneVec3(start) ?? { x: start.x ?? 0, y: start.y ?? 0, z: start.z ?? 0 },
+        endPoint: this.cloneVec3(end) ?? { x: end.x ?? 0, y: end.y ?? 0, z: end.z ?? 0 },
+        buildingState: 'planned',
+        constructionProgress: 0,
+        requiredResources: required,
+        deliveredResources: {},
+        length,
+        constructionEffort: this.resolveRoadSegmentConstructionEffort(length, roadType)
+      });
+    }
+
+    return segments;
+  }
+
+  private cloneVec3(source?: Partial<Vec3> | null): Vec3 | undefined {
+    if (!source) return undefined;
+    const x = typeof source.x === 'number' ? source.x : 0;
+    const y = typeof source.y === 'number' ? source.y : 0;
+    const z = typeof source.z === 'number' ? source.z : 0;
+    return { x, y, z };
+  }
+
+  private cloneSnapData(
+    snapData?: { startSnap?: RoadSnapData; endSnap?: RoadSnapData }
+  ): { startSnap?: RoadSnapData; endSnap?: RoadSnapData } | undefined {
+    if (!snapData) return undefined;
+
+    const cloneSnap = (snap?: RoadSnapData): RoadSnapData | undefined => {
+      if (!snap) return undefined;
+      return {
+        ...snap,
+        edgePoint: this.cloneVec3(snap.edgePoint) ?? { x: 0, y: 0, z: 0 },
+        cursorPoint: this.cloneVec3(snap.cursorPoint) ?? { x: 0, y: 0, z: 0 }
+      };
+    };
+
+    return {
+      startSnap: cloneSnap(snapData.startSnap),
+      endSnap: cloneSnap(snapData.endSnap)
+    };
+  }
+
+  private clamp01(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return value;
   }
 
   public reset(): void {
@@ -1117,6 +1314,86 @@ export class BuildingsManager implements SaveLoadManager, IBuildingsManager {
       totalLength += Math.sqrt(dx * dx + dz * dz);
     }
     return totalLength;
+  }
+
+  private aggregateSegmentResourceTotals(
+    segments: RoadSegmentInstance[] | undefined,
+    field: 'requiredResources' | 'deliveredResources'
+  ): Record<string, number> {
+    const totals: Record<string, number> = {};
+    if (!Array.isArray(segments) || segments.length === 0) {
+      return totals;
+    }
+
+    for (const segment of segments) {
+      if (!segment) continue;
+      const resources = segment[field];
+      if (!resources) continue;
+
+      for (const [resource, amount] of Object.entries(resources)) {
+        const numericAmount = Number(amount);
+        if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+          continue;
+        }
+        totals[resource] = (totals[resource] ?? 0) + numericAmount;
+      }
+    }
+
+    return totals;
+  }
+
+  private calculateRequiredResourcesFromSegments(
+    segments: RoadSegmentInstance[],
+    perMeter: Record<string, number>
+  ): Record<string, number> {
+    const totals: Record<string, number> = {};
+    if (!Array.isArray(segments) || segments.length === 0) {
+      return totals;
+    }
+
+    const hasPositiveCost = Object.values(perMeter || {}).some(value => typeof value === 'number' && value > 0);
+    if (!hasPositiveCost) {
+      return totals;
+    }
+
+    for (const segment of segments) {
+      if (!segment) continue;
+      const length = Number(segment.length);
+      if (!Number.isFinite(length) || length <= 0) {
+        continue;
+      }
+
+      for (const [resource, perUnit] of Object.entries(perMeter || {})) {
+        if (typeof perUnit !== 'number' || perUnit <= 0) {
+          continue;
+        }
+        const total = Math.ceil(perUnit * length);
+        if (total <= 0) {
+          continue;
+        }
+        totals[resource] = (totals[resource] ?? 0) + total;
+      }
+    }
+
+    return totals;
+  }
+
+  private calculateRequiredResourcesFromLength(
+    perMeter: Record<string, number>,
+    length: number
+  ): Record<string, number> {
+    const requiredResources: Record<string, number> = {};
+    const safeLength = Number.isFinite(length) && length > 0 ? length : 0;
+
+    for (const [resource, perUnit] of Object.entries(perMeter || {})) {
+      if (typeof perUnit !== 'number' || perUnit <= 0) continue;
+      const total = Math.ceil(perUnit * safeLength);
+      if (total > 0) {
+        requiredResources[resource] = total;
+      }
+    }
+
+    return requiredResources;
   }
 
   /**

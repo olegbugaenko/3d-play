@@ -156,7 +156,7 @@ export class RoadRenderer extends BaseRenderer {
       }
       hudAnchor.position.copy(head);
       const title = `Segments: ${info.segmentsBuilt}/${info.segmentsTotal}`;
-      const signature = this.createHudSignature(info);
+      const signature = this.createHudSignature(info, object.id);
       this.hudSignatures.set(object.id, signature);
       this.attachOrUpdateCombinedHUD(object.id, hudAnchor, info.progress, info, 0.6, 1, { title });
     } else {
@@ -439,7 +439,7 @@ export class RoadRenderer extends BaseRenderer {
     }
     hudAnchor.position.copy(head);
 
-    const signature = this.createHudSignature(info);
+    const signature = this.createHudSignature(info, object.id);
     const prevSignature = this.hudSignatures.get(object.id);
     const hasHud = Boolean((hudAnchor as any).userData?.combinedHUD);
 
@@ -574,7 +574,7 @@ export class RoadRenderer extends BaseRenderer {
     });
 
     const { texture, aspect, contentHeightWorld, cropX } = this.hudBuilder.build(request, {
-      disableCache: options?.disableCache,
+      disableCache: true, // Завжди оновлюємо canvas для кожної дороги окремо
     });
 
     const planeH = contentHeightWorld;
@@ -754,22 +754,37 @@ export class RoadRenderer extends BaseRenderer {
       }
     }
 
+    const hasSegmentStates = segmentStates.length > 0;
+    const hasRequiredFromStates = Object.keys(requiredTotals).length > 0;
+    const hasDeliveredFromStates = Object.keys(deliveredTotals).length > 0;
+
     if (aggregates) {
-      segmentsTotal = Math.max(segmentsTotal, aggregates.totalSegments ?? 0);
-      segmentsBuiltFromStates = Math.max(segmentsBuiltFromStates, aggregates.builtSegments ?? 0);
+      if (!hasSegmentStates && (aggregates.totalSegments ?? 0) > 0) {
+        segmentsTotal = Math.max(segmentsTotal, aggregates.totalSegments ?? 0);
+      }
+
+      if (!hasSegmentStates && (aggregates.builtSegments ?? 0) > 0) {
+        segmentsBuiltFromStates = aggregates.builtSegments ?? 0;
+      }
 
       for (const [resource, amount] of Object.entries(aggregates.totalRequired ?? {})) {
         const reqVal = Math.max(0, Number(amount) || 0);
-        requiredTotals[resource] = Math.max(requiredTotals[resource] ?? 0, reqVal);
+        if (!hasRequiredFromStates || !(resource in requiredTotals)) {
+          requiredTotals[resource] = reqVal;
+        }
       }
 
       for (const [resource, amount] of Object.entries(aggregates.totalDelivered ?? {})) {
         const deliveredVal = Math.max(0, Number(amount) || 0);
-        deliveredTotals[resource] = Math.max(deliveredTotals[resource] ?? 0, deliveredVal);
+        if (!hasDeliveredFromStates || !(resource in deliveredTotals)) {
+          deliveredTotals[resource] = deliveredVal;
+        }
       }
     }
 
-    segmentsTotal = Math.max(segmentsTotal, fallbackSegmentsTotal);
+    if (segmentsTotal === 0 && fallbackSegmentsTotal > 0) {
+      segmentsTotal = fallbackSegmentsTotal;
+    }
 
     if (segmentsTotal === 0) {
       return null;
@@ -830,13 +845,14 @@ export class RoadRenderer extends BaseRenderer {
     };
   }
 
-  private createHudSignature(info: RoadHudInfo): string {
+  private createHudSignature(info: RoadHudInfo, objectId: string): string {
     const resources = Object.keys(info.required).sort();
     const resourcePart = resources
       .map((resource) => `${resource}:${info.required[resource]}:${info.collected[resource] ?? 0}`)
       .join(',');
 
     return [
+      `id:${objectId}`, // Додаємо ID об'єкта для унікальності
       `p:${info.progress.toFixed(4)}`,
       `seg:${info.segmentsBuilt}/${info.segmentsTotal}`,
       `res:${resourcePart}`
